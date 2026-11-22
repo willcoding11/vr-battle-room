@@ -40,6 +40,14 @@
   #startbtn:hover { background: #044; }
   #crosshint { position: fixed; right: 12px; top: 10px; font-size: 12px; color: #4a8fa3; pointer-events: none; text-align: right; }
   body.in-vr #crosshint { display: none; }
+  #gear { position: fixed; left: 12px; top: 10px; font: bold 14px monospace; padding: 6px 12px; background: #022; color: #9ff; border: 1px solid #3cf; cursor: pointer; z-index: 5; }
+  body.in-vr #gear { display: none; }
+  #settings { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); background: rgba(0,10,22,.94); border: 1px solid #3cf; padding: 18px 24px; z-index: 6; box-shadow: 0 0 30px #0af4; }
+  #settings.hidden { display: none; }
+  #settings h2 { margin: 0 0 12px; letter-spacing: 6px; color: #9ff; }
+  #settings label { display: flex; justify-content: space-between; gap: 24px; margin: 8px 0; color: #bfefff; font-size: 15px; }
+  #settings select { font: 15px monospace; background: #012; color: #ffcc66; border: 1px solid #3cf; }
+  #settings button { margin-top: 10px; font: bold 15px monospace; padding: 6px 16px; background: #022; color: #9ff; border: 1px solid #3cf; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -47,20 +55,26 @@
 <canvas id="hud" width="512" height="256"></canvas>
 <div id="message"><div class="t"></div><div class="s"></div></div>
 <div id="flash"></div>
-<div id="crosshint">W/S chase distance &middot; G free cam &middot; right-drag or arrows look &middot; mouse steers (M: stick mode, IJKL) &middot; click shoots &middot; Shift boost &middot; R restart</div>
+<div id="crosshint">WASD/QE move view &middot; Tab settings &middot; right-drag or arrows look &middot; mouse steers (M: stick mode, IJKL) &middot; click shoots &middot; Shift boost &middot; R restart</div>
+<button id="gear">&#9881; Settings (Tab)</button>
+<div id="settings" class="hidden">
+  <h2>SETTINGS</h2>
+  <div id="settings-rows"></div>
+  <button id="settings-close">Close (Tab)</button>
+</div>
 <div id="title">
   <div class="box">
     <h1>BATTLE ROOM</h1>
     <p>You sit at the centre of a 360&deg; battle. Fly the cyan ship, destroy the red waves. Enemies come from every direction - look around (and listen).</p>
     <table>
-      <tr><td>VR right hand</td><td><b>Steering: POINT (default)</b> - point the controller where the ship should fly. Trigger shoot &middot; Grip / stick forward boost &middot; A / stick back brake &middot; <b>click the stick</b> to switch to STICK mode (thumbstick flies the ship, B inverts up/down)</td></tr>
-      <tr><td>VR left hand</td><td><b>Camera: CHASE (default)</b> - the view follows behind your ship (it only turns you left/right). Stick up/down closer/farther &middot; Y/X view higher/lower &middot; <b>click the stick</b> for FREE camera (stick moves you, Y/X up/down, grip + drag) &middot; wrist shows score + radar</td></tr>
-      <tr><td>Desktop</td><td>Mouse steers (ship flies toward the cursor) &middot; M switches to stick mode (I/K nose up/down, J/L turn, V invert) &middot; Left click / Space shoot &middot; Shift boost &middot; F brake &middot; Chase camera: W/S closer/farther, Q/E lower/higher &middot; G free camera (WASD + Q/E move) &middot; right-drag or arrow keys look &middot; C snap behind ship &middot; R restart</td></tr>
+      <tr><td>VR right hand</td><td><b>Point</b> the controller - the ship flies the way you point &middot; Trigger shoot &middot; Grip / stick forward boost &middot; A / stick back brake &middot; click the stick: STICK steering</td></tr>
+      <tr><td>VR left hand</td><td>The view follows your ship (it never turns you - turn your own head). Stick moves your view (relative to where you look) &middot; Y/X up/down &middot; <b>hold grip = 2x speed</b> &middot; stick click: reset view behind the ship &middot; <b>X+Y: settings</b> (point + trigger to change)</td></tr>
+      <tr><td>Desktop</td><td>Mouse steers (ship flies toward the cursor) &middot; M switches to stick mode (I/K nose up/down, J/L turn, V invert) &middot; Left click / Space shoot &middot; Shift boost &middot; F brake &middot; WASD + Q/E move your view (hold X for 2x) &middot; right-drag or arrow keys look &middot; C reset view behind ship &middot; Tab settings &middot; R restart</td></tr>
     </table>
     <button id="startbtn">START (desktop)</button>
     <p style="font-size:12px;color:#5fa9bf">On a Quest: press ENTER VR at the bottom of the page.</p>
   </div>
 </div>
-<script type="module" src="js/main.js?v=3"></script>
+<script type="module" src="js/main.js?v=4"></script>
 </body>
 </html>

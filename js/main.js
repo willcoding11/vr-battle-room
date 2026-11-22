@@ -2,8 +2,8 @@
 // with a mouse + keyboard fallback for desktop browsers.
 import * as THREE from '../vendor/three.module.js';
 import { VRButton } from '../vendor/VRButton.js';
-import { buildPlayerShip, buildFighter, buildCruiser, buildControllerGizmo, tintShip } from './models.js?v=3';
-import { Sfx } from './audio.js?v=3';
+import { buildPlayerShip, buildFighter, buildCruiser, buildControllerGizmo, tintShip } from './models.js?v=4';
+import { Sfx } from './audio.js?v=4';
 
 const TEST = /[?&]test/.test(location.search);
 const DEMO = /[?&]demo/.test(location.search);          // autopilot (attract mode / testing)
@@ -22,11 +22,28 @@ const WHITE = new THREE.Color(0xffffff);
 const MAX_HP = 5;
 const CRUISE = 1.6 * S, BOOST = 3.2 * S, BRAKE = 0.5 * S; // player speeds (m/s)
 const LEAD = 0.9 * S;                             // how far past the ship the steering target sits
-const CAM_SPEED = 1.4;                            // free-camera move speed (m/s)
-const MAX_YAW = 2.2, MAX_PITCH = 1.7;             // stick steering turn rates (rad/s)
+const MAX_YAW = 2.2, MAX_PITCH = 1.7;             // stick steering base turn rates (rad/s)
 const MAX_ELEV = 1.3;                             // max nose up/down angle (rad, ~75 deg)
-const CHASE_DIST = 0.9, CHASE_H = 0.25;           // chase camera: distance behind / height above the ship (m)
-const CHASE_YAW_MAX = 1.4;                        // chase camera: max turn speed (rad/s), eased
+const FOLLOW_H = 0.3;                             // follow view height = distance * this
+
+// ---------------------------------------------------------------- settings (saved in localStorage)
+const SETTINGS_DEF = [
+  { key: 'camMode', label: 'Camera', opts: [['ride', 'Ride with ship'], ['independent', 'Independent']] },
+  { key: 'camSpeed', label: 'Camera speed', opts: [['slow', 'Slow'], ['normal', 'Normal'], ['fast', 'Fast']] },
+  { key: 'followDist', label: 'Follow distance', opts: [['near', 'Near'], ['medium', 'Medium'], ['far', 'Far']] },
+  { key: 'turnSpeed', label: 'Ship turn speed', opts: [['normal', 'Normal'], ['fast', 'Fast'], ['veryfast', 'Very fast']] },
+  { key: 'steer', label: 'Steering', opts: [['point', 'Point'], ['stick', 'Stick']] },
+];
+const SETTINGS_DEFAULT = { camMode: 'ride', camSpeed: 'normal', followDist: 'medium', turnSpeed: 'fast', steer: 'point' };
+const CAM_SPEEDS = { slow: 1.2, normal: 2.5, fast: 4.5 };      // m/s (hold left grip for 2x)
+const FOLLOW_DISTS = { near: 1.4, medium: 2.4, far: 3.6 };     // m behind the ship
+const TURN_MULS = { normal: 2.0, fast: 2.6, veryfast: 3.4 };   // x the original turn rate
+const settings = { ...SETTINGS_DEFAULT };
+try {
+  const saved = JSON.parse(localStorage.getItem('battleRoomSettings4') || '{}');
+  for (const d of SETTINGS_DEF) if (d.opts.some((o) => o[0] === saved[d.key])) settings[d.key] = saved[d.key];
+} catch (e) { /* ignore */ }
+function saveSettings() { try { localStorage.setItem('battleRoomSettings4', JSON.stringify(settings)); } catch (e) { /* ignore */ } }
 
 // ---------------------------------------------------------------- scratch
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
@@ -50,8 +67,8 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000004);
 scene.fog = new THREE.Fog(0x000004, 3, 10);
 
-// The rig is "you in your chair". It translates freely and only ever turns around the
-// vertical axis (chase camera yaw, smoothly eased) - never pitch or roll, so up stays up.
+// The rig is "you in your chair". It only ever TRANSLATES (it follows the ship) - the game
+// never rotates you. You turn your own head/body; up is always up.
 const rig = new THREE.Group();
 scene.add(rig);
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.03, 300);
@@ -260,12 +277,14 @@ function resetPlayer() {
   // Start a little in front of wherever the viewpoint currently is.
   camera.getWorldPosition(_v1);
   getCamForwardFlat(_v2);
-  player.obj.position.copy(_v1).addScaledVector(_v2, CHASE_DIST).add(_v3.set(0, -CHASE_H, 0));
+  const fd = FOLLOW_DISTS[settings.followDist];
+  player.obj.position.copy(_v1).addScaledVector(_v2, fd).add(_v3.set(0, -fd * FOLLOW_H, 0));
   player.fwd.copy(_v2);
   player.bank = 0; player.yawRate = 0; player.pitchRate = 0; player.speed = CRUISE; player.hp = MAX_HP; player.invuln = 1.5; player.flash = 0;
   player.alive = true; player.obj.visible = true; trail.visible = true;
   quatFromDir(player.fwd, player.obj.quaternion);
   ARENA_C.copy(player.obj.position);
+  camOffset.copy(rig.position).add(HEAD_NOMINAL).sub(player.obj.position);
   resetTrail();
 }
 
@@ -430,7 +449,7 @@ function startGame() {
   score = 0; kills = 0;
   resetPlayer();
   state = 'playing';
-  snapChase();
+  snapFollow();
   stateTimer = 0;
   intermission = 0;
   hideTitle();
@@ -519,7 +538,7 @@ function drawHud() {
   hctx.font = '18px monospace';
   hctx.fillText(`BEST ${best}`, 20, 200);
   const sm = activeSteer();
-  hctx.fillText(state === 'playing' && intermission > 0 ? 'NEXT WAVE...' : `STEER ${sm.toUpperCase()}${sm === 'stick' && invertY ? ' INV' : ''} - CAM ${camMode.toUpperCase()}`, 20, 232);
+  hctx.fillText(state === 'playing' && intermission > 0 ? 'NEXT WAVE...' : `STEER ${sm.toUpperCase()}${sm === 'stick' && invertY ? ' INV' : ''} - ${settings.camMode === 'ride' ? 'RIDE' : 'INDEP'}`, 20, 232);
 
   // Radar: top-down around your viewpoint, your facing is up.
   const cx = W - 128, cy = H / 2, R = 108, range = 5;
@@ -572,21 +591,16 @@ const pointer = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THR
 // ---------------------------------------------------------------- steering settings
 // 'point' = the ship flies toward where you point the right controller (default).
 // 'stick' = right thumbstick flies the ship like a flight stick (alternative).
-let steerMode = 'point', desktopSteer = 'point', invertY = false;
-try {
-  steerMode = localStorage.getItem('battleRoomSteer3') === 'stick' ? 'stick' : 'point';
-  invertY = localStorage.getItem('battleRoomInvert') === '1';
-} catch (e) { /* ignore */ }
-function activeSteer() { return DEMO ? 'point' : renderer.xr.isPresenting ? steerMode : desktopSteer; }
+let invertY = false;
+try { invertY = localStorage.getItem('battleRoomInvert') === '1'; } catch (e) { /* ignore */ }
+function activeSteer() { return DEMO ? 'point' : settings.steer; }
 function steerHelp(mode) {
   if (mode === 'stick') return renderer.xr.isPresenting ? 'Right stick flies the ship - click the stick to switch' : 'I/K nose up/down, J/L turn - M to switch';
   return renderer.xr.isPresenting ? 'Point the right controller - click the stick to switch' : 'Ship flies toward the mouse - M to switch';
 }
 function toggleSteer() {
-  if (renderer.xr.isPresenting) {
-    steerMode = steerMode === 'stick' ? 'point' : 'stick';
-    try { localStorage.setItem('battleRoomSteer3', steerMode); } catch (e) { /* ignore */ }
-  } else desktopSteer = desktopSteer === 'stick' ? 'point' : 'stick';
+  settings.steer = settings.steer === 'stick' ? 'point' : 'stick';
+  saveSettings(); syncDesktopSettings(); drawMenu();
   const m = activeSteer();
   showMessage(m === 'stick' ? 'STEERING: STICK' : 'STEERING: POINT', steerHelp(m), 2.2);
   sfx.ping(null);
@@ -681,8 +695,7 @@ renderer.xr.addEventListener('sessionstart', () => {
   document.body.classList.add('in-vr');
   hideTitle();
   rig.position.set(0, 0, 0);
-  rigYaw = 0; rig.rotation.set(0, 0, 0);
-  if (state === 'playing' && player.alive) snapChase();
+  if (state === 'playing' && player.alive) { resetFollowOffset(); snapFollow(); }
   if (state === 'title') showIdlePrompt();
   else if (state === 'gameover') showMessage('SHIP DESTROYED', `Score ${score}\n${restartHint()}`, 9999);
   msgPanel.visible = true;
@@ -696,26 +709,132 @@ renderer.xr.addEventListener('sessionend', () => {
   log('xr sessionend');
 });
 
-// ---------------------------------------------------------------- camera: chase (default) or free
-let camMode = 'chase', chaseDist = CHASE_DIST, chaseH = CHASE_H, rigYaw = 0;
-function chaseTarget(out) {
-  // Rig position that puts your head behind (rig +Z) and a little above the ship.
-  out.set(Math.sin(rigYaw), 0, Math.cos(rigYaw)).multiplyScalar(chaseDist).add(player.obj.position);
-  out.y += chaseH - HEAD_H;
-  return out;
+// ---------------------------------------------------------------- follow camera (translation only - never turns you)
+const HEAD_NOMINAL = new THREE.Vector3(0, HEAD_H, 0);
+const camOffset = new THREE.Vector3(0, 0.7, 2.4);  // your head relative to the ship, in world axes
+let independentMoving = false;
+function resetFollowOffset() {
+  // Behind and above the ship, relative to where you are looking right now.
+  const d = FOLLOW_DISTS[settings.followDist];
+  getCamForwardFlat(_v1);
+  camOffset.copy(_v1).multiplyScalar(-d);
+  camOffset.y = d * FOLLOW_H;
 }
-function shipYaw() { return Math.atan2(-player.fwd.x, -player.fwd.z); }
-function snapChase() {
-  if (Math.hypot(player.fwd.x, player.fwd.z) > 0.05) rigYaw = shipYaw();
-  rig.rotation.set(0, rigYaw, 0);
-  rig.position.copy(chaseTarget(_v1));
+function followTarget(out) { return out.copy(player.obj.position).add(camOffset).sub(HEAD_NOMINAL); }
+function snapFollow() { rig.position.copy(followTarget(_v1)); }
+function applySettings(changed) {
+  player.turn = 2.8 * TURN_MULS[settings.turnSpeed];
+  if (changed === 'followDist') {
+    const len = camOffset.length();
+    if (len > 1e-3) camOffset.multiplyScalar((FOLLOW_DISTS[settings.followDist] * Math.hypot(1, FOLLOW_H)) / len);
+  }
 }
-function toggleCam() {
-  camMode = camMode === 'chase' ? 'free' : 'chase';
-  showMessage(camMode === 'chase' ? 'CAMERA: CHASE' : 'CAMERA: FREE',
-    camMode === 'chase' ? 'The view follows behind your ship' : (renderer.xr.isPresenting ? 'Left stick / X / Y / grip-drag move you' : 'WASD + Q/E move you'), 1.8);
+
+// ---------------------------------------------------------------- settings menu (VR panel + desktop overlay)
+let menuOpen = false, menuHover = -1;
+const MENU_W = 512, MENU_TOP = 70, MENU_ROW = 56, MENU_ROWS = SETTINGS_DEF.length + 1;
+const menuCanvas = document.createElement('canvas');
+menuCanvas.width = MENU_W; menuCanvas.height = MENU_TOP + MENU_ROWS * MENU_ROW + 44;
+const mnctx = menuCanvas.getContext('2d');
+const menuTex = new THREE.CanvasTexture(menuCanvas);
+menuTex.colorSpace = THREE.SRGBColorSpace;
+const menuPanel = new THREE.Mesh(new THREE.PlaneGeometry(0.5, (0.5 * menuCanvas.height) / MENU_W),
+  new THREE.MeshBasicMaterial({ map: menuTex, transparent: true, depthTest: false, fog: false, side: THREE.DoubleSide }));
+menuPanel.renderOrder = 30;
+menuPanel.visible = false;
+rig.add(menuPanel);
+function optLabel(d) { const o = d.opts.find((x) => x[0] === settings[d.key]); return o ? o[1] : ''; }
+function drawMenu() {
+  const g = mnctx, W = MENU_W, H = menuCanvas.height;
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = 'rgba(0,10,22,0.9)'; g.fillRect(0, 0, W, H);
+  g.strokeStyle = 'rgba(80,220,255,0.8)'; g.lineWidth = 3; g.strokeRect(2, 2, W - 4, H - 4);
+  g.fillStyle = '#9ff'; g.font = 'bold 34px monospace'; g.textAlign = 'center';
+  g.fillText('SETTINGS', W / 2, 48);
+  for (let i = 0; i < MENU_ROWS; i++) {
+    const y = MENU_TOP + i * MENU_ROW;
+    if (i === menuHover) { g.fillStyle = 'rgba(60,200,255,0.25)'; g.fillRect(10, y, W - 20, MENU_ROW - 6); }
+    g.strokeStyle = 'rgba(80,220,255,0.35)'; g.lineWidth = 1; g.strokeRect(10, y, W - 20, MENU_ROW - 6);
+    g.font = '24px monospace';
+    if (i < SETTINGS_DEF.length) {
+      const d = SETTINGS_DEF[i];
+      g.textAlign = 'left'; g.fillStyle = '#bfefff'; g.fillText(d.label, 24, y + 34);
+      g.textAlign = 'right'; g.fillStyle = '#ffcc66'; g.fillText(optLabel(d) + ' >', W - 24, y + 34);
+    } else {
+      g.textAlign = 'center'; g.fillStyle = '#9ff'; g.fillText('CLOSE', W / 2, y + 34);
+    }
+  }
+  g.textAlign = 'center'; g.fillStyle = '#5fa9bf'; g.font = '18px monospace';
+  g.fillText(renderer.xr.isPresenting ? 'Point + trigger to change - X+Y closes' : 'Tab closes', W / 2, H - 16);
+  menuTex.needsUpdate = true;
+}
+function setSetting(key, val) {
+  settings[key] = val;
+  saveSettings();
+  applySettings(key);
+  drawMenu();
+  syncDesktopSettings();
+  log('setting ' + key + ' = ' + val);
+}
+function cycleSetting(i) {
+  if (i >= SETTINGS_DEF.length) { toggleSettings(false); return; }
+  const d = SETTINGS_DEF[i];
+  const k = d.opts.findIndex((o) => o[0] === settings[d.key]);
+  setSetting(d.key, d.opts[(k + 1) % d.opts.length][0]);
   sfx.ping(null);
-  log('camera -> ' + camMode);
+}
+function toggleSettings(open = !menuOpen) {
+  menuOpen = open;
+  menuHover = -1;
+  if (renderer.xr.isPresenting) {
+    menuPanel.visible = open;
+    if (open) {
+      // Float it in front of you (rig-local; the rig never rotates), facing you.
+      camera.getWorldDirection(_v1); _v1.y = 0;
+      if (_v1.lengthSq() < 1e-6) _v1.set(0, 0, -1);
+      _v1.normalize();
+      menuPanel.position.copy(camera.position).addScaledVector(_v1, 0.7);
+      menuPanel.position.y -= 0.08;
+      menuPanel.rotation.set(0, Math.atan2(-_v1.x, -_v1.z), 0);
+      pointer.visible = true;
+    }
+  }
+  document.getElementById('settings').classList.toggle('hidden', !(open && !renderer.xr.isPresenting));
+  drawMenu();
+  log('settings ' + (open ? 'open' : 'closed'));
+}
+function updateMenuPointer(trigEdge) {
+  const prev = menuHover;
+  menuHover = -1;
+  raycaster.set(input.origin, input.dir);
+  const hit = raycaster.intersectObject(menuPanel, false)[0];
+  if (hit && hit.uv) {
+    const row = Math.floor(((1 - hit.uv.y) * menuCanvas.height - MENU_TOP) / MENU_ROW);
+    if (row >= 0 && row < MENU_ROWS) menuHover = row;
+    pointer.scale.set(1, 1, hit.distance);
+  } else pointer.scale.set(1, 1, 0.5);
+  if (trigEdge && menuHover >= 0) cycleSetting(menuHover);
+  if (prev !== menuHover) drawMenu();
+}
+// Desktop overlay: one <select> per setting.
+function buildDesktopSettings() {
+  const box = document.getElementById('settings-rows');
+  for (const d of SETTINGS_DEF) {
+    const row = document.createElement('label');
+    row.textContent = d.label + ' ';
+    const sel = document.createElement('select');
+    sel.id = 'set-' + d.key;
+    for (const [v, l] of d.opts) { const o = document.createElement('option'); o.value = v; o.textContent = l; sel.appendChild(o); }
+    sel.addEventListener('change', () => setSetting(d.key, sel.value));
+    row.appendChild(sel);
+    box.appendChild(row);
+  }
+  document.getElementById('gear').addEventListener('click', (e) => { e.stopPropagation(); toggleSettings(); });
+  document.getElementById('settings-close').addEventListener('click', () => toggleSettings(false));
+  syncDesktopSettings();
+}
+function syncDesktopSettings() {
+  for (const d of SETTINGS_DEF) { const el = document.getElementById('set-' + d.key); if (el) el.value = settings[d.key]; }
 }
 
 // ---------------------------------------------------------------- desktop input
@@ -729,8 +848,9 @@ window.addEventListener('keydown', (e) => {
   keys.add(e.code);
   if (e.code === 'KeyR' && state !== 'title') startGame();
   if (e.code === 'Enter' && state !== 'playing' && !renderer.xr.isPresenting) startGame();
-  if (e.code === 'KeyC') { if (state === 'playing' && player.alive) snapChase(); else { rig.position.set(0, 0, 0); rigYaw = 0; rig.rotation.set(0, 0, 0); } }
-  if (e.code === 'KeyG' && !e.repeat) toggleCam();
+  if (e.code === 'KeyC') { if (state === 'playing' && player.alive) resetFollowOffset(); else rig.position.set(0, 0, 0); }
+  if (e.code === 'Tab') { e.preventDefault(); if (!e.repeat) toggleSettings(); }
+  if (e.code === 'Escape' && menuOpen) toggleSettings(false);
   if (e.code === 'KeyM' && !e.repeat) toggleSteer();
   if (e.code === 'KeyV' && !e.repeat) toggleInvert();
   if (e.code === 'Space') e.preventDefault();
@@ -775,9 +895,7 @@ const input = {
   fire: false, boost: false, brake: false, restart: false, move: new THREE.Vector3(),
   stickX: 0, stickY: 0,
 };
-let prevRestartBtn = false, prevB = false, prevStickBtn = false, prevLStick = false;
-const dragLast = new THREE.Vector3();
-let dragging = false;
+let prevRestartBtn = false, prevB = false, prevStickBtn = false, prevLStick = false, prevXY = false, prevTrigMenu = false;
 
 function gatherInputVR(dt) {
   input.hasSteer = false; input.fire = false; input.boost = false; input.brake = false; input.restart = false;
@@ -798,7 +916,7 @@ function gatherInputVR(dt) {
     input.fire = trig;
     input.boost = btn(1);                     // grip = boost
     input.brake = btn(4);                     // A = brake
-    if (steerMode === 'point') {              // point mode: stick forward/back = boost/brake
+    if (settings.steer === 'point') {         // point mode: stick forward/back = boost/brake
       if (sy > 0.5) input.brake = true;
       if (sy < -0.5) input.boost = true;
     }
@@ -808,6 +926,9 @@ function gatherInputVR(dt) {
     const restartBtn = trig || btn(4);
     input.restart = restartBtn && !prevRestartBtn;
     prevRestartBtn = restartBtn;
+    const trigEdge = trig && !prevTrigMenu;
+    prevTrigMenu = trig;
+    if (menuOpen) { input.fire = false; input.restart = false; updateMenuPointer(trigEdge); }
   }
 
   if (L && L.userData.source && L.userData.source.gamepad) {
@@ -815,30 +936,20 @@ function gatherInputVR(dt) {
     const btn = (k) => !!(gp.buttons[k] && gp.buttons[k].pressed);
     const sx = gp.axes.length >= 4 ? gp.axes[2] : 0, sy = gp.axes.length >= 4 ? gp.axes[3] : 0;
     const dead = (a) => (Math.abs(a) < 0.15 ? 0 : a);
-    if (btn(3) && !prevLStick) toggleCam();   // left stick click = chase <-> free camera
+    // X+Y together = open/close settings.
+    const xy = btn(4) && btn(5);
+    if (xy && !prevXY) toggleSettings();
+    prevXY = xy;
+    // Stick click = put the view back behind the ship (relative to where you look).
+    if (btn(3) && !prevLStick && state === 'playing') { resetFollowOffset(); showMessage('VIEW RESET', 'Behind your ship', 1.2); }
     prevLStick = btn(3);
-    if (camMode === 'chase') {
-      // Stick up/down = closer/farther, Y/X = raise/lower the chase view.
-      chaseDist = clamp(chaseDist + dead(sy) * 1.2 * dt, 0.35, 3.0);
-      if (btn(5)) chaseH = clamp(chaseH + 0.8 * dt, -0.6, 1.5);
-      if (btn(4)) chaseH = clamp(chaseH - 0.8 * dt, -0.6, 1.5);
-      dragging = false;
-    } else {
-      const f = getCamForwardFlat(_v1);
-      const r = _v2.set(-f.z, 0, f.x);
-      input.move.addScaledVector(f, -dead(sy) * CAM_SPEED).addScaledVector(r, dead(sx) * CAM_SPEED);
-      if (btn(5)) input.move.y += CAM_SPEED;  // Y = up
-      if (btn(4)) input.move.y -= CAM_SPEED;  // X = down
-      // Grip + drag: grab space and pull yourself through it (translation only).
-      if (btn(1)) {
-        if (dragging) {
-          _v3.subVectors(L.position, dragLast).applyAxisAngle(UP, rigYaw);
-          rig.position.addScaledVector(_v3, -3);
-        }
-        dragLast.copy(L.position);
-        dragging = true;
-      } else dragging = false;
-    }
+    // Stick moves you relative to where you look; Y/X up/down; hold grip for 2x speed.
+    const speed = CAM_SPEEDS[settings.camSpeed] * (btn(1) ? 2 : 1);
+    const f = getCamForwardFlat(_v1);
+    const r = _v2.set(-f.z, 0, f.x);
+    input.move.addScaledVector(f, -dead(sy) * speed).addScaledVector(r, dead(sx) * speed);
+    if (!xy && btn(5)) input.move.y += speed;  // Y = up
+    if (!xy && btn(4)) input.move.y -= speed;  // X = down
   }
 }
 
@@ -854,30 +965,22 @@ function gatherInputDesktop() {
   camera.updateMatrixWorld(true);
 
   input.move.set(0, 0, 0);
-  if (camMode === 'chase') {
-    const dt = 1 / 60;
-    if (keys.has('KeyW')) chaseDist = clamp(chaseDist - 1.2 * dt, 0.35, 3.0);
-    if (keys.has('KeyS')) chaseDist = clamp(chaseDist + 1.2 * dt, 0.35, 3.0);
-    if (keys.has('KeyE')) chaseH = clamp(chaseH + 0.8 * dt, -0.6, 1.5);
-    if (keys.has('KeyQ')) chaseH = clamp(chaseH - 0.8 * dt, -0.6, 1.5);
-  }
   const f = getCamForwardFlat(_v1);
   const r = _v2.set(-f.z, 0, f.x);
-  if (camMode === 'free' && keys.has('KeyW')) input.move.add(f);
-  if (camMode === 'free') {
-    if (keys.has('KeyS')) input.move.sub(f);
-    if (keys.has('KeyD')) input.move.add(r);
-    if (keys.has('KeyA')) input.move.sub(r);
-    if (keys.has('KeyE')) input.move.y += 1;
-    if (keys.has('KeyQ')) input.move.y -= 1;
-  }
-  if (input.move.lengthSq() > 0) input.move.normalize().multiplyScalar(CAM_SPEED);
+  if (keys.has('KeyW')) input.move.add(f);
+  if (keys.has('KeyS')) input.move.sub(f);
+  if (keys.has('KeyD')) input.move.add(r);
+  if (keys.has('KeyA')) input.move.sub(r);
+  if (keys.has('KeyE')) input.move.y += 1;
+  if (keys.has('KeyQ')) input.move.y -= 1;
+  const speed = CAM_SPEEDS[settings.camSpeed] * (keys.has('KeyX') ? 2 : 1);
+  if (input.move.lengthSq() > 0) input.move.normalize().multiplyScalar(speed);
 
   raycaster.setFromCamera(mouse, camera);
   input.origin.copy(raycaster.ray.origin);
   input.dir.copy(raycaster.ray.direction);
   input.hasSteer = true;
-  input.fire = mouseDown || keys.has('Space');
+  input.fire = (mouseDown || keys.has('Space')) && !menuOpen;
   input.boost = keys.has('ShiftLeft') || keys.has('ShiftRight');
   input.brake = keys.has('ControlLeft') || keys.has('KeyF');
   input.restart = false;
@@ -917,8 +1020,9 @@ function flyByStick(dt) {
   const sx = shape(input.stickX);
   const sy = shape(input.stickY) * (invertY ? -1 : 1);
   const k = 1 - Math.exp(-dt * 7);
-  player.yawRate += (-sx * MAX_YAW - player.yawRate) * k;       // stick right = turn right
-  player.pitchRate += (-sy * MAX_PITCH - player.pitchRate) * k; // stick up (-1) = nose up
+  const tm = TURN_MULS[settings.turnSpeed] / 1.6;
+  player.yawRate += (-sx * MAX_YAW * tm - player.yawRate) * k;       // stick right = turn right
+  player.pitchRate += (-sy * MAX_PITCH * tm - player.pitchRate) * k; // stick up (-1) = nose up
   let az = Math.atan2(player.fwd.x, player.fwd.z);
   let el = Math.asin(clamp(player.fwd.y, -1, 1));
   az += player.yawRate * dt;
@@ -946,19 +1050,17 @@ function updatePlayer(dt) {
   if (mode === 'point') {
     const desired = _v1.copy(player.fwd);
     if (input.hasSteer) {
-      const d = input.origin.distanceTo(p) + LEAD;
-      if (camMode === 'chase' && state === 'playing' && !DEMO) {
-        // Chase view: fly in the direction you point. Straight ahead = straight,
-        // pointing to a side keeps turning that way (the view follows).
+      if (!DEMO) {
+        // Fly in the direction you point.
         desired.copy(input.dir);
       } else {
-        // Free view: fly toward the spot you point at.
+        const d = input.origin.distanceTo(p) + LEAD;
         desired.subVectors(_v2.copy(input.origin).addScaledVector(input.dir, d), p).normalize();
       }
-      // Shorter "steering stick": the visible pointer + ring sit at half the target distance.
-      reticle.position.copy(input.origin).addScaledVector(input.dir, d * 0.5);
+      // Short "steering stick": the laser + ring sit 0.5 m out from your hand.
+      reticle.position.copy(input.origin).addScaledVector(input.dir, 0.5);
       reticle.visible = true;
-      if (renderer.xr.isPresenting && hands.right) pointer.scale.set(1, 1, d * 0.5);
+      if (renderer.xr.isPresenting && hands.right) pointer.scale.set(1, 1, 0.5);
     }
     steer(player, desired.clone(), dt);
   } else {
@@ -1030,20 +1132,20 @@ function updateCollisions() {
 }
 
 function updateCameraRig(dt) {
-  if (camMode === 'free' || state !== 'playing' || !player.alive) {
+  if (state !== 'playing' || !player.alive) {
     rig.position.addScaledVector(input.move, dt);
     return;
   }
-  // Chase: turn only around the vertical axis to stay behind the ship, smoothly eased.
-  const h = Math.hypot(player.fwd.x, player.fwd.z);
-  if (h > 0.05) {
-    const diff = Math.atan2(Math.sin(shipYaw() - rigYaw), Math.cos(shipYaw() - rigYaw));
-    const step = diff * (1 - Math.exp(-dt * 1.8)) * Math.min(1, h * 2);
-    rigYaw += clamp(step, -CHASE_YAW_MAX * dt, CHASE_YAW_MAX * dt);
+  const moving = input.move.lengthSq() > 1e-6;
+  if (settings.camMode === 'independent') {
+    // While you move, only your own speed counts; on release, lock on again at the new offset.
+    if (moving) { rig.position.addScaledVector(input.move, dt); independentMoving = true; return; }
+    if (independentMoving) { camOffset.copy(rig.position).add(HEAD_NOMINAL).sub(player.obj.position); independentMoving = false; }
+  } else if (moving) {
+    // Ride with ship: your movement adds on top of the ship's motion.
+    camOffset.addScaledVector(input.move, dt);
   }
-  rig.rotation.set(0, rigYaw, 0);
-  // Position follows in full 3D, eased.
-  rig.position.lerp(chaseTarget(_v1), 1 - Math.exp(-dt * 4));
+  rig.position.lerp(followTarget(_v1), 1 - Math.exp(-dt * 6));
 }
 
 let hudTimer = 0, statusTimer = 0, frames = 0;
@@ -1073,7 +1175,7 @@ function loop() {
     quatFromDir(player.fwd, player.obj.quaternion);
     reticle.visible = false;
     if (xr && input.restart) startGame();
-  } else {
+  } else if (!menuOpen) {
     updatePlayer(dt);
     if (player.alive) ARENA_C.lerp(player.obj.position, 1 - Math.exp(-dt * 0.8)); // the battle travels with you
     updateEnemies(dt);
@@ -1132,6 +1234,9 @@ function loop() {
   renderer.render(scene, camera);
 }
 
+applySettings();
+buildDesktopSettings();
+drawMenu();
 drawHud();
 renderer.setAnimationLoop(loop);
 log('READY three r' + THREE.REVISION);
@@ -1142,5 +1247,5 @@ window.__game = {
   get hp() { return player.hp; }, get enemies() { return enemies.length; },
   player, enemiesList: enemies, startGame, rig, camera, renderer, scene, shipArrow, pointer, reticle,
   get steerMode() { return activeSteer(); }, get invertY() { return invertY; },
-  get camMode() { return camMode; }, get rigYaw() { return rigYaw; }, get chaseDist() { return chaseDist; },
+  settings, camOffset, setSetting, toggleSettings, get menuOpen() { return menuOpen; }, get menuHover() { return menuHover; }, menuPanel,
 };

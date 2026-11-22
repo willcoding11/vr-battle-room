@@ -25,52 +25,62 @@ browser with mouse and keyboard.
 ## Controls
 
 Comfort rules:
-- Up is always up. The view never pitches or rolls you.
-- In the chase camera, the only automatic turn is a smooth left/right turn to stay behind
-  your ship. Head tracking works normally.
+- The game **never rotates you**. Turn your own head and body to follow the action.
+- Up is always up.
+- The view only *slides* along with your ship (translation only), at a fixed offset.
 
 ### Quest (VR, seated)
 
 | Hand | Input | Action |
 |---|---|---|
-| Right | **Point** (POINT mode, default) | Fly in the direction you point. Straight ahead = straight; pointing to a side keeps turning that way while the view follows; tilt up/down to climb or dive. A short laser and ring show your pointing direction |
+| Right | **Point** (default steering) | The ship flies in the direction you point and turns quickly toward it. A short 0.5 m laser and ring show your pointing direction |
 | Right | **Trigger** | Shoot along the aim line out of the ship's nose (gentle aim assist) |
 | Right | **Grip** / **stick forward** | Boost |
 | Right | **A** / **stick back** | Brake |
-| Right | **Click the thumbstick** | Switch steering: POINT (default) or STICK (thumbstick flies the ship: left/right turn, up/down nose up/down). Remembered |
-| Right | **B** | STICK mode only: invert up/down. Remembered |
+| Right | **Click the thumbstick** | Switch steering: POINT or STICK (thumbstick flies the ship: left/right turn, up/down nose up/down; B inverts) |
 | Right | **Trigger / A** | Start, and restart after you are destroyed |
-| Left | **Click the thumbstick** | Switch camera: CHASE (default) or FREE |
-| Left | **Thumbstick up/down** (chase) | Move the chase view closer / farther |
-| Left | **Y / X** (chase) | Raise / lower the chase view |
-| Left | **Thumbstick, Y/X, grip + drag** (free) | The old controls: move your viewpoint forward/back/sideways, up/down, or grab space and pull yourself through it |
-| Left | **Look at your wrist** | Score, wave, hull, radar, and the current steering + camera mode |
+| Left | **Thumbstick** | Move your view, relative to where you're looking |
+| Left | **Y / X** | Move your view up / down |
+| Left | **Hold grip** | 2x view move speed while held |
+| Left | **Click the thumbstick** | Put the view back behind your ship (relative to where you're looking) |
+| Left | **X + Y together** | Open/close **Settings**. Point at a row with the right controller and pull the trigger to change it. The game pauses while it's open |
+| Left | **Look at your wrist** | Score, wave, hull, radar, steering and camera mode |
+
+### Settings (saved on the device)
+
+| Setting | Options | Default |
+|---|---|---|
+| Camera | **Ride with ship**: your view = ship position + your offset, so stick movement adds on top of the ship's motion. **Independent**: while you push the stick you move at only your own speed (the ship's motion isn't added); when you let go, the view locks onto the ship again at the new offset | Ride with ship |
+| Camera speed | Slow 1.2 / Normal 2.5 / Fast 4.5 m/s (hold left grip = 2x) | Normal |
+| Follow distance | Near 1.4 / Medium 2.4 / Far 3.6 m behind the ship (a bit above it) | Medium |
+| Ship turn speed | Normal 2x / Fast 2.6x / Very fast 3.4x the original turn rate | Fast |
+| Steering | Point / Stick | Point |
 
 ### Desktop (testing without a headset)
 
 | Input | Action |
 |---|---|
-| Mouse | Steer: the ship flies the way the cursor points (POINT mode) |
+| Mouse | Steer: the ship flies the way the cursor points |
 | M | Switch to STICK mode: I/K = nose up/down, J/L = turn (V inverts up/down) |
 | Left click / Space | Shoot |
 | Shift / F | Boost / brake |
-| W / S, Q / E | Chase camera: closer / farther, lower / higher |
-| G | Switch between chase and free camera (free: WASD + Q/E move) |
+| W A S D, Q / E | Move your view (relative to where you look), down / up. Hold X for 2x |
 | Right-drag or arrow keys | Look around (stands in for head tracking) |
-| C | Snap the view behind the ship |
+| C | Put the view back behind your ship |
+| Tab or the gear button | Settings |
 | Enter / R | Start / restart |
 
 ### What's on screen
 
-- **Scale:** ships, shots and explosions are drawn at half their earlier size (zoomed out),
-  and speeds and hit sizes were halved to match.
+- **Scale:** ships, shots and explosions are drawn at half size (zoomed out), with speeds and
+  hit sizes scaled to match.
 - **No boundaries:** your ship goes wherever you steer it, and the battle travels with you.
 - **Aim line:** a short line with a crosshair comes out of the ship's nose. That is where the
   ship is heading and where your shots go.
-- **Off-screen arrow:** when your ship is outside your view (for example in the free camera),
-  a pulsing cyan arrow at the edge of your view points to it.
+- **Off-screen arrow:** when your ship is outside your view, a pulsing cyan arrow at the edge
+  of your view points to it.
 
-![chase camera](screenshots/07-chase-camera.png)
+![settings](screenshots/08-settings.png)
 
 URL options: `?wave=5` starts at wave 5, and `?demo` turns on an autopilot (attract mode).
 `?test` sends errors and status lines to a local test server.
