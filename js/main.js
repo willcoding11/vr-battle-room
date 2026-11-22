@@ -2,8 +2,8 @@
 // with a mouse + keyboard fallback for desktop browsers.
 import * as THREE from '../vendor/three.module.js';
 import { VRButton } from '../vendor/VRButton.js';
-import { buildPlayerShip, buildFighter, buildCruiser, buildControllerGizmo, tintShip } from './models.js';
-import { Sfx } from './audio.js';
+import { buildPlayerShip, buildFighter, buildCruiser, buildControllerGizmo, tintShip } from './models.js?v=2';
+import { Sfx } from './audio.js?v=2';
 
 const TEST = /[?&]test/.test(location.search);
 const DEMO = /[?&]demo/.test(location.search);          // autopilot (attract mode / testing)
@@ -22,6 +22,9 @@ const MAX_HP = 5;
 const CRUISE = 1.6, BOOST = 3.2, BRAKE = 0.5;     // player speeds (m/s)
 const LEAD = 0.9;                                 // how far past the ship the steering target sits
 const CAM_SPEED = 2.2;                            // viewpoint move speed (m/s)
+const MAX_YAW = 2.2, MAX_PITCH = 1.7;             // stick steering turn rates (rad/s)
+const MAX_ELEV = 1.3;                             // max nose up/down angle (rad, ~75 deg)
+const TETHER_START = 2.6, TETHER_FULL = 4.2;      // ship gently turns back toward you beyond this (m)
 
 // ---------------------------------------------------------------- scratch
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
@@ -235,6 +238,7 @@ const player = {
   obj: buildPlayerShip(PLAYER_COLOR.getHex()),
   fwd: new THREE.Vector3(0, 0, -1), bank: 0, turn: 2.8,
   speed: CRUISE, vel: new THREE.Vector3(), hp: MAX_HP, invuln: 0, flash: 0, fireCd: 0, alive: true,
+  yawRate: 0, pitchRate: 0,
 };
 scene.add(player.obj);
 // Engine trail: short fading line behind the ship.
@@ -264,7 +268,7 @@ function resetPlayer() {
   getCamForwardFlat(_v2);
   player.obj.position.copy(_v1).addScaledVector(_v2, 1.3).add(_v3.set(0, -0.15, 0));
   player.fwd.copy(_v2);
-  player.bank = 0; player.speed = CRUISE; player.hp = MAX_HP; player.invuln = 1.5; player.flash = 0;
+  player.bank = 0; player.yawRate = 0; player.pitchRate = 0; player.speed = CRUISE; player.hp = MAX_HP; player.invuln = 1.5; player.flash = 0;
   player.alive = true; player.obj.visible = true; trail.visible = true;
   quatFromDir(player.fwd, player.obj.quaternion);
   resetTrail();
@@ -436,6 +440,10 @@ function startGame() {
   hideTitle();
   startWave(START_WAVE);
 }
+function showIdlePrompt() {
+  if (state === 'title') { if (renderer.xr.isPresenting) showMessage('BATTLE ROOM', 'Pull the RIGHT TRIGGER to start\n' + steerHelp(activeSteer()), 9999); }
+  else if (state === 'gameover') showMessage('SHIP DESTROYED', `Score ${score}   Wave ${wave}   Best ${best}\n${restartHint()}`, 9999);
+}
 function restartHint() {
   return renderer.xr.isPresenting ? 'Pull TRIGGER or press A to restart' : 'Click or press R to restart';
 }
@@ -514,7 +522,8 @@ function drawHud() {
   hctx.fillStyle = '#5fa9bf';
   hctx.font = '18px monospace';
   hctx.fillText(`BEST ${best}`, 20, 200);
-  hctx.fillText(state === 'playing' && intermission > 0 ? 'NEXT WAVE...' : '', 20, 232);
+  const sm = activeSteer();
+  hctx.fillText(state === 'playing' && intermission > 0 ? 'NEXT WAVE...' : `STEER ${sm.toUpperCase()}${sm === 'stick' && invertY ? ' (INV)' : ''}`, 20, 232);
 
   // Radar: top-down around your viewpoint, your facing is up.
   const cx = W - 128, cy = H / 2, R = 108, range = 9;
@@ -564,6 +573,81 @@ scene.add(reticle);
 const pointer = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]),
   new THREE.LineBasicMaterial({ color: 0x33ddff, transparent: true, opacity: 0.25, fog: false }));
 
+// ---------------------------------------------------------------- steering settings
+// 'stick' = right thumbstick flies the ship like a flight stick (VR default).
+// 'point' = the ship flies toward where you point the right controller (old mode).
+let steerMode = 'stick', desktopSteer = 'point', invertY = false;
+try {
+  steerMode = localStorage.getItem('battleRoomSteer') === 'point' ? 'point' : 'stick';
+  invertY = localStorage.getItem('battleRoomInvert') === '1';
+} catch (e) { /* ignore */ }
+function activeSteer() { return DEMO ? 'point' : renderer.xr.isPresenting ? steerMode : desktopSteer; }
+function steerHelp(mode) {
+  if (mode === 'stick') return renderer.xr.isPresenting ? 'Right stick flies the ship - click the stick to switch' : 'I/K nose up/down, J/L turn - M to switch';
+  return renderer.xr.isPresenting ? 'Point the right controller - click the stick to switch' : 'Ship flies toward the mouse - M to switch';
+}
+function toggleSteer() {
+  if (renderer.xr.isPresenting) {
+    steerMode = steerMode === 'stick' ? 'point' : 'stick';
+    try { localStorage.setItem('battleRoomSteer', steerMode); } catch (e) { /* ignore */ }
+  } else desktopSteer = desktopSteer === 'stick' ? 'point' : 'stick';
+  const m = activeSteer();
+  showMessage(m === 'stick' ? 'STEERING: STICK' : 'STEERING: POINT', steerHelp(m), 2.2);
+  sfx.ping(null);
+  log('steer mode -> ' + m);
+}
+function toggleInvert() {
+  invertY = !invertY;
+  try { localStorage.setItem('battleRoomInvert', invertY ? '1' : '0'); } catch (e) { /* ignore */ }
+  showMessage(invertY ? 'UP/DOWN INVERTED' : 'UP/DOWN NORMAL', invertY ? 'Stick up = nose down' : 'Stick up = nose up', 1.8);
+  sfx.ping(null);
+  log('invertY -> ' + invertY);
+}
+
+// Aim line + crosshair out of the ship's nose: where you're heading and where shots go.
+{
+  const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0.22), new THREE.Vector3(0, 0, 1.9)]);
+  g.setAttribute('color', new THREE.Float32BufferAttribute([0.3, 0.9, 1.0, 0.0, 0.1, 0.15], 3));
+  const aimLine = new THREE.Line(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const pts = [];
+  for (let i = 0; i < 20; i++) {
+    const a0 = (i / 20) * Math.PI * 2, a1 = ((i + 1) / 20) * Math.PI * 2;
+    pts.push(new THREE.Vector3(Math.cos(a0) * 0.05, Math.sin(a0) * 0.05, 1.9), new THREE.Vector3(Math.cos(a1) * 0.05, Math.sin(a1) * 0.05, 1.9));
+  }
+  for (const [x, y] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) pts.push(new THREE.Vector3(x * 0.03, y * 0.03, 1.9), new THREE.Vector3(x * 0.075, y * 0.075, 1.9));
+  const cross = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({ color: 0x66eeff, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
+  player.obj.add(aimLine, cross);
+}
+
+// Off-screen arrow: a small cyan chevron at the edge of your view pointing toward your ship.
+const shipArrow = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([
+  new THREE.Vector3(0, 0.022, 0), new THREE.Vector3(-0.016, -0.012, 0), new THREE.Vector3(0, -0.004, 0), new THREE.Vector3(0.016, -0.012, 0),
+]), new THREE.LineBasicMaterial({ color: 0x33ddff, transparent: true, depthTest: false, fog: false }));
+shipArrow.renderOrder = 20;
+shipArrow.visible = false;
+camera.add(shipArrow);
+function updateShipArrow(xr) {
+  if (!player.alive || state === 'title') { shipArrow.visible = false; return; }
+  _v1.copy(player.obj.position);
+  camera.worldToLocal(_v1);
+  let visibleOnScreen;
+  if (xr) visibleOnScreen = _v1.angleTo(_v2.set(0, 0, -1)) < 0.6;
+  else {
+    _v2.copy(player.obj.position).project(camera);
+    visibleOnScreen = _v2.z < 1 && Math.abs(_v2.x) < 0.95 && Math.abs(_v2.y) < 0.95;
+  }
+  if (visibleOnScreen) { shipArrow.visible = false; return; }
+  let dx = _v1.x, dy = _v1.y;
+  const l = Math.hypot(dx, dy);
+  if (l < 1e-4) { dx = 0; dy = -1; } else { dx /= l; dy /= l; }
+  const rad = xr ? 0.17 : 0.24;
+  shipArrow.position.set(dx * rad, dy * rad, -0.5);
+  shipArrow.rotation.set(0, 0, Math.atan2(dy, dx) - Math.PI / 2);
+  shipArrow.material.opacity = 0.6 + 0.4 * Math.sin(performance.now() * 0.008);
+  shipArrow.visible = true;
+}
+
 // ---------------------------------------------------------------- XR controllers
 const hands = { left: null, right: null }; // controller groups by handedness
 for (let i = 0; i < 2; i++) {
@@ -601,7 +685,7 @@ renderer.xr.addEventListener('sessionstart', () => {
   document.body.classList.add('in-vr');
   hideTitle();
   rig.position.set(0, 0, 0);
-  if (state === 'title') showMessage('BATTLE ROOM', 'Pull the RIGHT TRIGGER to start', 9999);
+  if (state === 'title') showIdlePrompt();
   else if (state === 'gameover') showMessage('SHIP DESTROYED', `Score ${score}\n${restartHint()}`, 9999);
   msgPanel.visible = true;
   msgPanel.position.set(0, HEAD_H, -1.8);
@@ -626,6 +710,8 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyR' && state !== 'title') startGame();
   if (e.code === 'Enter' && state !== 'playing' && !renderer.xr.isPresenting) startGame();
   if (e.code === 'KeyC') rig.position.set(0, 0, 0);
+  if (e.code === 'KeyM' && !e.repeat) toggleSteer();
+  if (e.code === 'KeyV' && !e.repeat) toggleInvert();
   if (e.code === 'Space') e.preventDefault();
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
@@ -666,8 +752,9 @@ window.addEventListener('resize', () => {
 const input = {
   hasSteer: false, origin: new THREE.Vector3(), dir: new THREE.Vector3(),
   fire: false, boost: false, brake: false, restart: false, move: new THREE.Vector3(),
+  stickX: 0, stickY: 0,
 };
-let prevRestartBtn = false;
+let prevRestartBtn = false, prevB = false, prevStickBtn = false;
 const dragLast = new THREE.Vector3();
 let dragging = false;
 
@@ -677,18 +764,27 @@ function gatherInputVR(dt) {
   const R = hands.right, L = hands.left;
   rig.updateMatrixWorld(true);
 
+  input.stickX = 0; input.stickY = 0;
   if (R && R.userData.source && R.userData.source.gamepad) {
     const gp = R.userData.source.gamepad;
+    const btn = (k) => !!(gp.buttons[k] && gp.buttons[k].pressed);
     R.getWorldPosition(input.origin);
     input.dir.set(0, 0, -1).applyQuaternion(R.getWorldQuaternion(_q)).normalize();
     input.hasSteer = true;
-    const trig = gp.buttons[0] && gp.buttons[0].pressed;
+    const sx = gp.axes.length >= 4 ? gp.axes[2] : 0, sy = gp.axes.length >= 4 ? gp.axes[3] : 0;
+    input.stickX = sx; input.stickY = sy;
+    const trig = btn(0);
     input.fire = trig;
-    input.boost = gp.buttons[1] && gp.buttons[1].pressed;
-    const sy = gp.axes.length >= 4 ? gp.axes[3] : 0;
-    if (sy > 0.5) input.brake = true;       // stick back = brake
-    if (sy < -0.5) input.boost = true;      // stick forward = boost
-    const restartBtn = trig || (gp.buttons[4] && gp.buttons[4].pressed) || (gp.buttons[5] && gp.buttons[5].pressed);
+    input.boost = btn(1);                     // grip = boost
+    input.brake = btn(4);                     // A = brake
+    if (steerMode === 'point') {              // point mode: stick forward/back = boost/brake
+      if (sy > 0.5) input.brake = true;
+      if (sy < -0.5) input.boost = true;
+    }
+    if (btn(5) && !prevB) toggleInvert();             // B = invert up/down
+    if (btn(3) && !prevStickBtn) toggleSteer();       // stick click = switch steering mode
+    prevB = btn(5); prevStickBtn = btn(3);
+    const restartBtn = trig || btn(4);
     input.restart = restartBtn && !prevRestartBtn;
     prevRestartBtn = restartBtn;
   }
@@ -746,6 +842,8 @@ function gatherInputDesktop() {
   input.boost = keys.has('ShiftLeft') || keys.has('ShiftRight');
   input.brake = keys.has('ControlLeft') || keys.has('KeyF');
   input.restart = false;
+  input.stickX = (keys.has('KeyL') ? 1 : 0) - (keys.has('KeyJ') ? 1 : 0);
+  input.stickY = (keys.has('KeyK') ? 1 : 0) - (keys.has('KeyI') ? 1 : 0);
 
   if (DEMO && player.alive) {
     // Autopilot: chase the nearest enemy and shoot when lined up.
@@ -762,21 +860,77 @@ function gatherInputDesktop() {
 }
 
 // ---------------------------------------------------------------- update
+// Flight-stick steering: stick X = turn (yaw), stick Y = nose up/down (pitch).
+// Turn rates ease in/out; roll only banks into turns and always levels back out,
+// so the ship stays upright relative to the world.
+function turnToward(v, target, maxAngle) {
+  const a = v.angleTo(target);
+  if (a > 1e-4) v.lerp(target, Math.min(1, maxAngle / a)).normalize();
+}
+function flyByStick(dt) {
+  const p = player.obj.position;
+  const shape = (a) => {
+    const m = Math.abs(a);
+    if (m < 0.12) return 0;                     // deadzone
+    const t = Math.min(1, (m - 0.12) / 0.88);
+    return Math.sign(a) * t * Math.sqrt(t);     // gentle near centre, full at the edge
+  };
+  const sx = shape(input.stickX);
+  const sy = shape(input.stickY) * (invertY ? -1 : 1);
+  const k = 1 - Math.exp(-dt * 7);
+  player.yawRate += (-sx * MAX_YAW - player.yawRate) * k;       // stick right = turn right
+  player.pitchRate += (-sy * MAX_PITCH - player.pitchRate) * k; // stick up (-1) = nose up
+  let az = Math.atan2(player.fwd.x, player.fwd.z);
+  let el = Math.asin(clamp(player.fwd.y, -1, 1));
+  az += player.yawRate * dt;
+  el = clamp(el + player.pitchRate * dt, -MAX_ELEV, MAX_ELEV);
+  const desired = _v1.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
+  // Soft tether: if the ship strays far from your viewpoint, it gently turns back.
+  const toCam = _v2.subVectors(camPos, p);
+  const d = toCam.length();
+  // Your stick input wins: the tether relaxes while you are actively steering.
+  const steering = Math.min(1, Math.hypot(sx, sy));
+  if (d > TETHER_START) turnToward(desired, toCam.normalize(), clamp((d - TETHER_START) / (TETHER_FULL - TETHER_START), 0, 1) * 2.0 * (1 - 0.75 * steering) * dt);
+  // Hard safety net: beyond the tether, gently drift the ship back toward you.
+  if (d > TETHER_FULL) p.addScaledVector(_v2.subVectors(camPos, p).normalize(), Math.min(1.2, (d - TETHER_FULL) * 1.5) * dt);
+  const n = arenaNorm(p);
+  if (n > 0.9) turnToward(desired, _v2.subVectors(ARENA_C, p).normalize(), clamp((n - 0.9) * 6, 0, 1) * 2.4 * dt);
+  if (Math.abs(desired.y) > Math.sin(MAX_ELEV)) {
+    const h = Math.hypot(desired.x, desired.z) || 1;
+    const c = Math.cos(MAX_ELEV) / h;
+    desired.set(desired.x * c, Math.sign(desired.y) * Math.sin(MAX_ELEV), desired.z * c);
+  }
+  const prev = _v3.copy(player.fwd);
+  player.fwd.copy(desired).normalize();
+  const turn = (prev.z * player.fwd.x - prev.x * player.fwd.z) / Math.max(dt, 1e-4);
+  player.bank += (clamp(-turn * 0.35, -0.9, 0.9) - player.bank) * Math.min(1, dt * 5);
+  quatFromDir(player.fwd, player.obj.quaternion);
+  _q.setFromAxisAngle(ZAXIS, player.bank);
+  player.obj.quaternion.multiply(_q);
+}
+
 function updatePlayer(dt) {
   if (!player.alive) return;
   const p = player.obj.position;
-  const desired = _v1.copy(player.fwd);
-  if (input.hasSteer) {
-    const d = input.origin.distanceTo(p) + LEAD;
-    const target = _v2.copy(input.origin).addScaledVector(input.dir, d);
-    reticle.position.copy(target);
-    reticle.visible = true;
-    desired.subVectors(target, p).normalize();
-    if (renderer.xr.isPresenting && hands.right) pointer.scale.set(1, 1, d);
+  const mode = activeSteer();
+  pointer.visible = mode === 'point';
+  if (mode === 'point') {
+    const desired = _v1.copy(player.fwd);
+    if (input.hasSteer) {
+      const d = input.origin.distanceTo(p) + LEAD;
+      const target = _v2.copy(input.origin).addScaledVector(input.dir, d);
+      reticle.position.copy(target);
+      reticle.visible = true;
+      desired.subVectors(target, p).normalize();
+      if (renderer.xr.isPresenting && hands.right) pointer.scale.set(1, 1, d);
+    }
+    const n = arenaNorm(p);
+    if (n > 0.92) desired.lerp(_v3.subVectors(ARENA_C, p).normalize(), clamp((n - 0.92) * 5, 0, 1)).normalize();
+    steer(player, desired.clone(), dt);
+  } else {
+    reticle.visible = false;
+    flyByStick(dt);
   }
-  const n = arenaNorm(p);
-  if (n > 0.92) desired.lerp(_v3.subVectors(ARENA_C, p).normalize(), clamp((n - 0.92) * 5, 0, 1)).normalize();
-  steer(player, desired.clone(), dt);
   const targetSpeed = input.boost ? BOOST : input.brake ? BRAKE : CRUISE;
   player.speed += (targetSpeed - player.speed) * Math.min(1, dt * 3);
   player.vel.copy(player.fwd).multiplyScalar(player.speed);
@@ -904,13 +1058,17 @@ function loop() {
   updateEffects(dt);
 
   // Messages.
-  if (msgTime > 0 && msgTime < 9000) { msgTime -= dt; if (msgTime <= 0) hideMessage(); }
+  if (msgTime > 0 && msgTime < 9000) {
+    msgTime -= dt;
+    if (msgTime <= 0) { hideMessage(); if (state === 'title' || state === 'gameover') showIdlePrompt(); }
+  }
   if (xr && msgPanel.visible) {
     _v1.copy(camPos).addScaledVector(camFwd, 1.8);
     msgPanel.position.lerp(_v1, 1 - Math.exp(-3 * dt));
     msgPanel.lookAt(camPos);
   }
   reticle.lookAt(camPos);
+  updateShipArrow(xr);
 
   // Red screen flash on hit (desktop overlay; in VR the ship flash + haptics carry it).
   screenFlash = Math.max(0, screenFlash - dt);
@@ -938,5 +1096,6 @@ log('READY three r' + THREE.REVISION);
 window.__game = {
   get state() { return state; }, get score() { return score; }, get wave() { return wave; },
   get hp() { return player.hp; }, get enemies() { return enemies.length; },
-  player, enemiesList: enemies, startGame, rig, camera, renderer, scene,
+  player, enemiesList: enemies, startGame, rig, camera, renderer, scene, shipArrow, pointer, reticle,
+  get steerMode() { return activeSteer(); }, get invertY() { return invertY; },
 };

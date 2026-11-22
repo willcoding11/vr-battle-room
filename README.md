@@ -33,11 +33,13 @@ The design rules:
 
 | Hand | Input | Action |
 |---|---|---|
-| Right | **Point** | The ship flies toward where you point (a small ring marks the target) |
-| Right | **Trigger** | Shoot. Gentle aim assist helps when an enemy is roughly ahead |
-| Right | **Grip** or **stick forward** | Boost |
-| Right | **Stick back** | Brake |
-| Right | **Trigger / A / B** | Start, and restart after you are destroyed |
+| Right | **Thumbstick** | Fly the ship like a flight stick: left/right = turn, up/down = nose up/down. The ship always flies forward at cruise speed |
+| Right | **Trigger** | Shoot along the aim line out of the ship's nose. Gentle aim assist helps when an enemy is roughly ahead |
+| Right | **Grip** | Boost |
+| Right | **A** | Brake |
+| Right | **B** | Invert up/down (stick up = nose down). Your choice is remembered |
+| Right | **Click the thumbstick** | Switch steering mode: STICK (default) or POINT (the old mode, where the ship flies toward where you point the controller). Your choice is remembered |
+| Right | **Trigger / A** | Start, and restart after you are destroyed |
 | Left | **Thumbstick** | Move your viewpoint forward/back/sideways (relative to where you look) |
 | Left | **Y / X** | Move your viewpoint up / down |
 | Left | **Grip + drag** | Grab space and pull yourself through it (translation only) |
@@ -48,7 +50,8 @@ The design rules:
 
 | Input | Action |
 |---|---|
-| Mouse | Steer: the ship flies toward the cursor |
+| Mouse | Steer: the ship flies toward the cursor (POINT mode, the desktop default) |
+| M | Switch to STICK mode: I/K = nose up/down, J/L = turn (V inverts up/down) |
 | Left click / Space | Shoot |
 | Shift / F | Boost / brake |
 | W A S D | Move the viewpoint |
@@ -56,6 +59,19 @@ The design rules:
 | Right-drag or arrow keys | Look around (stands in for head tracking) |
 | C | Return to the centre |
 | Enter / R | Start / restart |
+
+### Steering feedback
+
+- A short **aim line with a crosshair** sticks out of the ship's nose. That is where the ship
+  is heading and where your shots go.
+- The ship's roll only leans into turns and always levels back out, so the ship stays upright.
+- **Soft tether:** if the ship gets more than about 2.6 m from your viewpoint, it gently curves
+  back toward you, so it can't get lost.
+- **Off-screen arrow:** when your ship is outside your view, a pulsing cyan arrow at the edge of
+  your view points toward it.
+- The wrist HUD shows the current steering mode (`STEER STICK`, `STEER STICK (INV)` or `STEER POINT`).
+
+![stick mode](screenshots/05-stick-mode.png)
 
 URL options: `?wave=5` starts at wave 5, and `?demo` turns on an autopilot (attract mode).
 `?test` sends errors and status lines to a local test server.
