@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Battle Room</title>
+<script>
+// Test mode (?test): forward errors/logs to the local test server's /log endpoint.
+(function () {
+  if (!/[?&]test/.test(location.search)) return;
+  var send = function (k, m) { try { navigator.sendBeacon('log', k + ': ' + m); } catch (e) {} };
+  window.addEventListener('error', function (e) {
+    var t = e.target && (e.target.src || e.target.href);
+    send('ERROR', (e.message || '') + ' @' + (e.filename || '') + ':' + (e.lineno || '') + (t ? ' resource=' + t : ''));
+  }, true);
+  window.addEventListener('unhandledrejection', function (e) { send('REJECT', String(e.reason && (e.reason.stack || e.reason))); });
+  var ce = console.error.bind(console); console.error = function () { send('CONSOLE.ERROR', [].map.call(arguments, String).join(' ')); ce.apply(null, arguments); };
+  var cw = console.warn.bind(console); console.warn = function () { send('CONSOLE.WARN', [].map.call(arguments, String).join(' ')); cw.apply(null, arguments); };
+  window.__log = function (m) { send('INFO', m); };
+})();
+</script>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: monospace; color: #7fe9ff; }
+  #app canvas { display: block; }
+  #hud { position: fixed; left: 12px; bottom: 12px; width: 384px; height: 192px; pointer-events: none; }
+  body.in-vr #hud { display: none; }
+  #message { position: fixed; left: 0; right: 0; top: 22%; text-align: center; pointer-events: none; opacity: 0; transition: opacity .25s; text-shadow: 0 0 12px #0af; }
+  #message.show { opacity: 1; }
+  #message .t { font-size: 48px; font-weight: bold; letter-spacing: 6px; }
+  #message .s { font-size: 18px; margin-top: 8px; white-space: pre-line; color: #bfefff; }
+  #flash { position: fixed; inset: 0; background: radial-gradient(ellipse at center, rgba(255,0,30,0) 40%, rgba(255,0,30,.6) 100%); opacity: 0; pointer-events: none; }
+  #title { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,8,.55); }
+  #title.hidden { display: none; }
+  #title .box { max-width: 640px; border: 1px solid #2aa9cc; padding: 24px 32px; background: rgba(0,10,22,.85); box-shadow: 0 0 30px #0af4; }
+  #title h1 { margin: 0 0 6px; letter-spacing: 10px; font-size: 40px; color: #9ff; }
+  #title p { color: #bfefff; line-height: 1.45; margin: 8px 0; font-size: 14px; }
+  #title td { padding: 2px 10px 2px 0; font-size: 14px; color: #bfefff; vertical-align: top; }
+  #title td:first-child { color: #ffcc66; white-space: nowrap; }
+  #startbtn { margin-top: 14px; font: bold 18px monospace; padding: 10px 24px; background: #022; color: #9ff; border: 1px solid #3cf; cursor: pointer; }
+  #startbtn:hover { background: #044; }
+  #crosshint { position: fixed; right: 12px; top: 10px; font-size: 12px; color: #4a8fa3; pointer-events: none; text-align: right; }
+  body.in-vr #crosshint { display: none; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<canvas id="hud" width="512" height="256"></canvas>
+<div id="message"><div class="t"></div><div class="s"></div></div>
+<div id="flash"></div>
+<div id="crosshint">WASD/QE move view &middot; right-drag or arrows look &middot; mouse steers &middot; click shoots &middot; Shift boost &middot; R restart</div>
+<div id="title">
+  <div class="box">
+    <h1>BATTLE ROOM</h1>
+    <p>You sit at the centre of a 360&deg; battle. Fly the cyan ship, destroy the red waves. Enemies come from every direction - look around (and listen).</p>
+    <table>
+      <tr><td>VR right hand</td><td>Point where the ship should fly &middot; Trigger shoot &middot; Grip / stick forward boost &middot; stick back brake</td></tr>
+      <tr><td>VR left hand</td><td>Stick moves your viewpoint &middot; Y up / X down &middot; Grip + drag to pull yourself through space &middot; stick click recentre &middot; wrist shows score + radar</td></tr>
+      <tr><td>Desktop</td><td>Mouse steers (ship flies toward the cursor) &middot; Left click / Space shoot &middot; Shift boost &middot; F brake &middot; WASD + Q/E move viewpoint &middot; right-drag or arrow keys look &middot; C recentre &middot; R restart</td></tr>
+    </table>
+    <button id="startbtn">START (desktop)</button>
+    <p style="font-size:12px;color:#5fa9bf">On a Quest: press ENTER VR at the bottom of the page.</p>
+  </div>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
