@@ -2,8 +2,8 @@
 // with a mouse + keyboard fallback for desktop browsers.
 import * as THREE from '../vendor/three.module.js';
 import { VRButton } from '../vendor/VRButton.js';
-import { buildPlayerShip, buildFighter, buildCruiser, buildControllerGizmo, tintShip } from './models.js?v=2';
-import { Sfx } from './audio.js?v=2';
+import { buildPlayerShip, buildFighter, buildCruiser, buildControllerGizmo, tintShip } from './models.js?v=3';
+import { Sfx } from './audio.js?v=3';
 
 const TEST = /[?&]test/.test(location.search);
 const DEMO = /[?&]demo/.test(location.search);          // autopilot (attract mode / testing)
@@ -11,20 +11,22 @@ const START_WAVE = Math.max(1, parseInt(new URLSearchParams(location.search).get
 const log = (m) => { if (TEST && window.__log) window.__log(m); };
 
 // ---------------------------------------------------------------- constants
+const S = 0.5;                                    // world scale: everything is "zoomed out" to half size
 const HEAD_H = 1.2;                               // seated eye height (desktop)
-const ARENA_C = new THREE.Vector3(0, 1.2, 0);     // battle centre = around your head
-const ARENA_RH = 6.5;                             // horizontal radius (m)
-const ARENA_RV = 3.6;                             // vertical radius (m)
+const ARENA_C = new THREE.Vector3(0, 1.2, 0);     // battle centre - drifts along with your ship
+const ARENA_RH = 6.5 * S;                         // horizontal radius (m)
+const ARENA_RV = 3.6 * S;                         // vertical radius (m)
 const PLAYER_COLOR = new THREE.Color(0x33ddff);
 const ENEMY_COLOR = new THREE.Color(0xff3344);
 const WHITE = new THREE.Color(0xffffff);
 const MAX_HP = 5;
-const CRUISE = 1.6, BOOST = 3.2, BRAKE = 0.5;     // player speeds (m/s)
-const LEAD = 0.9;                                 // how far past the ship the steering target sits
-const CAM_SPEED = 2.2;                            // viewpoint move speed (m/s)
+const CRUISE = 1.6 * S, BOOST = 3.2 * S, BRAKE = 0.5 * S; // player speeds (m/s)
+const LEAD = 0.9 * S;                             // how far past the ship the steering target sits
+const CAM_SPEED = 1.4;                            // free-camera move speed (m/s)
 const MAX_YAW = 2.2, MAX_PITCH = 1.7;             // stick steering turn rates (rad/s)
 const MAX_ELEV = 1.3;                             // max nose up/down angle (rad, ~75 deg)
-const TETHER_START = 2.6, TETHER_FULL = 4.2;      // ship gently turns back toward you beyond this (m)
+const CHASE_DIST = 0.9, CHASE_H = 0.25;           // chase camera: distance behind / height above the ship (m)
+const CHASE_YAW_MAX = 1.4;                        // chase camera: max turn speed (rad/s), eased
 
 // ---------------------------------------------------------------- scratch
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
@@ -46,10 +48,10 @@ document.body.appendChild(vrButton);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000004);
-scene.fog = new THREE.Fog(0x000004, 5, 17);
+scene.fog = new THREE.Fog(0x000004, 3, 10);
 
-// The rig is "you in your chair". It only ever TRANSLATES - never rotates -
-// so up is always up and your facing is always your own head.
+// The rig is "you in your chair". It translates freely and only ever turns around the
+// vertical axis (chase camera yaw, smoothly eased) - never pitch or roll, so up stays up.
 const rig = new THREE.Group();
 scene.add(rig);
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.03, 300);
@@ -57,7 +59,8 @@ camera.position.set(0, HEAD_H, 0);
 camera.rotation.order = 'YXZ';
 rig.add(camera);
 
-// Stars: far points for depth/orientation.
+// Stars: far points for depth/orientation (they travel with you, like real distant stars).
+let stars;
 {
   const n = 1800, p = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) {
@@ -66,30 +69,21 @@ rig.add(camera);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(p, 3));
-  const stars = new THREE.Points(g, new THREE.PointsMaterial({ color: 0x8899bb, size: 1.6, sizeAttenuation: false, fog: false }));
+  stars = new THREE.Points(g, new THREE.PointsMaterial({ color: 0x8899bb, size: 1.6, sizeAttenuation: false, fog: false }));
   scene.add(stars);
 }
-// Faint polar grid far below: a constant "down" reference.
-{
-  const grid = new THREE.PolarGridHelper(14, 16, 10, 64, 0x0f3550, 0x0a2233);
-  grid.position.y = ARENA_C.y - ARENA_RV - 0.6;
-  grid.material.transparent = true;
-  grid.material.opacity = 0.6;
-  scene.add(grid);
-  // A faint ring at your own height marks the "horizon" of the arena.
-  const ringPts = [];
-  for (let i = 0; i <= 96; i++) {
-    const a = (i / 96) * Math.PI * 2;
-    ringPts.push(new THREE.Vector3(Math.cos(a) * ARENA_RH, ARENA_C.y, Math.sin(a) * ARENA_RH));
-  }
-  const ring = new THREE.Line(new THREE.BufferGeometry().setFromPoints(ringPts),
-    new THREE.LineBasicMaterial({ color: 0x113344, transparent: true, opacity: 0.7 }));
-  scene.add(ring);
-}
+// Faint grid far below: a constant "down" reference that also shows your motion.
+const GRID_STEP = 0.5;
+const grid = new THREE.GridHelper(40, 80, 0x0f3550, 0x0a2233);
+grid.position.y = -1.2;
+grid.material.transparent = true;
+grid.material.opacity = 0.6;
+scene.add(grid);
 
 const sfx = new Sfx();
 
 // ---------------------------------------------------------------- helpers
+function shrink(obj) { obj.scale.setScalar(S); obj.userData.mats[1].size *= S; return obj; }
 function arenaNorm(p) {
   const x = (p.x - ARENA_C.x) / ARENA_RH, y = (p.y - ARENA_C.y) / ARENA_RV, z = (p.z - ARENA_C.z) / ARENA_RH;
   return Math.sqrt(x * x + y * y + z * z);
@@ -165,8 +159,8 @@ class Bullets {
   }
   clear() { this.list.length = 0; }
 }
-const playerBullets = new Bullets(0x88f4ff, 200, 0.16);
-const enemyBullets = new Bullets(0xff6655, 300, 0.10);
+const playerBullets = new Bullets(0x88f4ff, 200, 0.16 * S);
+const enemyBullets = new Bullets(0xff6655, 300, 0.10 * S);
 
 // ---------------------------------------------------------------- effects
 const effects = [];
@@ -183,7 +177,7 @@ function explode(obj, color, vel, big = false) {
     const c = a.clone().add(b).multiplyScalar(0.5);
     const out = c.clone().sub(center);
     if (out.lengthSq() < 1e-6) out.randomDirection();
-    out.normalize().multiplyScalar(rand(0.4, big ? 2.2 : 1.6)).add(_v1.randomDirection().multiplyScalar(0.3));
+    out.normalize().multiplyScalar(rand(0.4, big ? 2.2 : 1.6) * S).add(_v1.randomDirection().multiplyScalar(0.3 * S));
     if (vel) out.addScaledVector(vel, 0.4);
     frags.push({ c, half: b.clone().sub(a).multiplyScalar(0.5), v: out, axis: new THREE.Vector3().randomDirection(), spin: rand(3, 10) });
   }
@@ -201,7 +195,7 @@ function explode(obj, color, vel, big = false) {
   shock.scale.setScalar(0.02);
   scene.add(shock);
   effects.push({ type: 'frags', mesh, frags, arr, life: big ? 2.2 : 1.5, max: big ? 2.2 : 1.5 });
-  effects.push({ type: 'shock', mesh: shock, life: 0.4, max: 0.4, size: big ? 1.2 : 0.55 });
+  effects.push({ type: 'shock', mesh: shock, life: 0.4, max: 0.4, size: (big ? 1.2 : 0.55) * S });
 }
 function updateEffects(dt) {
   for (const e of effects) {
@@ -235,7 +229,7 @@ function updateEffects(dt) {
 
 // ---------------------------------------------------------------- player ship
 const player = {
-  obj: buildPlayerShip(PLAYER_COLOR.getHex()),
+  obj: shrink(buildPlayerShip(PLAYER_COLOR.getHex())),
   fwd: new THREE.Vector3(0, 0, -1), bank: 0, turn: 2.8,
   speed: CRUISE, vel: new THREE.Vector3(), hp: MAX_HP, invuln: 0, flash: 0, fireCd: 0, alive: true,
   yawRate: 0, pitchRate: 0,
@@ -263,14 +257,15 @@ function resetTrail() {
 }
 
 function resetPlayer() {
-  // Start 1.3 m in front of wherever the viewpoint currently is, at chest height.
+  // Start a little in front of wherever the viewpoint currently is.
   camera.getWorldPosition(_v1);
   getCamForwardFlat(_v2);
-  player.obj.position.copy(_v1).addScaledVector(_v2, 1.3).add(_v3.set(0, -0.15, 0));
+  player.obj.position.copy(_v1).addScaledVector(_v2, CHASE_DIST).add(_v3.set(0, -CHASE_H, 0));
   player.fwd.copy(_v2);
   player.bank = 0; player.yawRate = 0; player.pitchRate = 0; player.speed = CRUISE; player.hp = MAX_HP; player.invuln = 1.5; player.flash = 0;
   player.alive = true; player.obj.visible = true; trail.visible = true;
   quatFromDir(player.fwd, player.obj.quaternion);
+  ARENA_C.copy(player.obj.position);
   resetTrail();
 }
 
@@ -278,19 +273,19 @@ function resetPlayer() {
 const enemies = [];
 function spawnEnemy(type, wave) {
   const cruiser = type === 'cruiser';
-  const obj = cruiser ? buildCruiser(ENEMY_COLOR.getHex()) : buildFighter(ENEMY_COLOR.getHex());
+  const obj = shrink(cruiser ? buildCruiser(ENEMY_COLOR.getHex()) : buildFighter(ENEMY_COLOR.getHex()));
   let pos;
   for (let tries = 0; tries < 20; tries++) {
     _v1.randomDirection();
     pos = new THREE.Vector3(ARENA_C.x + _v1.x * ARENA_RH * 0.92, ARENA_C.y + _v1.y * ARENA_RV * 0.85, ARENA_C.z + _v1.z * ARENA_RH * 0.92);
-    if (pos.distanceTo(player.obj.position) > 3.5) break;
+    if (pos.distanceTo(player.obj.position) > 3.5 * S) break;
   }
   obj.position.copy(pos);
   const e = {
-    type, obj, hp: cruiser ? 4 : 1, radius: cruiser ? 0.34 : 0.2,
+    type, obj, hp: cruiser ? 4 : 1, radius: (cruiser ? 0.34 : 0.2) * S,
     fwd: _v1.copy(ARENA_C).sub(pos).normalize().clone(), bank: 0,
     turn: cruiser ? 0.9 : 1.7 + wave * 0.08,
-    speed: (cruiser ? 0.7 : 1.15) * (1 + wave * 0.06),
+    speed: (cruiser ? 0.7 : 1.15) * S * (1 + wave * 0.06),
     fireInterval: Math.max(cruiser ? 1.6 : 0.9, (cruiser ? 3.2 : 2.6) - wave * 0.15),
     fireCd: rand(1.5, 3.5), retarget: 0, waypoint: new THREE.Vector3(), flash: 0,
     points: cruiser ? 300 : 100, spawnFade: 0,
@@ -304,7 +299,7 @@ function spawnEnemy(type, wave) {
 function pickWaypoint(e) {
   if (player.alive && Math.random() < 0.65) {
     // Attack run: aim for a point near the player's ship.
-    e.waypoint.copy(player.obj.position).add(_v1.randomDirection().multiplyScalar(rand(0.8, 2.5)));
+    e.waypoint.copy(player.obj.position).add(_v1.randomDirection().multiplyScalar(rand(0.8, 2.5) * S));
   } else {
     e.waypoint.copy(randomArenaPoint(0.85));
   }
@@ -313,13 +308,13 @@ function pickWaypoint(e) {
 function updateEnemies(dt) {
   for (const e of enemies) {
     e.retarget -= dt;
-    if (e.retarget <= 0 || e.obj.position.distanceTo(e.waypoint) < 0.6) pickWaypoint(e);
+    if (e.retarget <= 0 || e.obj.position.distanceTo(e.waypoint) < 0.6 * S) pickWaypoint(e);
     const desired = _v2.subVectors(e.waypoint, e.obj.position).normalize();
     // Keep a little space from other enemies.
     for (const o of enemies) {
       if (o === e) continue;
       const d = e.obj.position.distanceTo(o.obj.position);
-      if (d < 0.6 && d > 1e-4) desired.addScaledVector(_v1.subVectors(e.obj.position, o.obj.position).normalize(), (0.6 - d) * 2);
+      if (d < 0.6 * S && d > 1e-4) desired.addScaledVector(_v1.subVectors(e.obj.position, o.obj.position).normalize(), (0.6 * S - d) * 4);
     }
     const n = arenaNorm(e.obj.position);
     if (n > 0.95) desired.addScaledVector(_v1.subVectors(ARENA_C, e.obj.position).normalize(), (n - 0.95) * 6);
@@ -337,11 +332,11 @@ function updateEnemies(dt) {
     if (player.alive && state === 'playing' && e.fireCd <= 0 && e.spawnFade >= 1) {
       const to = _v1.subVectors(player.obj.position, e.obj.position);
       const dist = to.length();
-      if (dist < 5.5 && e.fwd.angleTo(to) < 0.6) {
-        const bulletSpeed = 3.0 + wave * 0.12;
+      if (dist < 5.5 * S && e.fwd.angleTo(to) < 0.6) {
+        const bulletSpeed = (3.0 + wave * 0.12) * S;
         const t = dist / bulletSpeed;
         const aim = _v2.copy(player.obj.position).addScaledVector(player.fwd, player.speed * t * 0.7)
-          .add(_v3.randomDirection().multiplyScalar(0.25)).sub(e.obj.position).normalize();
+          .add(_v3.randomDirection().multiplyScalar(0.25 * S)).sub(e.obj.position).normalize();
         const shots = e.type === 'cruiser' ? [-0.12, 0, 0.12] : [0];
         for (const s of shots) {
           const d = aim.clone();
@@ -356,7 +351,7 @@ function updateEnemies(dt) {
     }
 
     // Ramming the player hurts both.
-    if (player.alive && e.obj.position.distanceTo(player.obj.position) < e.radius + 0.1) {
+    if (player.alive && e.obj.position.distanceTo(player.obj.position) < e.radius + 0.1 * S) {
       damagePlayer();
       damageEnemy(e, 2);
     }
@@ -435,6 +430,7 @@ function startGame() {
   score = 0; kills = 0;
   resetPlayer();
   state = 'playing';
+  snapChase();
   stateTimer = 0;
   intermission = 0;
   hideTitle();
@@ -523,10 +519,10 @@ function drawHud() {
   hctx.font = '18px monospace';
   hctx.fillText(`BEST ${best}`, 20, 200);
   const sm = activeSteer();
-  hctx.fillText(state === 'playing' && intermission > 0 ? 'NEXT WAVE...' : `STEER ${sm.toUpperCase()}${sm === 'stick' && invertY ? ' (INV)' : ''}`, 20, 232);
+  hctx.fillText(state === 'playing' && intermission > 0 ? 'NEXT WAVE...' : `STEER ${sm.toUpperCase()}${sm === 'stick' && invertY ? ' INV' : ''} - CAM ${camMode.toUpperCase()}`, 20, 232);
 
   // Radar: top-down around your viewpoint, your facing is up.
-  const cx = W - 128, cy = H / 2, R = 108, range = 9;
+  const cx = W - 128, cy = H / 2, R = 108, range = 5;
   hctx.strokeStyle = 'rgba(80,220,255,0.5)';
   hctx.lineWidth = 2;
   hctx.beginPath(); hctx.arc(cx, cy, R, 0, Math.PI * 2); hctx.stroke();
@@ -574,11 +570,11 @@ const pointer = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THR
   new THREE.LineBasicMaterial({ color: 0x33ddff, transparent: true, opacity: 0.25, fog: false }));
 
 // ---------------------------------------------------------------- steering settings
-// 'stick' = right thumbstick flies the ship like a flight stick (VR default).
-// 'point' = the ship flies toward where you point the right controller (old mode).
-let steerMode = 'stick', desktopSteer = 'point', invertY = false;
+// 'point' = the ship flies toward where you point the right controller (default).
+// 'stick' = right thumbstick flies the ship like a flight stick (alternative).
+let steerMode = 'point', desktopSteer = 'point', invertY = false;
 try {
-  steerMode = localStorage.getItem('battleRoomSteer') === 'point' ? 'point' : 'stick';
+  steerMode = localStorage.getItem('battleRoomSteer3') === 'stick' ? 'stick' : 'point';
   invertY = localStorage.getItem('battleRoomInvert') === '1';
 } catch (e) { /* ignore */ }
 function activeSteer() { return DEMO ? 'point' : renderer.xr.isPresenting ? steerMode : desktopSteer; }
@@ -589,7 +585,7 @@ function steerHelp(mode) {
 function toggleSteer() {
   if (renderer.xr.isPresenting) {
     steerMode = steerMode === 'stick' ? 'point' : 'stick';
-    try { localStorage.setItem('battleRoomSteer', steerMode); } catch (e) { /* ignore */ }
+    try { localStorage.setItem('battleRoomSteer3', steerMode); } catch (e) { /* ignore */ }
   } else desktopSteer = desktopSteer === 'stick' ? 'point' : 'stick';
   const m = activeSteer();
   showMessage(m === 'stick' ? 'STEERING: STICK' : 'STEERING: POINT', steerHelp(m), 2.2);
@@ -685,6 +681,8 @@ renderer.xr.addEventListener('sessionstart', () => {
   document.body.classList.add('in-vr');
   hideTitle();
   rig.position.set(0, 0, 0);
+  rigYaw = 0; rig.rotation.set(0, 0, 0);
+  if (state === 'playing' && player.alive) snapChase();
   if (state === 'title') showIdlePrompt();
   else if (state === 'gameover') showMessage('SHIP DESTROYED', `Score ${score}\n${restartHint()}`, 9999);
   msgPanel.visible = true;
@@ -698,6 +696,28 @@ renderer.xr.addEventListener('sessionend', () => {
   log('xr sessionend');
 });
 
+// ---------------------------------------------------------------- camera: chase (default) or free
+let camMode = 'chase', chaseDist = CHASE_DIST, chaseH = CHASE_H, rigYaw = 0;
+function chaseTarget(out) {
+  // Rig position that puts your head behind (rig +Z) and a little above the ship.
+  out.set(Math.sin(rigYaw), 0, Math.cos(rigYaw)).multiplyScalar(chaseDist).add(player.obj.position);
+  out.y += chaseH - HEAD_H;
+  return out;
+}
+function shipYaw() { return Math.atan2(-player.fwd.x, -player.fwd.z); }
+function snapChase() {
+  if (Math.hypot(player.fwd.x, player.fwd.z) > 0.05) rigYaw = shipYaw();
+  rig.rotation.set(0, rigYaw, 0);
+  rig.position.copy(chaseTarget(_v1));
+}
+function toggleCam() {
+  camMode = camMode === 'chase' ? 'free' : 'chase';
+  showMessage(camMode === 'chase' ? 'CAMERA: CHASE' : 'CAMERA: FREE',
+    camMode === 'chase' ? 'The view follows behind your ship' : (renderer.xr.isPresenting ? 'Left stick / X / Y / grip-drag move you' : 'WASD + Q/E move you'), 1.8);
+  sfx.ping(null);
+  log('camera -> ' + camMode);
+}
+
 // ---------------------------------------------------------------- desktop input
 const keys = new Set();
 const mouse = new THREE.Vector2(0, 0);
@@ -709,7 +729,8 @@ window.addEventListener('keydown', (e) => {
   keys.add(e.code);
   if (e.code === 'KeyR' && state !== 'title') startGame();
   if (e.code === 'Enter' && state !== 'playing' && !renderer.xr.isPresenting) startGame();
-  if (e.code === 'KeyC') rig.position.set(0, 0, 0);
+  if (e.code === 'KeyC') { if (state === 'playing' && player.alive) snapChase(); else { rig.position.set(0, 0, 0); rigYaw = 0; rig.rotation.set(0, 0, 0); } }
+  if (e.code === 'KeyG' && !e.repeat) toggleCam();
   if (e.code === 'KeyM' && !e.repeat) toggleSteer();
   if (e.code === 'KeyV' && !e.repeat) toggleInvert();
   if (e.code === 'Space') e.preventDefault();
@@ -754,7 +775,7 @@ const input = {
   fire: false, boost: false, brake: false, restart: false, move: new THREE.Vector3(),
   stickX: 0, stickY: 0,
 };
-let prevRestartBtn = false, prevB = false, prevStickBtn = false;
+let prevRestartBtn = false, prevB = false, prevStickBtn = false, prevLStick = false;
 const dragLast = new THREE.Vector3();
 let dragging = false;
 
@@ -791,24 +812,33 @@ function gatherInputVR(dt) {
 
   if (L && L.userData.source && L.userData.source.gamepad) {
     const gp = L.userData.source.gamepad;
+    const btn = (k) => !!(gp.buttons[k] && gp.buttons[k].pressed);
     const sx = gp.axes.length >= 4 ? gp.axes[2] : 0, sy = gp.axes.length >= 4 ? gp.axes[3] : 0;
-    const f = getCamForwardFlat(_v1);
-    const r = _v2.set(-f.z, 0, f.x);
     const dead = (a) => (Math.abs(a) < 0.15 ? 0 : a);
-    input.move.addScaledVector(f, -dead(sy) * CAM_SPEED).addScaledVector(r, dead(sx) * CAM_SPEED);
-    if (gp.buttons[5] && gp.buttons[5].pressed) input.move.y += CAM_SPEED;  // Y = up
-    if (gp.buttons[4] && gp.buttons[4].pressed) input.move.y -= CAM_SPEED;  // X = down
-    if (gp.buttons[3] && gp.buttons[3].pressed) rig.position.set(0, 0, 0); // stick click = recentre
-    // Grip + drag: grab space and pull yourself through it (translation only).
-    const grip = gp.buttons[1] && gp.buttons[1].pressed;
-    if (grip) {
-      if (dragging) {
-        _v3.subVectors(L.position, dragLast);
-        rig.position.addScaledVector(_v3, -3);
-      }
-      dragLast.copy(L.position);
-      dragging = true;
-    } else dragging = false;
+    if (btn(3) && !prevLStick) toggleCam();   // left stick click = chase <-> free camera
+    prevLStick = btn(3);
+    if (camMode === 'chase') {
+      // Stick up/down = closer/farther, Y/X = raise/lower the chase view.
+      chaseDist = clamp(chaseDist + dead(sy) * 1.2 * dt, 0.35, 3.0);
+      if (btn(5)) chaseH = clamp(chaseH + 0.8 * dt, -0.6, 1.5);
+      if (btn(4)) chaseH = clamp(chaseH - 0.8 * dt, -0.6, 1.5);
+      dragging = false;
+    } else {
+      const f = getCamForwardFlat(_v1);
+      const r = _v2.set(-f.z, 0, f.x);
+      input.move.addScaledVector(f, -dead(sy) * CAM_SPEED).addScaledVector(r, dead(sx) * CAM_SPEED);
+      if (btn(5)) input.move.y += CAM_SPEED;  // Y = up
+      if (btn(4)) input.move.y -= CAM_SPEED;  // X = down
+      // Grip + drag: grab space and pull yourself through it (translation only).
+      if (btn(1)) {
+        if (dragging) {
+          _v3.subVectors(L.position, dragLast).applyAxisAngle(UP, rigYaw);
+          rig.position.addScaledVector(_v3, -3);
+        }
+        dragLast.copy(L.position);
+        dragging = true;
+      } else dragging = false;
+    }
   }
 }
 
@@ -824,14 +854,23 @@ function gatherInputDesktop() {
   camera.updateMatrixWorld(true);
 
   input.move.set(0, 0, 0);
+  if (camMode === 'chase') {
+    const dt = 1 / 60;
+    if (keys.has('KeyW')) chaseDist = clamp(chaseDist - 1.2 * dt, 0.35, 3.0);
+    if (keys.has('KeyS')) chaseDist = clamp(chaseDist + 1.2 * dt, 0.35, 3.0);
+    if (keys.has('KeyE')) chaseH = clamp(chaseH + 0.8 * dt, -0.6, 1.5);
+    if (keys.has('KeyQ')) chaseH = clamp(chaseH - 0.8 * dt, -0.6, 1.5);
+  }
   const f = getCamForwardFlat(_v1);
   const r = _v2.set(-f.z, 0, f.x);
-  if (keys.has('KeyW')) input.move.add(f);
-  if (keys.has('KeyS')) input.move.sub(f);
-  if (keys.has('KeyD')) input.move.add(r);
-  if (keys.has('KeyA')) input.move.sub(r);
-  if (keys.has('KeyE')) input.move.y += 1;
-  if (keys.has('KeyQ')) input.move.y -= 1;
+  if (camMode === 'free' && keys.has('KeyW')) input.move.add(f);
+  if (camMode === 'free') {
+    if (keys.has('KeyS')) input.move.sub(f);
+    if (keys.has('KeyD')) input.move.add(r);
+    if (keys.has('KeyA')) input.move.sub(r);
+    if (keys.has('KeyE')) input.move.y += 1;
+    if (keys.has('KeyQ')) input.move.y -= 1;
+  }
   if (input.move.lengthSq() > 0) input.move.normalize().multiplyScalar(CAM_SPEED);
 
   raycaster.setFromCamera(mouse, camera);
@@ -852,8 +891,8 @@ function gatherInputDesktop() {
     if (near) {
       input.origin.copy(player.obj.position);
       input.dir.subVectors(near.obj.position, player.obj.position).normalize();
-      input.fire = player.fwd.angleTo(input.dir) < 0.3 && nd < 6;
-      input.boost = nd > 3;
+      input.fire = player.fwd.angleTo(input.dir) < 0.3 && nd < 6 * S;
+      input.boost = nd > 3 * S;
     }
   }
   if (DEMO && state === 'gameover' && stateTimer > 3) startGame();
@@ -885,16 +924,6 @@ function flyByStick(dt) {
   az += player.yawRate * dt;
   el = clamp(el + player.pitchRate * dt, -MAX_ELEV, MAX_ELEV);
   const desired = _v1.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
-  // Soft tether: if the ship strays far from your viewpoint, it gently turns back.
-  const toCam = _v2.subVectors(camPos, p);
-  const d = toCam.length();
-  // Your stick input wins: the tether relaxes while you are actively steering.
-  const steering = Math.min(1, Math.hypot(sx, sy));
-  if (d > TETHER_START) turnToward(desired, toCam.normalize(), clamp((d - TETHER_START) / (TETHER_FULL - TETHER_START), 0, 1) * 2.0 * (1 - 0.75 * steering) * dt);
-  // Hard safety net: beyond the tether, gently drift the ship back toward you.
-  if (d > TETHER_FULL) p.addScaledVector(_v2.subVectors(camPos, p).normalize(), Math.min(1.2, (d - TETHER_FULL) * 1.5) * dt);
-  const n = arenaNorm(p);
-  if (n > 0.9) turnToward(desired, _v2.subVectors(ARENA_C, p).normalize(), clamp((n - 0.9) * 6, 0, 1) * 2.4 * dt);
   if (Math.abs(desired.y) > Math.sin(MAX_ELEV)) {
     const h = Math.hypot(desired.x, desired.z) || 1;
     const c = Math.cos(MAX_ELEV) / h;
@@ -918,14 +947,19 @@ function updatePlayer(dt) {
     const desired = _v1.copy(player.fwd);
     if (input.hasSteer) {
       const d = input.origin.distanceTo(p) + LEAD;
-      const target = _v2.copy(input.origin).addScaledVector(input.dir, d);
-      reticle.position.copy(target);
+      if (camMode === 'chase' && state === 'playing' && !DEMO) {
+        // Chase view: fly in the direction you point. Straight ahead = straight,
+        // pointing to a side keeps turning that way (the view follows).
+        desired.copy(input.dir);
+      } else {
+        // Free view: fly toward the spot you point at.
+        desired.subVectors(_v2.copy(input.origin).addScaledVector(input.dir, d), p).normalize();
+      }
+      // Shorter "steering stick": the visible pointer + ring sit at half the target distance.
+      reticle.position.copy(input.origin).addScaledVector(input.dir, d * 0.5);
       reticle.visible = true;
-      desired.subVectors(target, p).normalize();
-      if (renderer.xr.isPresenting && hands.right) pointer.scale.set(1, 1, d);
+      if (renderer.xr.isPresenting && hands.right) pointer.scale.set(1, 1, d * 0.5);
     }
-    const n = arenaNorm(p);
-    if (n > 0.92) desired.lerp(_v3.subVectors(ARENA_C, p).normalize(), clamp((n - 0.92) * 5, 0, 1)).normalize();
     steer(player, desired.clone(), dt);
   } else {
     reticle.visible = false;
@@ -944,14 +978,14 @@ function updatePlayer(dt) {
     for (const e of enemies) {
       const to = _v3.subVectors(e.obj.position, p);
       const a = player.fwd.angleTo(to);
-      if (a < bestA && to.length() < 7) { bestA = a; bestE = e; }
+      if (a < bestA && to.length() < 7 * S) { bestA = a; bestE = e; }
     }
     if (bestE) {
-      const t = bestE.obj.position.distanceTo(p) / 7;
+      const t = bestE.obj.position.distanceTo(p) / (7 * S);
       const lead = _v3.copy(bestE.obj.position).addScaledVector(bestE.fwd, bestE.speed * t).sub(p).normalize();
       dir.lerp(lead, 0.6).normalize();
     }
-    playerBullets.spawn(_v3.copy(p).addScaledVector(player.fwd, 0.2), dir.multiplyScalar(7).addScaledVector(player.vel, 0.5), 1.6);
+    playerBullets.spawn(_v3.copy(p).addScaledVector(player.fwd, 0.2 * S), dir.multiplyScalar(7 * S).addScaledVector(player.vel, 0.5), 1.6);
     sfx.laser(p);
     haptic('right', 0.25, 20);
     player.fireCd = 0.14;
@@ -967,7 +1001,7 @@ function updatePlayer(dt) {
   if (trailTimer <= 0) {
     trailTimer = 0.03;
     trailArr.copyWithin(3, 0, (TRAIL_N - 1) * 3);
-    _v3.copy(p).addScaledVector(player.fwd, -0.1);
+    _v3.copy(p).addScaledVector(player.fwd, -0.1 * S);
     trailArr[0] = _v3.x; trailArr[1] = _v3.y; trailArr[2] = _v3.z;
     trail.geometry.attributes.position.needsUpdate = true;
   }
@@ -985,7 +1019,7 @@ function updateCollisions() {
   }
   if (player.alive) {
     for (const b of enemyBullets.list) {
-      if (segPointDist(b.prev, b.pos, player.obj.position) < 0.14) {
+      if (segPointDist(b.prev, b.pos, player.obj.position) < 0.14 * S) {
         b.dead = true;
         damagePlayer();
       }
@@ -996,14 +1030,20 @@ function updateCollisions() {
 }
 
 function updateCameraRig(dt) {
-  rig.position.addScaledVector(input.move, dt);
-  // Keep the viewpoint within a generous bubble around the arena.
-  camera.getWorldPosition(camPos);
-  const n = arenaNorm(camPos);
-  if (n > 1.6) {
-    _v1.subVectors(camPos, ARENA_C);
-    rig.position.sub(_v1.multiplyScalar(1 - 1.6 / n));
+  if (camMode === 'free' || state !== 'playing' || !player.alive) {
+    rig.position.addScaledVector(input.move, dt);
+    return;
   }
+  // Chase: turn only around the vertical axis to stay behind the ship, smoothly eased.
+  const h = Math.hypot(player.fwd.x, player.fwd.z);
+  if (h > 0.05) {
+    const diff = Math.atan2(Math.sin(shipYaw() - rigYaw), Math.cos(shipYaw() - rigYaw));
+    const step = diff * (1 - Math.exp(-dt * 1.8)) * Math.min(1, h * 2);
+    rigYaw += clamp(step, -CHASE_YAW_MAX * dt, CHASE_YAW_MAX * dt);
+  }
+  rig.rotation.set(0, rigYaw, 0);
+  // Position follows in full 3D, eased.
+  rig.position.lerp(chaseTarget(_v1), 1 - Math.exp(-dt * 4));
 }
 
 let hudTimer = 0, statusTimer = 0, frames = 0;
@@ -1021,17 +1061,21 @@ function loop() {
   camera.getWorldPosition(camPos);
   camera.getWorldDirection(camFwd);
   sfx.setListener(camPos, camFwd, UP);
+  stars.position.copy(camPos);
+  grid.position.x = Math.round(camPos.x / GRID_STEP) * GRID_STEP;
+  grid.position.z = Math.round(camPos.z / GRID_STEP) * GRID_STEP;
 
   if (state === 'title') {
     // Idle demo: ship circles in front of you.
     const t = stateTimer * 0.6;
-    player.obj.position.set(Math.sin(t) * 1.2, HEAD_H - 0.1 + Math.sin(t * 2) * 0.2, -1.8 + Math.cos(t) * 0.6);
+    player.obj.position.set(Math.sin(t) * 0.7, HEAD_H - 0.1 + Math.sin(t * 2) * 0.12, -1.2 + Math.cos(t) * 0.35);
     player.fwd.set(Math.cos(t), Math.cos(t * 2) * 0.33, -Math.sin(t) * 0.5).normalize();
     quatFromDir(player.fwd, player.obj.quaternion);
     reticle.visible = false;
     if (xr && input.restart) startGame();
   } else {
     updatePlayer(dt);
+    if (player.alive) ARENA_C.lerp(player.obj.position, 1 - Math.exp(-dt * 0.8)); // the battle travels with you
     updateEnemies(dt);
     playerBullets.update(dt);
     enemyBullets.update(dt);
@@ -1098,4 +1142,5 @@ window.__game = {
   get hp() { return player.hp; }, get enemies() { return enemies.length; },
   player, enemiesList: enemies, startGame, rig, camera, renderer, scene, shipArrow, pointer, reticle,
   get steerMode() { return activeSteer(); }, get invertY() { return invertY; },
+  get camMode() { return camMode; }, get rigYaw() { return rigYaw; }, get chaseDist() { return chaseDist; },
 };

@@ -47,20 +47,20 @@
 <canvas id="hud" width="512" height="256"></canvas>
 <div id="message"><div class="t"></div><div class="s"></div></div>
 <div id="flash"></div>
-<div id="crosshint">WASD/QE move view &middot; right-drag or arrows look &middot; mouse steers (M: stick mode, IJKL) &middot; click shoots &middot; Shift boost &middot; R restart</div>
+<div id="crosshint">W/S chase distance &middot; G free cam &middot; right-drag or arrows look &middot; mouse steers (M: stick mode, IJKL) &middot; click shoots &middot; Shift boost &middot; R restart</div>
 <div id="title">
   <div class="box">
     <h1>BATTLE ROOM</h1>
     <p>You sit at the centre of a 360&deg; battle. Fly the cyan ship, destroy the red waves. Enemies come from every direction - look around (and listen).</p>
     <table>
-      <tr><td>VR right hand</td><td><b>Steering: STICK (default)</b> - thumbstick flies the ship: left/right turn, up/down nose up/down. The ship always flies forward. Trigger shoot &middot; Grip boost &middot; A brake &middot; B invert up/down &middot; <b>click the stick</b> to switch to POINT mode (point the controller where the ship should fly)</td></tr>
-      <tr><td>VR left hand</td><td>Stick moves your viewpoint &middot; Y up / X down &middot; Grip + drag to pull yourself through space &middot; stick click recentre &middot; wrist shows score + radar</td></tr>
-      <tr><td>Desktop</td><td>Mouse steers (ship flies toward the cursor) &middot; M switches to stick mode (I/K nose up/down, J/L turn, V invert) &middot; Left click / Space shoot &middot; Shift boost &middot; F brake &middot; WASD + Q/E move viewpoint &middot; right-drag or arrow keys look &middot; C recentre &middot; R restart</td></tr>
+      <tr><td>VR right hand</td><td><b>Steering: POINT (default)</b> - point the controller where the ship should fly. Trigger shoot &middot; Grip / stick forward boost &middot; A / stick back brake &middot; <b>click the stick</b> to switch to STICK mode (thumbstick flies the ship, B inverts up/down)</td></tr>
+      <tr><td>VR left hand</td><td><b>Camera: CHASE (default)</b> - the view follows behind your ship (it only turns you left/right). Stick up/down closer/farther &middot; Y/X view higher/lower &middot; <b>click the stick</b> for FREE camera (stick moves you, Y/X up/down, grip + drag) &middot; wrist shows score + radar</td></tr>
+      <tr><td>Desktop</td><td>Mouse steers (ship flies toward the cursor) &middot; M switches to stick mode (I/K nose up/down, J/L turn, V invert) &middot; Left click / Space shoot &middot; Shift boost &middot; F brake &middot; Chase camera: W/S closer/farther, Q/E lower/higher &middot; G free camera (WASD + Q/E move) &middot; right-drag or arrow keys look &middot; C snap behind ship &middot; R restart</td></tr>
     </table>
     <button id="startbtn">START (desktop)</button>
     <p style="font-size:12px;color:#5fa9bf">On a Quest: press ENTER VR at the bottom of the page.</p>
   </div>
 </div>
-<script type="module" src="js/main.js?v=2"></script>
+<script type="module" src="js/main.js?v=3"></script>
 </body>
 </html>
