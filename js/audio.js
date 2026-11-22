@@ -39,6 +39,7 @@ export class Sfx {
 
   _out(pos) {
     if (!pos) return this.master;
+    if (this.toWorld) pos = this.toWorld(pos);   // game units (battle box) -> world metres
     const p = this.ctx.createPanner();
     p.panningModel = 'HRTF';
     p.distanceModel = 'inverse';

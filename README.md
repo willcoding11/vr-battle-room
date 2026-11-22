@@ -1,86 +1,64 @@
 # Battle Room
 
-A seated, 360-degree wireframe space battle for **Meta Quest 3 / 3S**, inspired by the
-command-school simulator in *Ender's Game*. You sit in the middle of the battle. Your
-cyan ship and the red enemy waves fly all around you: in front, behind, above and below.
+A seated, **tabletop** wireframe space battle for **Meta Quest 3 / 3S**, inspired by the
+command-school simulator in *Ender's Game*. The whole battle plays out as a miniature
+inside a small wireframe box (about 0.9 m wide) floating in front of you, so you never
+have to turn or move. Your cyan ship fights waves of red ships inside the box.
 
 It is a WebXR web page built with three.js. It runs in the Quest's built-in browser, so you
 don't need to install an app or turn on developer mode. It also runs in a normal desktop
 browser with mouse and keyboard.
 
-![explosion](screenshots/02-explosion.png)
+![diorama](screenshots/09-diorama.png)
 
 ## How to play
 
 - Destroy every red ship to clear a wave. Each new wave has more enemies, and they are
-  faster and shoot more often. From wave 3 on, armoured **cruisers** (4 hits, 3-shot
-  spread) join the fighters.
-- Your hull has 5 points. Clearing a wave repairs 1. Getting shot or ramming an enemy
-  costs 1. Points per kill = 100 for a fighter or 300 for a cruiser, times the wave number.
-- Enemies attack from every direction. Look around and listen: sounds play from the
-  direction they come from. The wrist radar (desktop: bottom-left) shows every ship
-  around you. Your facing is up on the radar, and the triangles mark ships above or
-  below you.
+  faster and shoot more often. From wave 3 on, armoured **cruisers** join the fighters.
+- Your hull has 5 points. Clearing a wave repairs 1.
+- **Wrap-around:** fly out through one face of the box and you come back in through the
+  opposite face, with a small flash. Nothing ever forces your ship to turn. Enemies wrap too.
+- Your view never moves and the game never turns you. Just look at the box.
 
 ## Controls
-
-Comfort rules:
-- The game **never rotates you**. Turn your own head and body to follow the action.
-- Up is always up.
-- The view only *slides* along with your ship (translation only), at a fixed offset.
 
 ### Quest (VR, seated)
 
 | Hand | Input | Action |
 |---|---|---|
-| Right | **Point** (default steering) | The ship flies in the direction you point and turns quickly toward it. A short 0.5 m laser and ring show your pointing direction |
+| Right | **Tilt the controller** (Relative steering, default) | The controller is a flight stick in your hand. Tilt or twist it left/right to turn, and tilt it up/down to raise or lower the nose, always **relative to the ship's own heading**. Your hand can stay comfortably in front of you whatever way the ship is flying. There is no response within 5° of neutral, and the turn rate reaches full at 35° |
+| Right | **Hold grip** | Re-center: while held, the ship flies straight and "neutral" follows your hand. Let go at a comfortable angle |
+| Right | **Click the thumbstick** | Re-center neutral instantly (it is also captured when a game starts) |
 | Right | **Trigger** | Shoot along the aim line out of the ship's nose (gentle aim assist) |
-| Right | **Grip** / **stick forward** | Boost |
-| Right | **A** / **stick back** | Brake |
-| Right | **Click the thumbstick** | Switch steering: POINT or STICK (thumbstick flies the ship: left/right turn, up/down nose up/down; B inverts) |
-| Right | **Trigger / A** | Start, and restart after you are destroyed |
-| Left | **Thumbstick** | Move your view, relative to where you're looking |
-| Left | **Y / X** | Move your view up / down |
-| Left | **Hold grip** | 2x view move speed while held |
-| Left | **Click the thumbstick** | Put the view back behind your ship (relative to where you're looking) |
-| Left | **X + Y together** | Open/close **Settings**. Point at a row with the right controller and pull the trigger to change it. The game pauses while it's open |
-| Left | **Look at your wrist** | Score, wave, hull, radar, steering and camera mode |
+| Right | **Stick forward** / **stick back** or **A** | Boost / brake |
+| Right | *(on the controller)* | A small gimbal: the ring is full deflection and the dot is your current tilt |
+| Left | **Grip + drag** | Move the box |
+| Left | **Stick up / down** | Grow / shrink the box |
+| Left | **Click the thumbstick** | Put the box back in its default spot |
+| Left | **X + Y together** | Settings (point with the right controller and pull the trigger to change; the game pauses) |
+| Left | **Look at your wrist** | Score, wave, hull and a top-down radar of the box |
 
-### Settings (saved on the device)
+### Settings (saved on the device, as are the box position and size)
 
 | Setting | Options | Default |
 |---|---|---|
-| Camera | **Ride with ship**: your view = ship position + your offset, so stick movement adds on top of the ship's motion. **Independent**: while you push the stick you move at only your own speed (the ship's motion isn't added); when you let go, the view locks onto the ship again at the new offset | Ride with ship |
-| Camera speed | Slow 1.2 / Normal 2.5 / Fast 4.5 m/s (hold left grip = 2x) | Normal |
-| Follow distance | Near 1.4 / Medium 2.4 / Far 3.6 m behind the ship (a bit above it) | Medium |
-| Ship turn speed | Normal 2x / Fast 2.6x / Very fast 3.4x the original turn rate | Fast |
-| Steering | Point / Stick | Point |
+| Steering | Relative (hand stick) / Point (fly the way you point) / Thumbstick (right stick flies, B inverts) | Relative |
+| Ship turn speed | Normal / Fast / Very fast | Fast |
+| Box size | Small 0.6 m / Medium 0.9 m / Large 1.2 m | Medium |
 
 ### Desktop (testing without a headset)
 
 | Input | Action |
 |---|---|
-| Mouse | Steer: the ship flies the way the cursor points |
-| M | Switch to STICK mode: I/K = nose up/down, J/L = turn (V inverts up/down) |
+| Mouse | Relative steering: how far the cursor is from the screen centre = how hard you turn |
+| M | Cycle steering: relative / point / thumbstick (I/K + J/L, V inverts) |
 | Left click / Space | Shoot |
 | Shift / F | Boost / brake |
-| W A S D, Q / E | Move your view (relative to where you look), down / up. Hold X for 2x |
-| Right-drag or arrow keys | Look around (stands in for head tracking) |
-| C | Put the view back behind your ship |
+| + / - | Box size |
+| C | Reset the box |
+| Right-drag or arrow keys | Look around |
 | Tab or the gear button | Settings |
 | Enter / R | Start / restart |
-
-### What's on screen
-
-- **Scale:** ships, shots and explosions are drawn at half size (zoomed out), with speeds and
-  hit sizes scaled to match.
-- **No boundaries:** your ship goes wherever you steer it, and the battle travels with you.
-- **Aim line:** a short line with a crosshair comes out of the ship's nose. That is where the
-  ship is heading and where your shots go.
-- **Off-screen arrow:** when your ship is outside your view, a pulsing cyan arrow at the edge
-  of your view points to it.
-
-![settings](screenshots/08-settings.png)
 
 URL options: `?wave=5` starts at wave 5, and `?demo` turns on an autopilot (attract mode).
 `?test` sends errors and status lines to a local test server.
