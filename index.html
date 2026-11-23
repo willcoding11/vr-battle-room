@@ -24,10 +24,12 @@
   #app canvas { display: block; }
   #hud { position: fixed; left: 12px; bottom: 12px; width: 384px; height: 192px; pointer-events: none; }
   body.in-vr #hud { display: none; }
-  #message { position: fixed; left: 0; right: 0; top: 22%; text-align: center; pointer-events: none; opacity: 0; transition: opacity .25s; text-shadow: 0 0 12px #0af; }
+  /* Messages: a small panel next to the HUD (bottom-left), never over the middle of the battle. */
+  #message { position: fixed; left: 408px; bottom: 12px; width: 360px; box-sizing: border-box; padding: 10px 14px; text-align: left; pointer-events: none; opacity: 0; transition: opacity .25s; background: rgba(0,10,22,.62); border: 2px solid rgba(80,220,255,.7); text-shadow: 0 0 8px #0af; }
   #message.show { opacity: 1; }
-  #message .t { font-size: 48px; font-weight: bold; letter-spacing: 6px; }
-  #message .s { font-size: 18px; margin-top: 8px; white-space: pre-line; color: #bfefff; }
+  #message .t { font-size: 22px; font-weight: bold; letter-spacing: 3px; }
+  #message .s { font-size: 13px; margin-top: 4px; white-space: pre-line; color: #bfefff; }
+  body.in-vr #message { display: none; }
   #flash { position: fixed; inset: 0; background: radial-gradient(ellipse at center, rgba(255,0,30,0) 40%, rgba(255,0,30,.6) 100%); opacity: 0; pointer-events: none; }
   #title { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,8,.55); }
   #title.hidden { display: none; }
@@ -65,9 +67,9 @@
 <div id="title">
   <div class="box">
     <h1>BATTLE ROOM</h1>
-    <p>A miniature battle in a box in front of you. Fly out of one side of the box and you come back in the opposite side. Two modes:</p>
+    <p>A miniature battle in a box in front of you. Fly out of one side of the box and you come back in the opposite side. The room changes shape (long, flat, tall or cube) every game and between waves. Messages show on your left wrist. Two modes:</p>
     <p><b>FIGHTER</b>: fly the cyan ship yourself and destroy the red waves. Enemies fight in groups: pincer pairs, flankers, snipers that hold range, heavies.<br>
-    <b>SQUADRON</b>: a much bigger, zoomed-out battlefield with big floating "stars" (cover). You command 4 bot fighters: your right controller sets the direction they head in, and they fly themselves.</p>
+    <b>SQUADRON</b>: a much bigger, zoomed-out battlefield with big floating spherical "stars" (cover). You command 4 bot fighters: your right controller sets the direction they head in, and they fly themselves.</p>
     <table>
       <tr><td>VR right hand</td><td><b>Mirror steering (default)</b>: the ship (or, in Squadron, the squadron's heading) turns with your right controller, with gain (Fighter 2x, Squadron 3x), in any direction, including loops. <b>Trigger: shoot</b> (Squadron: <b>hold = engage</b>: the bots spread out a little and attack; release = regroup) &middot; <b>grip: boost</b> (Squadron: only while not engaging) &middot; A brake &middot; <b>click the stick</b> to re-center &middot; on the title: <b>B switches mode</b>, trigger starts</td></tr>
       <tr><td>VR left hand</td><td>Extras: trigger shoots &middot; grip boosts &middot; stick forward boost / back brake &middot; stick click resets the box &middot; <b>X+Y: settings</b> (mode, steering, gains, turn speed, box size) &middot; wrist shows score, hull / squadron status and radar</td></tr>
@@ -77,6 +79,6 @@
     <p style="font-size:12px;color:#5fa9bf">On a Quest: press ENTER VR at the bottom of the page, then B picks the mode and the right trigger starts.</p>
   </div>
 </div>
-<script type="module" src="js/main.js?v=9"></script>
+<script type="module" src="js/main.js?v=10"></script>
 </body>
 </html>

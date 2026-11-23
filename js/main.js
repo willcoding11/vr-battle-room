@@ -2,8 +2,8 @@
 // with a mouse + keyboard fallback for desktop browsers.
 import * as THREE from '../vendor/three.module.js';
 import { VRButton } from '../vendor/VRButton.js';
-import { buildPlayerShip, buildFighter, buildCruiser, buildControllerGizmo, tintShip } from './models.js?v=9';
-import { Sfx } from './audio.js?v=9';
+import { buildPlayerShip, buildFighter, buildCruiser, buildControllerGizmo, tintShip } from './models.js?v=10';
+import { Sfx } from './audio.js?v=10';
 
 const TEST = /[?&]test/.test(location.search);
 const DEMO = /[?&]demo/.test(location.search);          // autopilot (attract mode / testing)
@@ -17,9 +17,10 @@ const ARENA_C = new THREE.Vector3(0, 0, 0);       // battle centre = centre of t
 // Battle box half-size in game units. The box keeps its physical size in front of you, so a bigger
 // BOX_B = more room relative to the ships. Fighter: 2.8 (was 1.75). Squadron: zoomed out much further.
 const MODE_BOX = { fighter: 2.8, squadron: 5.0 };
-let BOX_B = MODE_BOX.fighter;
-let ARENA_RH = BOX_B * 0.9;                       // enemy roaming radius (game units)
-let ARENA_RV = BOX_B * 0.9;
+let BOX_B = MODE_BOX.fighter;                     // base half-size: sets the scale (ship size) for the mode
+// The room's actual half-extents per axis. Width, height and depth vary independently (long, flat,
+// tall or cube) with roughly the same volume as a BOX_B cube; they change each game and each wave.
+const HB = new THREE.Vector3(BOX_B, BOX_B, BOX_B);
 const FRIEND_COLOR = new THREE.Color(0x33ddff);
 const PLAYER_COLOR = new THREE.Color(0x33ddff);
 const ENEMY_COLOR = new THREE.Color(0xff3344);
@@ -92,10 +93,15 @@ try {
   const b = JSON.parse(localStorage.getItem('battleRoomBox5') || 'null');
   if (b && [b.x, b.y, b.z, b.size].every((v) => typeof v === 'number' && isFinite(v))) Object.assign(box, b);
 } catch (e) { /* ignore */ }
+function placeBoard() {
+  // A deeper room grows away from you: the near face stays where the cube's near face would be.
+  const sc = box.size / (2 * BOX_B);
+  board.position.set(box.x, box.y, box.z - (HB.z - BOX_B) * sc);
+}
 function applyBoard() {
   box.size = clamp(box.size, 0.3, 2.0);
-  board.position.set(box.x, box.y, box.z);
   board.scale.setScalar(box.size / (2 * BOX_B));
+  placeBoard();
   // Point sprites are sized in world units, so re-fit them to the new board scale.
   board.traverse((o) => { if (o.userData.ptBase) o.userData.mats[1].size = o.userData.ptBase * S * board.scale.x; });
 }
@@ -113,26 +119,69 @@ const boxFrame = new THREE.Group();
   boxFrame.add(edges, floor);
   board.add(boxFrame);
 }
+// Room shape. Factors multiply BOX_B per axis; product ~1 keeps the volume (and difficulty) about the
+// same. Caps keep it comfortable in front of you: up to ~1.5x wide / deep, ~1.35x tall.
+const SHAPE_PRESETS = [
+  [1, 1, 1], [0.8, 0.8, 1.55], [1.5, 0.8, 0.85], [1.3, 0.6, 1.3], [0.85, 1.35, 0.85], [1.45, 1.0, 0.7], [0.7, 1.3, 1.1],
+];
+var OBST_READY = false;                           // var: read before the obstacle section runs
+const SHAPE_MIN = 0.6, SHAPE_MAX = { x: 1.5, y: 1.35, z: 1.55 };
+function pickShape(out) {
+  let f;
+  if (Math.random() < 0.5) f = SHAPE_PRESETS[Math.floor(Math.random() * SHAPE_PRESETS.length)].slice();
+  else f = [Math.exp(rand(-0.45, 0.45)), Math.exp(rand(-0.45, 0.45)), Math.exp(rand(-0.45, 0.45))];
+  const k = Math.cbrt(f[0] * f[1] * f[2]);
+  out.set(
+    clamp(f[0] / k, SHAPE_MIN, SHAPE_MAX.x), clamp(f[1] / k, SHAPE_MIN, SHAPE_MAX.y), clamp(f[2] / k, SHAPE_MIN, SHAPE_MAX.z),
+  );
+  return out.multiplyScalar(BOX_B);
+}
+// Apply the current HB: frame, board placement, star positions.
+function applyShape() {
+  boxFrame.scale.copy(HB);
+  placeBoard();
+  if (OBST_READY) layoutObstacles();             // (the stars are built further down)
+}
+// Smooth change of shape between waves.
+const HB_FROM = new THREE.Vector3(), HB_TO = new THREE.Vector3();
+let morphT = 1, morphDur = 2.4;
+const _shapeTmp = new THREE.Vector3();
+// Each frame while the room changes shape: ease the half-extents and keep every ship inside.
+function updateMorph(dt) {
+  if (morphT >= 1) return;
+  morphT = Math.min(1, morphT + dt / morphDur);
+  const s = morphT * morphT * (3 - 2 * morphT);
+  HB.lerpVectors(HB_FROM, HB_TO, s);
+  applyShape();
+  const keep = (p) => { p.x = clamp(p.x, -HB.x * 0.97, HB.x * 0.97); p.y = clamp(p.y, -HB.y * 0.97, HB.y * 0.97); p.z = clamp(p.z, -HB.z * 0.97, HB.z * 0.97); };
+  keep(player.obj.position);
+  for (const e of enemies) keep(e.obj.position);
+  for (const b of bots) keep(b.obj.position);
+}
+function morphTo(target, dur) { HB_FROM.copy(HB); HB_TO.copy(target); morphT = 0; morphDur = dur; }
+function setShape(target) { HB.copy(target); morphT = 1; applyShape(); }
 function setBoxB(b) {
-  BOX_B = b; ARENA_RH = BOX_B * 0.9; ARENA_RV = BOX_B * 0.9;
-  boxFrame.scale.setScalar(BOX_B);
+  BOX_B = b;
+  HB.set(b, b, b);
+  morphT = 1;
   applyBoard();
+  applyShape();
 }
 setBoxB(MODE_BOX[settings.mode] || MODE_BOX.fighter);
 // Shortest vector from a to b in the wrap-around box (each axis wraps).
 function wrapDelta(a, b, out) {
   out.subVectors(b, a);
   for (const k of ['x', 'y', 'z']) {
-    if (out[k] > BOX_B) out[k] -= 2 * BOX_B; else if (out[k] < -BOX_B) out[k] += 2 * BOX_B;
+    if (out[k] > HB[k]) out[k] -= 2 * HB[k]; else if (out[k] < -HB[k]) out[k] += 2 * HB[k];
   }
   return out;
 }
-function outsideBox(p, m = 1) { return Math.abs(p.x) > BOX_B * m || Math.abs(p.y) > BOX_B * m || Math.abs(p.z) > BOX_B * m; }
+function outsideBox(p, m = 1) { return Math.abs(p.x) > HB.x * m || Math.abs(p.y) > HB.y * m || Math.abs(p.z) > HB.z * m; }
 // Wrap-around: leave through one face, come back in through the opposite face.
 function wrapBox(p) {
   let w = false;
   for (const k of ['x', 'y', 'z']) {
-    if (p[k] > BOX_B) { p[k] -= 2 * BOX_B; w = true; } else if (p[k] < -BOX_B) { p[k] += 2 * BOX_B; w = true; }
+    if (p[k] > HB[k]) { p[k] -= 2 * HB[k]; w = true; } else if (p[k] < -HB[k]) { p[k] += 2 * HB[k]; w = true; }
   }
   return w;
 }
@@ -164,13 +213,9 @@ sfx.toWorld = (v) => board.localToWorld(v.clone());
 
 // ---------------------------------------------------------------- helpers
 function shrink(obj) { obj.scale.setScalar(S); obj.userData.ptBase = obj.userData.mats[1].size; obj.userData.mats[1].size *= S * board.scale.x; return obj; }
-function arenaNorm(p) {
-  const x = (p.x - ARENA_C.x) / ARENA_RH, y = (p.y - ARENA_C.y) / ARENA_RV, z = (p.z - ARENA_C.z) / ARENA_RH;
-  return Math.sqrt(x * x + y * y + z * z);
-}
 function randomArenaPoint(scale = 0.8) {
-  _v1.randomDirection().multiplyScalar(Math.cbrt(Math.random()) * scale);
-  return new THREE.Vector3(ARENA_C.x + _v1.x * ARENA_RH, ARENA_C.y + _v1.y * ARENA_RV, ARENA_C.z + _v1.z * ARENA_RH);
+  _v1.randomDirection().multiplyScalar(Math.cbrt(Math.random()) * scale * 0.9);
+  return new THREE.Vector3(ARENA_C.x + _v1.x * HB.x, ARENA_C.y + _v1.y * HB.y, ARENA_C.z + _v1.z * HB.z);
 }
 // Orient a +Z-forward object along dir, keeping world up as up.
 function quatFromDir(dir, out) {
@@ -346,7 +391,7 @@ function resetTrail() {
 
 function resetPlayer() {
   // Start near the front-centre of the box, flying away from you.
-  player.obj.position.set(0, 0, BOX_B * 0.4);
+  player.obj.position.set(0, 0, HB.z * 0.4);
   player.fwd.set(0, 0, -1);
   player.bank = 0; player.yawRate = 0; player.pitchRate = 0; player.speed = CRUISE; player.hp = MAX_HP; player.invuln = 1.5; player.flash = 0;
   player.alive = true; player.obj.visible = true; trail.visible = settings.mode !== 'squadron';
@@ -367,27 +412,26 @@ const obstacles = [];
 const obstacleGroup = new THREE.Group();
 board.add(obstacleGroup);
 {
+  // All spheres. Positions are FRACTIONS of the room's half-extents, so the stars spread out or
+  // squeeze together with the room's shape (and glide with it when it changes between waves).
   const layout = [
-    ['cube', -2.2, 0.8, -1.5, 0.6], ['sphere', 2.4, -1.0, -2.2, 0.7], ['cube', 0.2, 2.0, 0.6, 0.5],
-    ['sphere', -1.6, -1.9, 1.3, 0.6], ['cube', 2.1, 1.4, 2.0, 0.55], ['cube', 1.2, -0.9, -3.4, 0.6],
-    ['sphere', -3.1, 2.2, 2.6, 0.5], ['cube', -3.0, -1.2, -3.2, 0.5],
+    [-0.44, 0.16, -0.3, 0.6], [0.48, -0.2, -0.44, 0.7], [0.04, 0.4, 0.12, 0.55],
+    [-0.32, -0.38, 0.26, 0.6], [0.42, 0.28, 0.4, 0.55], [0.24, -0.18, -0.68, 0.6],
+    [-0.62, 0.44, 0.52, 0.5], [-0.6, -0.24, -0.64, 0.55],
   ];
   const mat = new THREE.LineBasicMaterial({ color: 0x9fb8dd, transparent: true, opacity: 0.6 });
-  const matIn = new THREE.LineBasicMaterial({ color: 0x5a7090, transparent: true, opacity: 0.45 });
-  for (const [type, x, y, z, r] of layout) {
-    const g = new THREE.Group();
-    if (type === 'cube') {
-      g.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(2 * r, 2 * r, 2 * r)), mat));
-      g.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.2 * r, 1.2 * r, 1.2 * r)), matIn));
-    } else {
-      g.add(new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(r, 1)), mat));
-    }
-    g.position.set(x, y, z);
+  for (const [x, y, z, r] of layout) {
+    const g = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(r, 1)), mat);
     obstacleGroup.add(g);
-    obstacles.push({ type, c: new THREE.Vector3(x, y, z), r, R: type === 'cube' ? r * Math.sqrt(3) : r });
+    obstacles.push({ type: 'sphere', n: new THREE.Vector3(x, y, z), c: new THREE.Vector3(), r, R: r, g });
   }
   obstacleGroup.visible = false;
 }
+function layoutObstacles() {
+  for (const o of obstacles) { o.c.copy(o.n).multiply(HB); o.g.position.copy(o.c); }
+}
+OBST_READY = true;
+layoutObstacles();
 const _ob = new THREE.Vector3(), _ob2 = new THREE.Vector3(), _ob3 = new THREE.Vector3();
 function inObst(o, p, pad = 0) {
   if (o.type === 'cube') return Math.abs(p.x - o.c.x) < o.r + pad && Math.abs(p.y - o.c.y) < o.r + pad && Math.abs(p.z - o.c.z) < o.r + pad;
@@ -468,7 +512,7 @@ function coverPoint(threat, near, out) {
   return clampIn(out);
 }
 function clampIn(p, m = 0.88) {
-  p.x = clamp(p.x, -BOX_B * m, BOX_B * m); p.y = clamp(p.y, -BOX_B * m, BOX_B * m); p.z = clamp(p.z, -BOX_B * m, BOX_B * m);
+  p.x = clamp(p.x, -HB.x * m, HB.x * m); p.y = clamp(p.y, -HB.y * m, HB.y * m); p.z = clamp(p.z, -HB.z * m, HB.z * m);
   return p;
 }
 function sideOf(fwd, out) {
@@ -522,14 +566,14 @@ function spawnGroup(role, n, wave) {
   const ref = player.obj.position;
   let best = null, bestD = -1;
   for (let k = 0; k < 8; k++) {
-    const p = new THREE.Vector3(rand(-0.7, 0.7), rand(-0.7, 0.7), rand(-0.7, 0.7)).multiplyScalar(BOX_B);
+    const p = new THREE.Vector3(rand(-0.7, 0.7), rand(-0.7, 0.7), rand(-0.7, 0.7)).multiply(HB);
     const ax = ['x', 'y', 'z'][k % 3];
-    p[ax] = (Math.random() < 0.5 ? -1 : 1) * BOX_B * 0.95;
+    p[ax] = (Math.random() < 0.5 ? -1 : 1) * HB[ax] * 0.95;
     if (obstInside(p, 0.4 * S)) continue;
     const d = p.distanceTo(ref) + rand(0, BOX_B * 0.6);
     if (d > bestD) { bestD = d; best = p; }
   }
-  if (!best) best = new THREE.Vector3(0, 0, -BOX_B * 0.95);
+  if (!best) best = new THREE.Vector3(0, 0, -HB.z * 0.95);
   if (role === 'bait') g.ambushPt = coverPoint(ref, best, new THREE.Vector3()) || best.clone().multiplyScalar(0.8);
   for (let i = 0; i < n; i++) {
     const pos = best.clone().add(_v1.randomDirection().multiplyScalar(0.4 * S));
@@ -1003,6 +1047,7 @@ function startGame() {
   enemyBullets.clear();
   score = 0; kills = 0;
   applyMode();
+  setShape(pickShape(_shapeTmp));                  // a new room shape for every game
   resetPlayer();
   resetBots();
   state = 'playing';
@@ -1053,12 +1098,19 @@ function showMessage(title, sub = '', dur = 2) {
   mctx.fillStyle = '#bfefff';
   sub.split('\n').forEach((line, i) => mctx.fillText(line, 512, 165 + i * 44));
   msgTex.needsUpdate = true;
-  msgPanel.visible = renderer.xr.isPresenting;
+  // In VR, messages go on a small panel on the LEFT wrist (right of the score panel) so nothing
+  // covers the battle. Only the title-screen prompt uses the big floating panel.
+  const xr = renderer.xr.isPresenting;
+  const big = xr && state === 'title';
+  msgPanel.visible = big;
+  wristMsg.visible = xr && !big;
+  msgEl.classList.toggle('title', state === 'title');
 }
 function hideMessage() {
   msgTime = 0;
   msgEl.classList.remove('show');
   msgPanel.visible = false;
+  wristMsg.visible = false;
 }
 
 const camFwd = new THREE.Vector3(), camPos = new THREE.Vector3();
@@ -1116,18 +1168,18 @@ function drawHud() {
     : `${gameMode === 'squadron' ? (squadEngaged ? 'ENGAGING' : 'FORMATION') : 'FIGHTER'} - ${STEER_NAMES[sm]}${sm === 'stick' && invertY ? ' INV' : ''}`, 20, 232);
 
   // Radar: top-down view of the box (far side up).
-  const cx = W - 128, cy = H / 2, R = 108, range = BOX_B * 1.15;
+  const cx = W - 128, cy = H / 2, R = 108, range = Math.max(HB.x, HB.z) * 1.15;
   hctx.strokeStyle = 'rgba(80,220,255,0.5)';
   hctx.lineWidth = 2;
-  hctx.strokeRect(cx - BOX_B / range * R, cy - BOX_B / range * R, 2 * BOX_B / range * R, 2 * BOX_B / range * R);
+  hctx.strokeRect(cx - HB.x / range * R, cy - HB.z / range * R, 2 * HB.x / range * R, 2 * HB.z / range * R);
   const plot = (p, color, size) => {
     const dy = p.y;
     const sx = (p.x / range) * R;
     const sy = (p.z / range) * R;
     hctx.fillStyle = color;
     hctx.beginPath();
-    if (dy > BOX_B / 3) { hctx.moveTo(cx + sx, cy + sy - size); hctx.lineTo(cx + sx - size, cy + sy + size); hctx.lineTo(cx + sx + size, cy + sy + size); }
-    else if (dy < -BOX_B / 3) { hctx.moveTo(cx + sx, cy + sy + size); hctx.lineTo(cx + sx - size, cy + sy - size); hctx.lineTo(cx + sx + size, cy + sy - size); }
+    if (dy > HB.y / 3) { hctx.moveTo(cx + sx, cy + sy - size); hctx.lineTo(cx + sx - size, cy + sy + size); hctx.lineTo(cx + sx + size, cy + sy + size); }
+    else if (dy < -HB.y / 3) { hctx.moveTo(cx + sx, cy + sy + size); hctx.lineTo(cx + sx - size, cy + sy - size); hctx.lineTo(cx + sx + size, cy + sy - size); }
     else hctx.arc(cx + sx, cy + sy, size, 0, Math.PI * 2);
     hctx.fill();
   };
@@ -1158,6 +1210,11 @@ const msgPanel = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.3),
 msgPanel.renderOrder = 11;
 msgPanel.visible = false;
 scene.add(msgPanel);
+// Wrist message panel: same texture, small, next to the wrist HUD (attached to the left controller).
+const wristMsg = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.0375),
+  new THREE.MeshBasicMaterial({ map: msgTex, transparent: true, depthTest: false, fog: false }));
+wristMsg.renderOrder = 11;
+wristMsg.visible = false;
 
 // Steering reticle + right-hand pointer.
 const reticle = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(
@@ -1315,7 +1372,7 @@ for (let i = 0; i < 2; i++) {
     if (hand !== 'left' && hand !== 'right') return;
     hands[hand] = c;
     c.add(buildControllerGizmo(hand === 'left' ? 0xffcc66 : 0x33ddff));
-    if (hand === 'left') c.add(hudPanel);
+    if (hand === 'left') c.add(hudPanel, wristMsg);
     else c.add(pointer, gimbal);
     log(`controller connected: ${hand} gamepad=${!!ev.data.gamepad}`);
   });
@@ -1328,6 +1385,9 @@ for (let i = 0; i < 2; i++) {
 }
 hudPanel.position.set(0, 0.05, 0.03);
 hudPanel.rotation.x = -0.75;
+// Messages sit just right of the wrist HUD (toward your other hand), at the same tilt, top-aligned.
+wristMsg.position.set(0.1 + 0.005 + 0.075, 0.05 + (0.05 - 0.0375 / 2) * Math.cos(0.75), 0.03 - (0.05 - 0.0375 / 2) * Math.sin(0.75));
+wristMsg.rotation.x = -0.75;
 
 function haptic(hand, intensity, ms) {
   const c = hands[hand];
@@ -1341,15 +1401,14 @@ renderer.xr.addEventListener('sessionstart', () => {
   hideTitle();
   rig.position.set(0, 0, 0);
   needNeutral = true;
-  if (state === 'title') showIdlePrompt();
-  else if (state === 'gameover') showMessage('SHIP DESTROYED', `Score ${score}\n${restartHint()}`, 9999);
-  msgPanel.visible = true;
   msgPanel.position.set(0, HEAD_H, -1.8);
+  if (state === 'title' || state === 'gameover') showIdlePrompt();
   log('xr sessionstart');
 });
 renderer.xr.addEventListener('sessionend', () => {
   document.body.classList.remove('in-vr');
   msgPanel.visible = false;
+  wristMsg.visible = false;
   camera.position.set(0, HEAD_H, 0);
   log('xr sessionend');
 });
@@ -1883,7 +1942,7 @@ function loop() {
   if (state === 'title') {
     // Idle demo: ship circles in front of you.
     const t = stateTimer * 0.6;
-    player.obj.position.set(Math.sin(t) * BOX_B * 0.6, Math.sin(t * 2) * BOX_B * 0.25, Math.cos(t) * BOX_B * 0.5);
+    player.obj.position.set(Math.sin(t) * HB.x * 0.6, Math.sin(t * 2) * HB.y * 0.25, Math.cos(t) * HB.z * 0.5);
     player.fwd.set(Math.cos(t), Math.cos(t * 2) * 0.33, -Math.sin(t) * 0.5).normalize();
     quatFromDir(player.fwd, player.obj.quaternion);
     player.mq.copy(player.obj.quaternion);
@@ -1891,6 +1950,7 @@ function loop() {
     reticle.visible = false;
     if (xr && input.restart) startGame();
   } else if (!menuOpen) {
+    updateMorph(dt);
     updatePlayer(dt);
     if (gameMode === 'squadron') updateBots(dt);
     updateEnemies(dt);
@@ -1901,6 +1961,7 @@ function loop() {
       if (enemies.length === 0) {
         if (intermission <= 0) {
           intermission = 3;
+          morphTo(pickShape(_shapeTmp), 2.4);          // the room reshapes before the next wave
           if (gameMode === 'squadron') {
             // +1 hull for every surviving bot; every 3rd wave a lost wingman is replaced.
             for (const b of bots) if (b.alive) b.hp = Math.min(BOT_HP, b.hp + 1);
@@ -1970,6 +2031,6 @@ window.__game = {
   player, enemiesList: enemies, startGame, rig, camera, renderer, scene, shipArrow, pointer, reticle,
   get steerMode() { return activeSteer(); }, get invertY() { return invertY; },
   settings, setSetting, neutralQ, input, gimbal, board, box, mirrorQ, bots, obstacles, groups,
-  get mode() { return gameMode; }, get boxB() { return BOX_B; }, get squadEngaged() { return squadEngaged; },
+  get mode() { return gameMode; }, get boxB() { return BOX_B; }, HB, get morphing() { return morphT < 1; }, wristMsg, msgPanel, hudPanel, get squadEngaged() { return squadEngaged; },
   get enemyBullets() { return enemyBullets.list.length; }, get bullets() { return playerBullets.list.length; }, toggleSettings, get menuOpen() { return menuOpen; }, get menuHover() { return menuHover; }, menuPanel,
 };

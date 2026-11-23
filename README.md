@@ -2,7 +2,7 @@
 
 A seated, **tabletop** wireframe space battle for **Meta Quest 3 / 3S**, inspired by the
 command-school simulator in *Ender's Game*. The whole battle plays out as a miniature
-inside a wireframe box (about 1 m wide) floating in front of you, so you never have to turn
+inside a wireframe room (about 1 m across, changing shape between waves) floating in front of you, so you never have to turn
 or move.
 
 It is a WebXR web page built with three.js. It runs in the Quest's built-in browser, so you
@@ -43,8 +43,9 @@ the commanded heading, dodge incoming bullets, and never run into each other.
   the line is clear, so never through a wingman or a star. Release to regroup into
   formation and carry on in the commanded direction.
 - **Right grip = boost.** It only works while NOT engaging, and the whole squadron boosts together.
-- **Stars:** big fixed wireframe cubes and spheres. Nothing can fly through them and they
-  block bullets, so both sides use them as cover. Ships steer around them.
+- **Stars:** big wireframe spheres. Nothing can fly through them and they block bullets, so
+  both sides use them as cover. Ships steer around them. They are spread through the room in
+  proportion to its current shape.
 - **Enemies** come in coordinated groups:
   - Pincers and flankers **focus fire** on your most exposed bot (the one furthest from its wingmen).
   - Snipers **hide behind stars** and step out to shoot.
@@ -61,6 +62,18 @@ the commanded heading, dodge incoming bullets, and never run into each other.
 **Wrap-around (both modes):** fly out through one face of the box and you come back in
 through the opposite face. Enemies wrap too. Your view never moves and the game never turns you.
 
+**The room changes shape (both modes):** width, height and depth vary independently, so the
+room may be a long tunnel, a flat slab, a tall tower or a cube. A new shape is picked for
+every game, and between waves the room smoothly reshapes itself, keeping every ship inside.
+The volume stays about the same, so the difficulty stays fair, and the size is capped (at
+most about 1.5 m wide or deep, 1.35 m tall with the Medium box size). A deeper room grows
+away from you, so its near face never comes closer.
+
+**Messages** (wave start, wave cleared, wingman down, game over...) appear on a small
+panel on your left wrist, to the right of the score panel, so nothing covers the battle.
+On the desktop they show in a small panel next to the HUD in the bottom-left corner. Only
+the title-screen prompt in VR floats in front of you.
+
 ## Controls
 
 ### Quest (VR, seated)
@@ -76,7 +89,7 @@ through the opposite face. Enemies wrap too. Your view never moves and the game 
 | Left | **Trigger / grip / stick forward-back** | Extras: shoot (engage) / boost / boost-brake | Same |
 | Left | **Click the thumbstick** | Put the box back in its default spot | Same |
 | Left | **X + Y together** | Settings (point with the right controller and pull the right trigger to change; the game pauses) | Same |
-| Left | **Look at your wrist** | Score, wave, hull, and a top-down radar | Score, wave, squadron status, and a radar with the stars |
+| Left | **Look at your wrist** | Score, wave, hull, a top-down radar, and the message panel | Score, wave, squadron status, a radar with the stars, and the message panel |
 
 Other steering modes (in Settings) also work in both modes:
 - **Relative (hand stick):** tilt the controller away from a captured neutral. Click the right stick to re-center.
