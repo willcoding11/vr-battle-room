@@ -1,9 +1,18 @@
-// Tiny synthesized sound effects (WebAudio), positioned in 3D so you can
-// hear where shots and explosions come from - including behind you.
+// Synthesized sound (WebAudio, no audio files): 3D-positioned effects, so you hear where shots and
+// explosions come from (including behind you), and procedural music (music.js). One mix:
+//   effects -> SFX volume ---\
+//                             +-> master -> glue compressor -> limiter -> out
+//   music -> MUSIC volume -> duck (dips under big explosions) --/
+// Volumes are 0..1 from the settings sliders (squared, so the slider feels even).
+import { Music } from './music.js?v=18';
+
 export class Sfx {
   constructor() {
     this.ctx = null;
-    this.lastEnemyShot = 0;
+    this.music = null;
+    this.vol = { music: 0.6, sfx: 0.8 };
+    this.at = null;                     // mix check: schedule at this time instead of "now"
+    this.last = {};                     // rate limits per sound
   }
 
   init() {
@@ -13,14 +22,47 @@ export class Sfx {
     }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
-    const ctx = (this.ctx = new AC());
+    this.attach(new AC());
+  }
+
+  // Build the mix on any context: the real one, or an OfflineAudioContext for the mix check.
+  attach(ctx) {
+    this.ctx = ctx;
+    const glue = ctx.createDynamicsCompressor();
+    glue.threshold.value = -16; glue.knee.value = 10; glue.ratio.value = 3; glue.attack.value = 0.008; glue.release.value = 0.2;
+    const lim = ctx.createDynamicsCompressor();
+    lim.threshold.value = -4; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.001; lim.release.value = 0.06;
+    const out = ctx.createGain(); out.gain.value = 1.0;
+    glue.connect(lim).connect(out).connect(ctx.destination);
     this.master = ctx.createGain();
-    this.master.gain.value = 0.55;
-    this.master.connect(ctx.destination);
+    this.master.connect(glue);
+    this.sfxBus = ctx.createGain(); this.sfxBus.connect(this.master);
+    this.musicBus = ctx.createGain();
+    this.duck = ctx.createGain();
+    this.musicBus.connect(this.duck).connect(this.master);
     const len = ctx.sampleRate;
     this.noise = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    this.music = new Music(ctx, this.musicBus, this.noise);
+    this.setVolumes(this.vol.music, this.vol.sfx);
+  }
+
+  setVolumes(music, sfx) {
+    this.vol = { music, sfx };
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.musicBus.gain.setTargetAtTime(music * music, t, 0.05);
+    this.sfxBus.gain.setTargetAtTime(sfx * sfx, t, 0.05);
+  }
+
+  now() { return this.at != null ? this.at : this.ctx.currentTime; }
+  // Rate limit: true if this sound played less than `gap` seconds ago.
+  _limited(key, gap) {
+    const t = this.now();
+    if (t - (this.last[key] || -1) < gap) return true;
+    this.last[key] = t;
+    return false;
   }
 
   setListener(pos, fwd, up) {
@@ -38,7 +80,7 @@ export class Sfx {
   }
 
   _out(pos) {
-    if (!pos) return this.master;
+    if (!pos) return this.sfxBus;
     if (this.toWorld) pos = this.toWorld(pos);   // game units (battle box) -> world metres
     const p = this.ctx.createPanner();
     p.panningModel = 'HRTF';
@@ -50,101 +92,137 @@ export class Sfx {
     } else {
       p.setPosition(pos.x, pos.y, pos.z);
     }
-    p.connect(this.master);
+    p.connect(this.sfxBus);
     return p;
   }
 
-  laser(pos, freq = 900, vol = 0.12) {
-    if (!this.ctx) return;
-    const ctx = this.ctx, t = ctx.currentTime;
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = 'square';
-    o.frequency.setValueAtTime(freq, t);
-    o.frequency.exponentialRampToValueAtTime(freq / 4, t + 0.12);
+  // Building blocks.
+  _osc(t, type, f0, f1, dur, vol, dest, filt) {
+    const ctx = this.ctx, o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(f0, t);
+    if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur * 0.9);
     g.gain.setValueAtTime(vol, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
-    o.connect(g).connect(this._out(pos));
-    o.start(t); o.stop(t + 0.14);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    let n = o;
+    if (filt) {
+      const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 0.7;
+      f.frequency.setValueAtTime(filt[0], t); f.frequency.exponentialRampToValueAtTime(filt[1], t + dur);
+      n = o.connect(f);
+    }
+    n.connect(g).connect(dest);
+    o.start(t); o.stop(t + dur + 0.02);
+  }
+  _noise(t, type, f0, f1, q, vol, dur, dest, attack = 0) {
+    const ctx = this.ctx, src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = this.noise; src.loop = true;
+    f.type = type; f.Q.value = q;
+    f.frequency.setValueAtTime(f0, t);
+    if (f1 !== f0) f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    if (attack) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + attack); }
+    else g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(f).connect(g).connect(dest);
+    src.start(t, Math.random() * 0.4); src.stop(t + dur + 0.02);
+  }
+  _duck(depth, rec) {
+    const t = this.now(), g = this.duck.gain;
+    g.cancelScheduledValues(t);
+    g.setTargetAtTime(depth, t, 0.01);
+    g.setTargetAtTime(1, t + 0.06, rec);
+  }
+
+  // Your shots: a filtered square "pew" with a click on top and a small thump under it.
+  // vol < 1 for the squadron bots' shots.
+  laser(pos, vol = 1) {
+    if (!this.ctx || this._limited(vol < 1 ? 'botLaser' : 'laser', vol < 1 ? 0.05 : 0.03)) return;
+    const t = this.now(), out = this._out(pos);
+    this._osc(t, 'square', 1250, 280, 0.1, 0.075 * vol, out, [3400, 800]);
+    this._noise(t, 'highpass', 3000, 3000, 0.7, 0.05 * vol, 0.018, out);
+    this._osc(t, 'sine', 190, 60, 0.07, 0.16 * vol, out);
   }
 
   enemyLaser(pos) {
-    if (!this.ctx) return;
-    // Rate limit so a big wave does not turn into noise.
-    if (this.ctx.currentTime - this.lastEnemyShot < 0.06) return;
-    this.lastEnemyShot = this.ctx.currentTime;
-    this.laser(pos, 420, 0.14);
+    if (!this.ctx || this._limited('enemy', 0.07)) return;   // a big wave must not turn into noise
+    const t = this.now(), out = this._out(pos);
+    this._osc(t, 'sawtooth', 560, 170, 0.13, 0.07, out, [1700, 500]);
   }
 
+  // Explosions: noise body (low-pass sweep), sub drop, crackle; big ones add a rumble tail and dip the music.
   boom(pos, big = false) {
-    if (!this.ctx) return;
-    const ctx = this.ctx, t = ctx.currentTime;
-    const dur = big ? 1.2 : 0.7;
-    const src = ctx.createBufferSource();
-    src.buffer = this.noise;
-    const f = ctx.createBiquadFilter();
-    f.type = 'lowpass';
-    f.frequency.setValueAtTime(big ? 1800 : 2600, t);
-    f.frequency.exponentialRampToValueAtTime(120, t + dur);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(big ? 0.9 : 0.6, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    const out = this._out(pos);
-    src.connect(f).connect(g).connect(out);
-    src.start(t); src.stop(t + dur);
-    const o = ctx.createOscillator();
-    const og = ctx.createGain();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(big ? 90 : 140, t);
-    o.frequency.exponentialRampToValueAtTime(30, t + dur * 0.6);
-    og.gain.setValueAtTime(0.5, t);
-    og.gain.exponentialRampToValueAtTime(0.001, t + dur * 0.6);
-    o.connect(og).connect(out);
-    o.start(t); o.stop(t + dur);
+    if (!this.ctx || this._limited(big ? 'boomBig' : 'boom', 0.04)) return;
+    const t = this.now(), out = this._out(pos), dur = big ? 1.1 : 0.65;
+    this._noise(t, 'lowpass', big ? 2200 : 3000, 90, 0.6, big ? 0.55 : 0.42, dur, out);
+    this._osc(t, 'sine', big ? 120 : 160, 34, dur * 0.55, big ? 0.55 : 0.4, out);
+    for (let i = 0; i < (big ? 6 : 4); i++) {
+      this._noise(t + 0.02 + Math.random() * (big ? 0.35 : 0.2), 'bandpass', 2600 + Math.random() * 1500, 1800, 1.2, 0.05, 0.05, out);
+    }
+    if (big) this._noise(t + 0.08, 'lowpass', 380, 120, 0.5, 0.22, 1.6, out, 0.15);
+    this._duck(big ? 0.5 : 0.75, big ? 0.35 : 0.2);
   }
 
+  // You are hit: a saw drop and a thump (not positional: it's your ship).
   hit() {
-    if (!this.ctx) return;
-    const ctx = this.ctx, t = ctx.currentTime;
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = 'sawtooth';
-    o.frequency.setValueAtTime(160, t);
-    o.frequency.exponentialRampToValueAtTime(50, t + 0.25);
-    g.gain.setValueAtTime(0.35, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
-    o.connect(g).connect(this.master);
-    o.start(t); o.stop(t + 0.3);
+    if (!this.ctx || this._limited('hit', 0.08)) return;
+    const t = this.now();
+    this._osc(t, 'sawtooth', 200, 55, 0.26, 0.2, this.sfxBus, [1500, 300]);
+    this._noise(t, 'lowpass', 900, 200, 0.7, 0.32, 0.14, this.sfxBus);
   }
 
+  // A shot lands on an enemy (or a bot).
   ping(pos) {
-    if (!this.ctx) return;
-    const ctx = this.ctx, t = ctx.currentTime;
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = 'triangle';
-    o.frequency.setValueAtTime(1400, t);
-    g.gain.setValueAtTime(0.15, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
-    o.connect(g).connect(this._out(pos));
-    o.start(t); o.stop(t + 0.1);
+    if (!this.ctx || this._limited('ping', 0.03)) return;
+    const t = this.now(), out = this._out(pos);
+    this._osc(t, 'triangle', 1500, 1100, 0.07, 0.09, out);
+    this._noise(t, 'bandpass', 4000, 4000, 1.5, 0.04, 0.03, out);
   }
 
-  chime(up = true) {
+  // UI click (panel buttons, settings).
+  click() {
+    if (!this.ctx || this._limited('click', 0.03)) return;
+    const t = this.now();
+    this._osc(t, 'sine', 1900, 1300, 0.04, 0.09, this.sfxBus);
+    this._noise(t, 'highpass', 5000, 5000, 0.7, 0.025, 0.012, this.sfxBus);
+  }
+
+  // Boost: a filtered-noise whoosh that rises.
+  whoosh(vol = 1) {
+    if (!this.ctx || this._limited('whoosh', 0.35)) return;
+    const t = this.now();
+    this._noise(t, 'bandpass', 380, 2600, 1.4, 0.16 * vol, 0.5, this.sfxBus, 0.07);
+  }
+
+  // Barrel roll: two quick falling whooshes.
+  roll() {
     if (!this.ctx) return;
-    const ctx = this.ctx, t = ctx.currentTime;
-    const notes = up ? [440, 660, 880] : [440, 330, 220];
-    notes.forEach((n, i) => {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = 'triangle';
-      o.frequency.value = n;
-      const s = t + i * 0.12;
-      g.gain.setValueAtTime(0.0001, s);
-      g.gain.exponentialRampToValueAtTime(0.25, s + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.001, s + 0.35);
-      o.connect(g).connect(this.master);
-      o.start(s); o.stop(s + 0.4);
+    const t = this.now();
+    this._noise(t, 'bandpass', 2400, 600, 1.6, 0.15, 0.22, this.sfxBus, 0.03);
+    this._noise(t + 0.14, 'bandpass', 2000, 500, 1.6, 0.1, 0.25, this.sfxBus, 0.03);
+  }
+
+  // Little tunes (all in D).
+  _notes(notes, gap, vol, type = 'triangle', len = 0.35) {
+    if (!this.ctx) return;
+    const t0 = this.now();
+    notes.forEach((f, i) => {
+      const t = t0 + i * gap, o = this.ctx.createOscillator(), g = this.ctx.createGain();
+      o.type = type; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol, t + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.001, t + len);
+      o.connect(g).connect(this.sfxBus);
+      o.start(t); o.stop(t + len + 0.02);
     });
+  }
+  chime(up = true) { this._notes(up ? [587.3, 740, 880] : [440, 349.2, 293.7], 0.12, 0.16); }
+  split() { this._notes([587.3, 880], 0.08, 0.14); }
+  join() { this._notes([880, 587.3], 0.08, 0.14); }
+  regroup() { if (!this._limited('regroup', 0.4)) this._notes([698.5], 0, 0.05, 'triangle', 0.2); }
+  formation() { this._notes([659.3, 880, 659.3], 0.06, 0.1, 'triangle', 0.15); }
+  aceIn() { this._notes([293.7, 349.2, 440, 587.3], 0.09, 0.1, 'square', 0.25); }
+  aceDown() {
+    if (!this.ctx) return;
+    this._notes([587.3, 740, 880, 1174.7], 0.07, 0.12, 'triangle', 0.5);
+    this._duck(0.4, 0.5);
   }
 }

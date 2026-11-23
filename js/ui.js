@@ -106,7 +106,7 @@ export const HAND_COLOR = { right: '#33ddff', left: '#ffcc66', either: '#bfefff'
 export const HI = '#55ff99';
 const pulse = (t, f = 5) => 0.5 + 0.5 * Math.sin(t * f);
 const hiCol = (t) => `rgba(85,255,153,${0.55 + 0.45 * pulse(t)})`;
-// hi: 'trigger' | 'grip' | 'stick' | 'stickUp' | 'stickDown' | 'stickUpDown' | 'stickCircle' | 'stickClick' | 'release'
+// hi: 'trigger' | 'grip' | 'stick' | 'stickUp' | 'stickDown' | 'stickUpDown' | 'stickCircle' | 'stickClick' | 'release' | 'btn1' | 'btn2'
 function controller(g, x, y, s, rot, hi, t, hand = 'right', ray = 0) {
   const col = HAND_COLOR[hand] || HAND_COLOR.right;
   const has = (k) => hi.includes(k);
@@ -144,10 +144,14 @@ function controller(g, x, y, s, rot, hi, t, hand = 'right', ray = 0) {
   const letters = hand === 'left' ? ['X', 'Y'] : ['A', 'B'];
   g.fillStyle = col; g.strokeStyle = col;
   [-0.21, -0.1].forEach((bx, i) => {
-    g.beginPath(); g.arc(s * bx, -s * 0.3, s * 0.035, Math.PI, 0); g.fill();
-    g.font = `bold ${Math.round(s * 0.075)}px monospace`; g.textAlign = 'center';
+    const bh = has(i ? 'btn2' : 'btn1');
+    g.fillStyle = bh ? hiCol(t) : col;
+    g.beginPath(); g.arc(s * bx, -s * 0.3, s * (bh ? 0.045 : 0.035), Math.PI, 0); g.fill();
+    g.font = `bold ${Math.round(s * (bh ? 0.1 : 0.075))}px monospace`; g.textAlign = 'center';
     g.fillText(letters[i], s * bx, -s * 0.36);
+    if (bh) { g.strokeStyle = `rgba(85,255,153,${0.5 * pulse(t)})`; g.beginPath(); g.arc(s * bx, -s * 0.32, s * 0.09, 0, Math.PI * 2); g.stroke(); }
   });
+  g.fillStyle = col; g.strokeStyle = col;
   // Thumbstick (stem + cap), tilted / clicked when highlighted.
   const sh = hi.some((k) => k.startsWith('stick'));
   let tilt = 0;
@@ -309,6 +313,51 @@ export function drawIcon(g, kind, x, y, s, t, hand = 'right') {
       controller(g, cx, cy, cs, 0, ['release'], t, hand);
       const sp = 0.3 * (0.5 + 0.5 * Math.cos(t * 1.5));
       formation(g, ex + s * 0.05, ey, s * 0.45, sp);
+      break;
+    }
+    case 'roll': {
+      // A quick wrist twist, and the ship snap-rolls sideways.
+      const k = (t * 0.9) % 1, tw = k < 0.25 ? Math.sin((k / 0.25) * Math.PI) * 0.6 : 0;
+      controller(g, cx, cy, cs, 0, [], t, hand);
+      g.strokeStyle = HI; g.lineWidth = 3;
+      g.beginPath(); g.arc(cx + cs * 0.02, cy - cs * 0.2, cs * 0.34, -Math.PI * 0.8, -Math.PI * 0.8 + Math.PI * 0.6 * (0.3 + tw)); g.stroke();
+      const u = k < 0.5 ? k / 0.5 : 1, dx = Math.sin(u * Math.PI / 2) * s * 0.22;
+      g.save(); g.translate(ex - s * 0.12 + dx, ey); g.scale(1, Math.cos(u * Math.PI * 2)); ship(g, 0, 0, s * 0.3, -Math.PI / 2); g.restore();
+      arrow(g, ex - s * 0.12, ey + s * 0.25, ex + s * 0.14, ey + s * 0.25, 'rgba(255,255,255,0.6)');
+      break;
+    }
+    case 'split': {
+      // Four ships part into a cyan pair (right hand) and a gold pair (left hand).
+      controller(g, cx, cy, cs, 0, ['stickClick'], t, hand);
+      const k = 0.5 + 0.5 * Math.sin(t * 1.6), off = s * 0.18 * k;
+      for (let i = 0; i < 2; i++) dart(g, ex + (i - 0.5) * s * 0.14, ey - off - s * 0.02, s * 0.15, -Math.PI / 2 - 0.25 * k, '#33ddff');
+      for (let i = 0; i < 2; i++) dart(g, ex + (i - 0.5) * s * 0.14, ey + off + s * 0.02, s * 0.15, -Math.PI / 2 + 0.25 * k, '#ffbb44');
+      break;
+    }
+    case 'leadGold': {
+      const a = Math.sin(t * 1.2) * 0.4;
+      controller(g, cx, cy, cs, a, [], t, hand);
+      arrow(g, x - s * 0.02, y, x + s * 0.1, y);
+      formation(g, ex + s * 0.08, ey, s * 0.3, 0.1, '#ffbb44', a * 2);
+      break;
+    }
+    case 'rejoin': {
+      controller(g, cx, cy, cs, 0, ['stickClick'], t, hand);
+      const k = 0.5 + 0.5 * Math.sin(t * 1.6), off = s * 0.18 * (1 - k);
+      dart(g, ex - s * 0.21, ey - off, s * 0.15, 0, '#33ddff'); dart(g, ex - s * 0.07, ey - off, s * 0.15, 0, '#33ddff');
+      dart(g, ex + s * 0.07, ey + off, s * 0.15, 0, '#ffbb44'); dart(g, ex + s * 0.21, ey + off, s * 0.15, 0, '#ffbb44');
+      break;
+    }
+    case 'formation': {
+      // B cycles line -> wedge -> ring.
+      controller(g, cx, cy, cs, 0, ['btn2'], t, hand);
+      const which = Math.floor(t * 0.8) % 3, sz = s * 0.13;
+      const pts = which === 0 ? [[-1.5, 0], [-0.5, 0], [0.5, 0], [1.5, 0]]
+        : which === 1 ? [[-1.2, 0.9], [-0.4, 0.3], [0.4, 0.3], [1.2, 0.9]]
+          : [[0, -1], [1, 0], [0, 1], [-1, 0]];
+      for (const [px, py] of pts) dart(g, ex + s * 0.05 + px * s * 0.1, ey + py * s * 0.1, sz, -Math.PI / 2);
+      g.fillStyle = '#ffcc66'; g.font = `bold ${Math.round(s * 0.08)}px monospace`; g.textAlign = 'center';
+      g.fillText(['LINE', 'WEDGE', 'RING'][which], ex + s * 0.05, ey + s * 0.3);
       break;
     }
     case 'check': {

@@ -9,17 +9,18 @@ It is a WebXR web page built with three.js. It runs in the Quest's built-in brow
 don't need to install an app or turn on developer mode. **It is VR only:** the page shows a single
 **ENTER VR** button. In a browser without WebXR, or with no headset, a short note under the button says so.
 
-There are two modes: **Fighter** (fly one ship yourself) and **Squadron** (lead 4 bot fighters).
+There are two modes: **Fighter** (fly one ship yourself) and **Squadron** (lead 4 bot fighters, or split
+them into 2 pairs and lead one pair with each hand).
 
 ![diorama](screenshots/09-diorama.png)
 
 ## Tutorial
 
-The first time you enter VR, a short tutorial runs automatically (about 2 minutes, 15 small steps).
+The first time you enter VR, a short tutorial runs automatically (about 2 minutes, 20 small steps).
 It teaches **one thing per step** on a single instruction card that always sits in the same place,
 beside the room's right wall, and always has the same layout:
 
-- the section (ROOM / FLY / SQUADRON) and a progress bar with **step N / 15**
+- the section (ROOM / FLY / SQUADRON) and a progress bar with **step N / 20**
 - **which hand** to use (RIGHT HAND in cyan, LEFT HAND in gold, the colours of your controllers)
 - a short title and one plain line saying what to do and why ("Pull right trigger: shoot")
 - a big animated icon: a Quest Touch controller with the button to use pulsing green, and what it does
@@ -36,8 +37,10 @@ you can also press the lit **NEXT** to move on straight away. Steps that only ex
 
 The steps:
 1. **Room:** your battle room; move it (grip and move your hand); resize it (grip + stick).
-2. **Fly:** steer your ship; pick a steering style; shoot; boost; destroy one practice target, then three more.
-3. **Squadron:** your 4 fighters; lead them; attack (hold trigger); regroup (let go); finish the enemies.
+2. **Fly:** steer your ship; pick a steering style; shoot; boost; **barrel roll** (flick your right wrist); destroy one practice target, then three more.
+3. **Squadron:** your 4 fighters; lead them; attack (hold trigger); regroup (let go); finish the enemies;
+   **split** them into 2 pairs (click the left stick); **lead the gold pair** with your left hand; **rejoin**
+   (click again); switch **formation** (B).
 4. **Training complete**: press **TO LOBBY**. Completion is saved on the device.
 
 Practice ships never shoot and nothing of yours can be destroyed during training, and the score HUD stays
@@ -75,6 +78,9 @@ Settings (left X + Y, or the lobby button) open on a panel to the **left** of th
 
 ![settings](screenshots/15-settings.png)
 
+The two **volume sliders** (Music, Sound) work like the other rows: point at the bar and pull the trigger
+where you want the level.
+
 ## Rounds: every round is a fresh battle
 
 Both modes are played in **rounds**, and the goal is to reach the highest round you can.
@@ -101,6 +107,21 @@ The best round you have reached is saved for each mode and shown on the wrist pa
   | 5 | **Synchronized strikes:** every attack group times its run to hit at the same moment | Both |
   | 5 | **Dodging your shots:** many enemy ships side-step incoming bullets | Both |
   | 6 | **Hunter-killers:** a fast pack that chases your most damaged ship | Both |
+  | 3 | **Leaders with escorts:** an orange leader flies with escorts; kill it and the escorts scatter | Both |
+  | 3+ | **Aces** (sometimes; see below) | Both |
+  | 4 | **Screens:** a ship that parks itself between you and a sniper, leader or heavy to shield it | Both |
+
+  Difficulty grows mainly through **behaviour**, not numbers: a round adds only about one ship
+  (Fighter rounds 1-10: 3, 4, 7, 8, 9, 12, 12, 13, 16, 16 ships; Squadron: 4, 8, 11, 13, 14, 17, 17, 18, 21, 21).
+  Enemies keep more space from each other, flankers swing wider, and nobody shoots while scattering.
+
+- **Aces.** From round 3 a named ace (VIPER, HALO, NOVA, ...) sometimes joins, in **gold** with its name over it.
+  It is faster, tougher and always dodges, and flies boom-and-zoom attack runs, breaking off before it gets close.
+  When it is badly hurt it **runs for a wall**: if it escapes, it comes back in the next round with one more
+  hull point. Shooting one down is a big moment: a longer freeze-frame, a strong rumble, a gold flash of the room,
+  **ACE DOWN!** and a bonus of 1500 x round (more for an ace that escaped before).
+
+  ![enemies](screenshots/23-enemies-ace.png)
 
 ### Fighter
 
@@ -113,6 +134,12 @@ The enemies fight in groups with real plans:
 - **Snipers** (from round 2) hold long range and fire accurate shots.
 - **Heavies** (cruisers, from round 3) hold medium range and fire 3-shot spreads.
 - Everyone **leads their shots** (aims where you will be), and pulls back for a moment when damaged.
+- From round 3, **leaders** (orange, bigger) with **escorts**, **screens** and sometimes an **ace** (see above).
+
+**Barrel roll:** flick your right wrist quickly sideways (a twist of about 60-70 degrees, as if turning a door
+handle fast). The ship snap-rolls and hops sideways, and **enemy bullets pass through you** for the
+0.4 s roll. Then it needs 1.2 s to recharge (the wrist panel shows ROLL READY). Normal steering never
+triggers it: Mirror steering ignores wrist twist, and a roll needs a fast, mostly pure twist.
 
 Your hull has 5 points, back to full at the start of every round. Lose them all in one round and it's game over.
 
@@ -131,6 +158,22 @@ the commanded heading, dodge incoming bullets, and never run into each other.
   the line is clear, so never through a wingman or a star. Release to regroup into
   formation and carry on in the commanded direction.
 - **Right grip = boost.** It only works while NOT engaging, and the whole squadron boosts together.
+- **Smarter bots when engaging:** each bot prefers enemies **ahead of the commanded heading** (a cone,
+  weighted by distance) and **damaged** enemies, so they finish targets off. Bots don't fly straight down an
+  enemy's guns (they come in at an angle), and a bot down to its last hull point **pulls back** into the
+  formation while a healthier wingman fights (it still takes shots at anything right in front of it).
+  Dodging and formation flying are unchanged.
+- **Formations (right B):** line -> wedge -> ring.
+  - **Line** (default): side by side; when engaging, **two bots per target**.
+  - **Wedge**: a V; when engaging, **all on one target**, faster, on a shorter leash.
+  - **Ring**: a tight ring; bots spread over the nearest threats and stay close to the centre.
+- **Split (click the left stick):** the squadron splits into **2 pairs**. The **cyan pair** follows your
+  **right** controller as before; the **gold pair** follows your **left** controller (its own gold command point
+  and aim line), with the same mirror steering, **left trigger = engage** and **left grip = boost**. Click
+  again to **rejoin**. The wrist panel shows SPLIT, each bot's hull box in its pair's colour, and what each pair
+  is doing (R: / L: ATTACK or HOLD). If a whole pair is lost, the squadron rejoins automatically.
+
+![squadron split](screenshots/22-squadron-split.png)
 - **Stars:** big wireframe spheres. Nothing can fly through them and they block bullets, so
   both sides use them as cover. Ships steer around them. They are spread through the room in
   proportion to its current shape, in new random positions every round.
@@ -157,6 +200,18 @@ The volume stays about the same, so the difficulty stays fair, and the size is c
 most about 1.5 m wide or deep, 1.35 m tall with the Medium box size). A deeper room grows
 away from you, so its near face never comes closer.
 
+**Juice (both modes):** kills give a tiny freeze-frame (about 40-55 ms) and a rumble; explosions burst into
+sparks with a short flash ring and a bright core; hit ships flash white and throw sparks; the room's frame
+glows briefly on kills and hits. **Hit from behind**, the edges of your view flash red (and the left controller
+rumbles) so you know to look out. There is **no camera shake**: the view never moves (VR comfort).
+
+**Sound and music:** all synthesized (WebAudio, no files). Shots, layered explosions (body, sub drop and
+crackle; big ones dip the music for a moment), boost whoosh, barrel roll, hits, and short chimes for
+split / rejoin / regroup / formation / ace. Music is procedural, in D minor: a calm ambient pad in the lobby,
+and in battle a driving synth track (bass, arpeggio, drums, 112 BPM) whose layers build up with the number of
+enemies alive and your recent kills. Everything goes through a compressor and a limiter, so it never clips.
+Music and Sound volume are separate sliders in Settings.
+
 **Messages** (round start and new enemy tactics, round cleared, wingman down, game over...) appear on a small
 panel on your left wrist, to the right of the score panel, so nothing covers the battle.
 Only the short game-over message floats in front of you.
@@ -173,16 +228,20 @@ Only the short game-over message floats in front of you.
 | Right | **Trigger** | Shoot (gentle aim assist) | **Hold = engage**, release = regroup |
 | Right | **Hold the grip** | Boost | Boost the squadron (only while not engaging) |
 | Right | **A** | Brake | Slow the squadron |
+| Right | **B** | (Thumbstick steering: invert up/down) | **Next formation**: line / wedge / ring |
+| Right | **Flick the wrist sideways** | **Barrel roll** (dodge) | - |
 | Right | **Click the thumbstick** | Re-center: the controller's current orientation becomes "straight into the box" (also done automatically at the start of a game) | Same |
-| Left | **Trigger / grip / stick forward-back** | Extras: shoot (engage) / boost / boost-brake | Same |
-| Left | **Click the thumbstick** | Put the box back in its default spot | Same |
+| Left | **Trigger / grip / stick forward-back** | Extras: shoot / boost / boost-brake | Joined: same extras for the squadron. **Split: they command the gold pair** (engage / boost / boost-brake) |
+| Left | **Turn the controller** | - | **Split:** steers the gold pair (same mirror steering) |
+| Left | **Click the thumbstick** | Put the box back in its default spot | **Split / rejoin** the squadron (the box reset is in Settings) |
 | Left | **X + Y together** | Settings, on a panel to the left of the room (point and pull the trigger to change; the game pauses) | Same |
 | Left | **Look at your wrist** | Score, round, best round, hull, a top-down radar, and the message panel | Score, round, squadron status, a radar with the stars, and the message panel |
 
 Other steering modes (in Settings) also work in both modes:
 - **Relative (hand stick):** tilt the controller away from a captured neutral. Click the right stick to re-center.
 - **Point:** the ship (or squadron heading) follows where you point.
-- **Thumbstick:** the right stick steers. B inverts up/down.
+- **Thumbstick:** the right stick steers. B inverts up/down (Fighter).
+- While split, the gold pair uses Mirror steering when that is the style, otherwise it heads where the left controller points.
 
 ### Settings (saved on the device, as are the box position and size)
 
@@ -194,6 +253,8 @@ Other steering modes (in Settings) also work in both modes:
 | Mirror gain (Squadron) | 1x / 1.5x / 2x / 2.5x / 3x / 3.5x | 3x |
 | Ship turn speed (Relative, Point and Thumbstick) | Normal / Fast / Very fast | Fast |
 | Box size | Small 0.7 m / Medium 1.0 m / Large 1.3 m | Medium |
+| Music volume | slider 0-10 | 6 |
+| Sound volume | slider 0-10 | 8 |
 | Box position | RESET puts the box back in its default spot | |
 | Leave game | TO LOBBY ends the current game and goes back to the lobby | |
 
@@ -210,6 +271,9 @@ debug HUD, and sends errors and status lines to a local test server:
 | Left click / Space | Shoot (Squadron: hold to engage) |
 | Shift / F | Boost / brake |
 | N | Switch mode (Fighter / Squadron) |
+| Q / E | Barrel roll left / right (Fighter) |
+| G | Split / rejoin (Squadron; the gold pair copies the mouse) |
+| B | Next formation (Squadron) |
 | M | Cycle steering: mirror / relative (cursor offset from the centre) / point / thumbstick (I/K + J/L, V inverts) |
 | + / - | Box size |
 | C | Reset the box |
@@ -252,9 +316,41 @@ the left stick to put the box back in its default spot.
 - `js/tutorial.js` - the step-by-step tutorial
 - `js/stats.js` - stats saved on the device (localStorage)
 - `js/models.js` - wireframe ship models (points joined by lines)
-- `js/audio.js` - synthesized 3D sound effects (WebAudio, no audio files)
+- `js/audio.js` - synthesized 3D sound effects and the mix (WebAudio, no audio files)
+- `js/music.js` - procedural music: lobby pad and the battle track
 - `vendor/` - three.js r187 (`three.module.js`, `three.core.js`), MIT licence
 - `screenshots/` - screenshots (test mode and the IWER headset emulator)
+
+## Changes in v18
+
+- **Juice:** freeze-frame + rumble on kills, spark bursts with a flash ring, hit flashes, frame glow,
+  red view-edge flash when hit from behind, rumble when hit. No camera shake.
+- **Squadron split** (left stick click) into two pairs, one per hand; **formations** (right B).
+- **Smarter bots** when engaging (heading cone, focus fire, damaged targets first, no head-on runs, hurt bots pull back).
+- **Smarter enemies:** leaders with escorts, screens, wider flanks, more spacing, scatter when the leader dies;
+  difficulty grows mostly by behaviour, numbers only modestly.
+- **Aces** that escape and come back, with a big bonus when shot down.
+- **Barrel roll** dodge in Fighter (wrist flick).
+- **Sound:** new effects and procedural **music**, Music / Sound volume sliders.
+- Tutorial: new steps for the roll, split, leading the gold pair, rejoin and formations (20 steps).
+
+**Input changes:** the **left stick click** in Squadron now splits / rejoins (in Fighter it still resets the
+box; the box can always be reset from Settings). **Right B** in Squadron cycles formations (it still inverts
+up/down in Fighter with Thumbstick steering). While split, the left trigger / grip / stick command the gold
+pair instead of being extras for the whole squadron. X + Y (settings) is unchanged.
+
+**Mix check** (rendered offline with an OfflineAudioContext at the default volumes, then measured):
+
+| Segment | Peak | RMS | Energy above 5 kHz | Clipped samples |
+|---|---|---|---|---|
+| Lobby pad | -10.7 dBFS | -23.3 dBFS | -48 dB | 0 |
+| Battle, calm | -6.9 dBFS | -23.1 dBFS | -30 dB | 0 |
+| Battle, full intensity | -5.4 dBFS | -20.6 dBFS | -29 dB | 0 |
+| Full intensity + a busy fight (shots, 7 explosions, hits, chimes) | -2.8 dBFS | -18.7 dBFS | -26 dB | 0 |
+
+The first render was bass-heavy (most energy below 250 Hz, which the Quest's small speakers can't play), so the
+bass and kick were turned down and the arpeggio and pads up by a few dB. Very little energy sits above 5 kHz, so
+it isn't harsh.
 
 ## Changes in v17
 
@@ -264,6 +360,6 @@ pilots are unchanged.
 
 ## Not done yet / ideas
 
-- A louder warning when an enemy attacks from behind (positional sound only, so far)
-- More comfort options (seated height, volume)
+- More comfort options (seated height)
+- The barrel-roll flick threshold is tuned in the emulator only; it may need adjusting on a real Quest
 - So far it has only been tested in an emulator (IWER) and in desktop Firefox, not yet on a real Quest

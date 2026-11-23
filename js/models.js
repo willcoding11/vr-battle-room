@@ -3,7 +3,7 @@
 import * as THREE from '../vendor/three.module.js';
 
 let dotTexture = null;
-function getDotTexture() {
+export function getDotTexture() {
   if (dotTexture) return dotTexture;
   const c = document.createElement('canvas');
   c.width = c.height = 32;

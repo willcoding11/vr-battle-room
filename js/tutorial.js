@@ -3,7 +3,7 @@
 // The button to use also glows on the controller you hold. Each step waits for you to do it, shows a
 // short "NICE!" beat, then fades calmly into the next. Info steps go on with the NEXT button on the card.
 // Three parts: ROOM, FLY, SQUADRON; then the lobby. G is the game API from main.js.
-import { Panel, drawIcon, HAND_COLOR, HI, UI } from './ui.js?v=17';
+import { Panel, drawIcon, HAND_COLOR, HI, UI } from './ui.js?v=18';
 
 const READ = 1.2;          // seconds before an action counts (time to read the card)
 const NICE = 1.5;          // the "NICE!" beat
@@ -16,7 +16,7 @@ export function createTutorial(G) {
   // Drawn early with depth testing: ships and stars in front of the card always show over it.
   for (const P of [card, big]) { P.mesh.material.depthTest = true; P.mesh.renderOrder = -1; }
   let idx = -1, t = 0, phase = 'in', pt = 0, acc = 0, shots0 = 0, redraw = 0, n0 = 0;
-  let lastFwd = null, turned = 0, box0 = null;
+  let lastFwd = null, turned = 0, box0 = null, rolls0 = 0, form0 = 0;
   const held = (dt, cond) => { acc = cond ? acc + dt : 0; return acc; };
   const steerName = () => G.settings.steer;
   // Steering instructions follow the steering style you picked.
@@ -41,6 +41,8 @@ export function createTutorial(G) {
       enter: () => { shots0 = G.shots; }, check: () => G.shots - shots0 >= 8, meter: () => [Math.min(8, G.shots - shots0), 8] },
     { id: 'boost', sect: 'FLY', hand: 'right', title: 'BOOST', line: 'Hold right grip: fly faster', icon: 'boost', hi: { right: ['grip'] },
       check: (dt) => held(dt, G.input.boost) > 1.5, meter: () => [Math.min(1.5, acc), 1.5] },
+    { id: 'roll', sect: 'FLY', hand: 'right', title: 'BARREL ROLL', line: 'Flick right wrist sideways: roll', icon: 'roll', hi: { right: ['body'] },
+      enter: () => { rolls0 = G.rolls; }, check: () => G.rolls > rolls0 },
     { id: 'target', sect: 'FLY', stage: 'enemy', hand: 'right', title: 'DESTROY THE TARGET', line: 'Steer at it + trigger: destroy it', icon: 'target', hi: { right: ['trigger'] },
       enter: () => G.spawnTut('practice', 1), check: () => G.enemyCount() === 0, meter: kills(1) },
     { id: 'three', sect: 'FLY', hand: 'right', title: 'THREE MORE', line: "Same again. They can't hurt you", icon: 'target', hi: { right: ['trigger'] },
@@ -55,6 +57,15 @@ export function createTutorial(G) {
       check: (dt) => held(dt, !G.input.fire) > 1.5, meter: () => [Math.min(1.5, acc), 1.5] },
     { id: 'sqClear', sect: 'SQUADRON', hand: 'right', title: 'FINISH THEM', line: 'Hold trigger until all are gone', icon: 'engage', hi: { right: ['trigger'] },
       enter: () => { if (!G.enemyCount()) G.spawnTut('squad', 2); n0 = G.enemyCount(); }, check: () => G.enemyCount() === 0, meter: () => [n0 - G.enemyCount(), n0] },
+    { id: 'split', sect: 'SQUADRON', hand: 'left', title: 'SPLIT THE SQUADRON', line: 'Click left stick: split in 2 pairs', icon: 'split', hi: { left: ['stickClick'] },
+      check: () => G.split },
+    { id: 'leadB', sect: 'SQUADRON', hand: 'left', title: 'LEAD THE GOLD PAIR', line: 'Turn left hand: steer the gold pair', icon: 'leadGold', hi: { left: ['body'] },
+      track: () => G.cmdB.fwd, check: () => G.split && turned > 1.5, meter: () => [Math.min(1, turned / 1.5), 1],
+      hint: () => (G.split ? '' : 'Click the left stick to split again') },
+    { id: 'rejoin', sect: 'SQUADRON', hand: 'left', title: 'REJOIN', line: 'Click left stick again: rejoin', icon: 'rejoin', hi: { left: ['stickClick'] },
+      check: () => !G.split },
+    { id: 'formation', sect: 'SQUADRON', hand: 'right', title: 'FORMATIONS', line: 'Press B: line, wedge or ring', icon: 'formation', hi: { right: ['btn2'] },
+      enter: () => { form0 = G.formChanges; }, check: () => G.formChanges > form0 },
     { id: 'done', sect: 'SQUADRON', title: 'TRAINING COMPLETE', line: 'Press TO LOBBY to pick a mode', icon: 'check', info: true, last: true },
   ];
   const val = (v) => (typeof v === 'function' ? v() : v);
@@ -166,8 +177,9 @@ export function createTutorial(G) {
     if (!st) return;
     t += dt; pt += dt;
     // How far the commanded heading has turned (for the steering steps).
-    if (lastFwd) turned += lastFwd.angleTo(G.player.fwd);
-    lastFwd = (lastFwd || G.player.fwd.clone()).copy(G.player.fwd);
+    const tv = st.track ? st.track() : G.player.fwd;
+    if (lastFwd) turned += lastFwd.angleTo(tv);
+    lastFwd = (lastFwd || tv.clone()).copy(tv);
     let op = 1;
     if (phase === 'in') { op = Math.min(1, pt / FADE); if (pt >= FADE) { phase = 'show'; pt = 0; } }
     if (phase === 'show') {
