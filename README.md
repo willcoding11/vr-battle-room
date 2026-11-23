@@ -6,15 +6,52 @@ inside a wireframe room (about 1 m across, changing shape between rounds) floati
 or move.
 
 It is a WebXR web page built with three.js. It runs in the Quest's built-in browser, so you
-don't need to install an app or turn on developer mode. It also runs in a normal desktop
-browser with mouse and keyboard.
+don't need to install an app or turn on developer mode. **It is VR only:** the page shows a single
+**ENTER VR** button. In a browser without WebXR, or with no headset, a short note under the button says so.
 
 ![diorama](screenshots/09-diorama.png)
 
-## Three modes
+## Tutorial
 
-Pick the mode on the title screen (Quest: **B** cycles Fighter / Squadron / Fleet, the right trigger starts; desktop:
-the three START buttons, or **N**) or in Settings.
+The first time you enter VR, a short tutorial runs automatically. It gives one instruction at a time,
+with minimal text and an animated controller icon (the highlighted button or motion pulses), on a
+card to the right of the room. Each step waits until you have actually done it:
+
+1. **The room:** only your ship is in the room. Grip-drag to move the room and grip + stick to resize it,
+   then press the big **CONTINUE** button centred below the room.
+2. **Movement:** a list of steering modes (Mirror, Relative, Point, Thumbstick); tap one to try it, then **NEXT**.
+3. **Shooting**, then **boosting**.
+4. **One practice enemy**, then **three more**.
+5. **Squadron basics:** steer the squadron, hold the trigger to engage, release to regroup, boost, finish the enemies.
+6. **Fleet, slowly:** select one unit with the left ray, select all, command the selection with the right hand,
+   then the quick orders **HOLD**, **GUARD**, **FOLLOW** and **ATTACK**, engage, and finally a training flagship.
+7. Then on to the **lobby**. Completion is saved on the device.
+
+Nothing you own can die during training. **SKIP** on the card jumps straight to the lobby, and
+**REDO TUTORIAL** in the lobby runs it again.
+
+![tutorial](screenshots/16-tutorial.png)
+
+## Lobby
+
+After the tutorial, every time you enter VR, and a few seconds after a game ends, you are in the **lobby**.
+A blue-vs-red skirmish plays out around the stars in the room as a backdrop.
+
+- **Grip** (either hand) and drag to move the room; **grip + that hand's stick up/down** resizes it.
+- The **panel on the right** of the room (point with either controller's ray, pull the trigger):
+  - **Mode:** Fighter / Squadron / Fleet, with a one-line description, and a big **START** button.
+  - **Stats** (saved on the device): best round, games and last round for each mode, win streak (a "win" is a
+    game in which you cleared at least round 1; the streak counts wins in a row) and best streak, total kills,
+    games played, time played and best score.
+  - **REDO TUTORIAL** and **SETTINGS**.
+
+![lobby](screenshots/14-lobby.png)
+
+Settings (left X + Y, or the lobby button) open on a panel to the **left** of the room:
+
+![settings](screenshots/15-settings.png)
+
+## Three modes
 
 ## Rounds: every round is a fresh battle
 
@@ -26,7 +63,7 @@ The best round you have reached is saved for each mode and shown on the wrist pa
   its start positions: in Fighter your ship has full hull; in Squadron all 4 bots have full hull; in Fleet
   all 3 squadrons have 4 bots each and both capital ships have full hull. The enemy spawns fresh.
   Nothing carries over (no partial repairs or reinforcements), so you lose only if your side is wiped
-  out within a single round.
+  out within a single round. When you lose, you're back in the lobby a few seconds later.
 - **The room reshapes** between rounds, and in Squadron and Fleet the **stars** fade out and come
   back in **new random positions** that suit the new room shape. They are kept clear of both
   sides' start areas, and no ship is ever left inside a star.
@@ -98,14 +135,37 @@ You command a whole fleet:
 - **2 friendly capital ships** (big cyan cruisers). Their turrets fire automatically at the
   nearest enemy in range. They are slow but tough (60 hull), and you can command them like a squadron.
 
-The enemy brings a **flagship** (two from round 3), each guarded by an **escort** group, plus
-squadrons using all the Squadron tactics (pincers, flankers, snipers, bait and ambush).
+The enemy brings a **flagship** (two from round 3) plus **2 to 4 attack groups** (pincer, flank, bait, and
+a sniper or hunter pack) using all the Squadron tactics. The flagships have no escort groups. Later rounds
+don't add more groups; the groups get **bigger and better** (more ships, heavy cruisers inside the groups,
+extra veteran hull every few rounds).
 **Destroy every enemy flagship to win the round.** Any remaining enemy fighters then jump out.
 **It's game over only when both capital ships AND every one of your fighters are destroyed.**
 If both capitals fall, the wrist warns "CAPITALS LOST - fighters only" and you fight on with
 the squadrons you have left (and the other way round: capitals alone fight on too). Every new
 round starts with the full fleet again. Rounds get harder: more and smarter enemies, tougher flagships
 and faster flagship guns.
+
+**Round start.** Every round starts with **no orders and nothing selected**. The whole fleet drifts
+forward very slowly in formation (wrist tag `IDLE`) and nothing attacks on its own until you give an
+order; a unit only shoots back in self-defence if an enemy comes very close.
+
+**Smart squadron leaders.** Once a squadron has an attack, hold or guard order (or you engage with it),
+its leader fights as a squadron, not just as four pilots (individual pilots fly as before):
+- **Boom-and-zoom:** it lines up at a start point outside the enemy's range, makes a fast firing run
+  through the target, then zooms out at boost speed before turning back for another run.
+- **Flanking, not head-on:** start points are off to the target's side or rear, never straight down its guns.
+- **Split angles:** squadrons sent at the same target spread their start points around it and, against a
+  flagship, wait for each other and go in together (its turrets can only track one at a time).
+  Flagship runs break off early if the squadron is taking hits.
+- **Stars as cover:** start points hidden behind a star are preferred, and a squadron that is
+  **outnumbered or badly hurt breaks off, regroups behind a star** and then attacks again.
+- **Protect the capitals:** a squadron drops what it is doing to drive off enemies attacking a friendly capital ship.
+- It keeps clear of enemy flagships' guns when not attacking them, and picks the tactic by the situation
+  (weak target: repeated passes; strong target: runs with zooms out; flagship: coordinated runs).
+
+The wrist shows each squadron's current phase: `APPR` (moving to the start point), `RUN`, `ZOOM`,
+`CVR` (regrouping in cover) or `DEF` (defending a capital).
 
 **Selecting (left hand).** The left controller casts a pointing ray, and the wrist shows what it points at.
 - **Left trigger** selects the unit you point at (a squadron or a capital ship).
@@ -142,8 +202,7 @@ away from you, so its near face never comes closer.
 
 **Messages** (round start and new enemy tactics, round cleared, wingman down, game over...) appear on a small
 panel on your left wrist, to the right of the score panel, so nothing covers the battle.
-On the desktop they show in a small panel next to the HUD in the bottom-left corner. Only
-the title-screen prompt in VR floats in front of you.
+Only the short game-over message floats in front of you.
 
 ## Controls
 
@@ -152,14 +211,15 @@ the title-screen prompt in VR floats in front of you.
 | Hand | Input | Fighter | Squadron (Fleet: for the selected units) |
 |---|---|---|---|
 | Right | **Turn the controller** (Mirror steering, default) | The ship turns the way your controller turns, in any direction, including straight up, straight down, loops and upside down, without flipping. Turns are multiplied by the gain (default **2x**), so a 45° wrist turn turns the ship 90°. Turns past 180° stop at 180°. Wrist roll is ignored. | Same, but it turns the squadron's commanded heading (default gain **3x**) |
-| Right | **Trigger** | Shoot (gentle aim assist). Also starts and restarts the game | **Hold = engage**, release = regroup. Also starts and restarts the game |
+| Either | **Ray + trigger** on a panel | Press lobby, tutorial and settings buttons | Same |
+| Either | **Grip** (lobby and tutorial) | Drag to move the room; with that hand's **stick up/down**, resize it | Same |
+| Right | **Trigger** | Shoot (gentle aim assist) | **Hold = engage**, release = regroup |
 | Right | **Hold the grip** | Boost | Boost the squadron (only while not engaging) |
 | Right | **A** | Brake | Slow the squadron |
 | Right | **Click the thumbstick** | Re-center: the controller's current orientation becomes "straight into the box" (also done automatically at the start of a game) | Same |
-| Right | **B** (on the title) | Cycle mode: Fighter / Squadron / Fleet | Same |
 | Left | **Trigger / grip / stick forward-back** | Extras: shoot (engage) / boost / boost-brake | Same |
 | Left | **Click the thumbstick** | Put the box back in its default spot (Fleet: select all; use Settings > Box position) | Same |
-| Left | **X + Y together** | Settings (point with the right controller and pull the right trigger to change; the game pauses) | Same |
+| Left | **X + Y together** | Settings, on a panel to the left of the room (point and pull the trigger to change; the game pauses) | Same |
 | Left | **Fleet only** | | Point the ray; **trigger** = select the unit you point at, **stick click** = select all, **grip** = quick order (hold / guard / follow / attack) |
 | Left | **Look at your wrist** | Score, round, best round, hull, a top-down radar, and the message panel | Score, round, squadron status, a radar with the stars, and the message panel |
 
@@ -179,10 +239,14 @@ Other steering modes (in Settings) also work in all modes:
 | Ship turn speed (Relative, Point and Thumbstick) | Normal / Fast / Very fast | Fast |
 | Box size | Small 0.7 m / Medium 1.0 m / Large 1.3 m | Medium |
 | Box position | RESET puts the box back in its default spot | |
+| Leave game | TO LOBBY ends the current game and goes back to the lobby | |
 
 Changing the mode during a game restarts in the new mode.
 
-### Desktop (testing without a headset)
+### Testing without a headset (developers only)
+
+Players only get the ENTER VR button. For testing, `?test` turns on hidden desktop controls and a
+debug HUD, and sends errors and status lines to a local test server:
 
 | Input | Action |
 |---|---|
@@ -197,9 +261,30 @@ Changing the mode during a game restarts in the new mode.
 | Right-drag or arrow keys | Look around |
 | Tab or the gear button | Settings |
 | Enter / R | Start / restart |
+| L / T | Lobby / tutorial |
 
-URL options: `?wave=5` starts at round 5 (with round-5 enemy tactics), and `?demo` turns on an autopilot (attract mode).
-`?test` sends errors and status lines to a local test server.
+Extra test options (with `?test`): `&demo` autopilot, `&mode=fighter|squadron|fleet`, `&wave=5` start at round 5,
+`&sim=6` run the simulation 6x faster, `&ai=old` use the old (v12) Fleet squadron leaders, `&bench` let a test script drive games.
+
+### Fleet AI: smart leaders vs the old leaders
+
+Measured with the Fleet autopilot (it orders every squadron to attack the nearest enemy group and the capitals
+to attack the flagship), the same random seed for each pair of battles, 6x simulation speed:
+
+| Test | Smart leaders (v13) | Old leaders (v12) |
+|---|---|---|
+| Round 3 battles (8 pairs): won | 8 / 8 | 8 / 8 |
+| Round 3: fighters lost per battle (of 12) | **2.4** | 9.6 |
+| Round 3: time to win | **54 s** | 66 s |
+| Round 5 battles (8 pairs): won | **7 / 8** | 4 / 8 |
+| Round 5: fighters lost per battle (of 12) | **5.4** | 9.5 |
+| Round 5: capital hull lost per battle (of 120) | **82** | 96 |
+| Full games from round 1 (3 pairs): round reached | **7, 7, 7** (avg 7.0) | 6, 7, 7 (avg 6.7) |
+| Full games: average score | **138,700** | 121,150 |
+
+Enemy kills per battle are the same for both, because a won battle means every enemy is destroyed. The full-game
+numbers are closer: the simple autopilot (always attack the nearest group) runs out of steam around round 7,
+when flagships start launching fighters, whichever leaders it has. In a real game you give the orders.
 
 ## Getting it onto the Quest
 
@@ -225,12 +310,15 @@ the left stick to put the box back in its default spot.
 
 ## Files
 
-- `index.html` - page, desktop HUD and title screen
-- `js/main.js` - game: scene, input (VR + desktop), player, enemy AI, squadron bots, fleet (selection, orders, capital ships), stars, rounds and enemy tactic unlocks, HUD, effects
+- `index.html` - page with the ENTER VR button (plus the hidden test HUD)
+- `js/main.js` - game: scene, input, player, enemy AI, squadron bots, fleet (selection, orders, capital ships, smart squadron leaders), stars, rounds and enemy tactic unlocks, lobby, HUD, effects
+- `js/ui.js` - VR panels (canvas text and buttons picked with a controller ray) and the animated controller icons
+- `js/tutorial.js` - the step-by-step tutorial
+- `js/stats.js` - stats saved on the device (localStorage)
 - `js/models.js` - wireframe ship models (points joined by lines)
 - `js/audio.js` - synthesized 3D sound effects (WebAudio, no audio files)
-- `vendor/` - three.js r187 (`three.module.js`, `three.core.js`, `VRButton.js`), MIT licence
-- `screenshots/` - desktop-mode screenshots
+- `vendor/` - three.js r187 (`three.module.js`, `three.core.js`), MIT licence
+- `screenshots/` - screenshots (test mode and the IWER headset emulator)
 
 ## Not done yet / ideas
 

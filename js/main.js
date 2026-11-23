@@ -1,14 +1,23 @@
-// BATTLE ROOM - a seated, tabletop (diorama) wireframe space battle for WebXR (Meta Quest)
-// with a mouse + keyboard fallback for desktop browsers.
+// BATTLE ROOM - a seated, tabletop (diorama) wireframe space battle for WebXR (Meta Quest). VR only:
+// the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
+// A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { VRButton } from '../vendor/VRButton.js';
-import { buildPlayerShip, buildFighter, buildCruiser, buildControllerGizmo, tintShip } from './models.js?v=12';
-import { Sfx } from './audio.js?v=12';
+import { buildPlayerShip, buildFighter, buildCruiser, buildControllerGizmo, tintShip } from './models.js?v=13';
+import { Sfx } from './audio.js?v=13';
+import { Panel, faceYaw, UI } from './ui.js?v=13';
+import { stats, saveStats, recordGame, fmtTime } from './stats.js?v=13';
+import { createTutorial } from './tutorial.js?v=13';
 
-const TEST = /[?&]test/.test(location.search);
-const DEMO = /[?&]demo/.test(location.search);          // autopilot (attract mode / testing)
-const START_WAVE = Math.max(1, parseInt(new URLSearchParams(location.search).get('wave'), 10) || 1);
+const URLQ = new URLSearchParams(location.search);
+const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
+const DEMO = TEST && URLQ.has('demo');                   // autopilot
+const BENCH = TEST && URLQ.has('bench');                 // a test script drives the games (no auto start)
+const START_WAVE = Math.max(1, parseInt(URLQ.get('wave'), 10) || 1);
+const SIM = TEST ? Math.max(1, Math.min(12, parseInt(URLQ.get('sim'), 10) || 1)) : 1;   // test: sim steps per frame
+const AUTO_MODE = TEST ? URLQ.get('mode') : null;        // test: start this mode right away
 const log = (m) => { if (TEST && window.__log) window.__log(m); };
+if (TEST) document.body.classList.add('test');
+if (DEMO) document.body.classList.add('demo');
 
 // ---------------------------------------------------------------- constants
 const S = 0.5;                                    // world scale: everything is "zoomed out" to half size
@@ -41,7 +50,8 @@ const SETTINGS_DEF = [
   { key: 'steerGainSq', label: 'Mirror gain (Squadron)', opts: GAIN_OPTS },
   { key: 'turnSpeed', label: 'Ship turn speed', opts: [['normal', 'Normal'], ['fast', 'Fast'], ['veryfast', 'Very fast']] },
   { key: 'boxSize', label: 'Box size', opts: [['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']] },
-  { key: '_box', label: 'Box position', opts: [], action: 'RESET' },     // an action, not a stored setting
+  { key: '_box', label: 'Box position', opts: [], action: 'RESET' },     // actions, not stored settings
+  { key: '_lobby', label: 'Leave game', opts: [], action: 'TO LOBBY' },
 ];
 const SETTINGS_DEFAULT = { mode: 'fighter', turnSpeed: 'fast', steer: 'mirror', boxSize: 'medium', steerGain: '2', steerGainSq: '3' };
 const BOX_SIZES = { small: 0.7, medium: 1.0, large: 1.3 };     // box width in metres
@@ -68,9 +78,29 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType('local-floor');
 document.getElementById('app').appendChild(renderer.domElement);
-const vrButton = VRButton.createButton(renderer);
-vrButton.id = 'vrbutton';
-document.body.appendChild(vrButton);
+// VR only: one big ENTER VR button (the lobby battle runs behind it). No WebXR: a short note below.
+const vrButton = document.getElementById('vrbutton');
+const xrNote = document.getElementById('xrnote');
+let xrSession = null;
+{
+  const no = (msg) => { vrButton.disabled = true; xrNote.textContent = msg; };
+  if (!navigator.xr) no(window.isSecureContext === false ? 'VR needs a secure (https) page.' : 'No WebXR in this browser - open this page in the Meta Quest browser.');
+  else {
+    navigator.xr.isSessionSupported('immersive-vr').then((ok) => {
+      if (ok) { vrButton.disabled = false; xrNote.textContent = ''; } else no('No VR headset found - open this page in the Meta Quest browser.');
+    }).catch(() => no('VR is not allowed on this page.'));
+  }
+  vrButton.addEventListener('click', () => {
+    if (xrSession) { xrSession.end(); return; }
+    sfx.init();
+    navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] }).then(async (sess) => {
+      xrSession = sess;
+      sess.addEventListener('end', () => { xrSession = null; vrButton.textContent = 'ENTER VR'; });
+      await renderer.xr.setSession(sess);
+      vrButton.textContent = 'EXIT VR';
+    }).catch((e) => { xrNote.textContent = 'Could not start VR: ' + ((e && e.message) || e); });
+  });
+}
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000004);
@@ -260,9 +290,9 @@ class Bullets {
     this.mesh.frustumCulled = false;
     board.add(this.mesh);
   }
-  spawn(pos, vel, life) {
+  spawn(pos, vel, life, src) {
     if (this.list.length >= this.max) return;
-    this.list.push({ pos: pos.clone(), prev: pos.clone(), vel: vel.clone(), life, dead: false });
+    this.list.push({ pos: pos.clone(), prev: pos.clone(), vel: vel.clone(), life, dead: false, src });
   }
   update(dt) {
     for (const b of this.list) {
@@ -633,14 +663,14 @@ const ROLE_STATS = {
   heavy: { hp: 5, speed: 0.7, turn: 0.9, fire: 3.0, range: 5.5, acc: 0.15 },
   bait: { hp: 2, speed: 1.4, turn: 2.2, fire: 2.6, range: 3.5, acc: 0.3 },
   ambush: { hp: 2, speed: 1.3, turn: 2.0, fire: 1.8, range: 4.0, acc: 0.15 },
-  escort: { hp: 2, speed: 1.25, turn: 2.0, fire: 2.0, range: 4.0, acc: 0.18 },
   hunter: { hp: 2, speed: 1.45, turn: 2.3, fire: 1.8, range: 4.0, acc: 0.12 },
 };
 function liveTargets() {
   if (teamMode()) return friends;
   return player.alive ? [player] : [];
 }
-function spawnGroup(role, n, wave, cap = null) {
+// heavyN: the last heavyN members are cruisers (fire support inside a bigger group).
+function spawnGroup(role, n, wave, cap = null, heavyN = 0) {
   const g = { role, members: [], t: rand(0, 1.5), focus: null, focusT: 0, ambushPt: null, sprung: false, lureDone: false, cap };
   // The group enters together through one face, well away from you.
   const ref = player.obj.position;
@@ -654,13 +684,13 @@ function spawnGroup(role, n, wave, cap = null) {
     if (d > bestD) { bestD = d; best = p; }
   }
   if (!best) best = new THREE.Vector3(0, 0, -HB.z * 0.95);
-  if (cap) best = cap.obj.position.clone();         // escorts start beside their flagship
+  if (cap) best = cap.obj.position.clone();         // launched from a flagship
   if (role === 'bait') g.ambushPt = coverPoint(ref, best, new THREE.Vector3()) || best.clone().multiplyScalar(0.8);
   for (let i = 0; i < n; i++) {
-    const pos = best.clone().add(_v1.randomDirection().multiplyScalar(0.4 * S));
+    const pos = best.clone().add(_v1.randomDirection().multiplyScalar(0.4 * S * Math.sqrt(Math.max(1, n / 3))));
     clampIn(pos, 0.98);
     obstPushOut(pos, 0.3 * S);
-    const e = spawnEnemy(role === 'bait' && i > 0 ? 'ambush' : role, wave, pos, g);
+    const e = spawnEnemy(i >= n - heavyN ? 'heavy' : role === 'bait' && i > 0 ? 'ambush' : role, wave, pos, g);
     e.side = i % 2 ? 1 : -1;
     g.members.push(e);
   }
@@ -670,10 +700,11 @@ function spawnGroup(role, n, wave, cap = null) {
 function spawnEnemy(role, wave, pos, group) {
   const heavy = role === 'heavy';
   const st = ROLE_STATS[role];
+  const vet = gameMode === 'fleet' ? Math.floor((wave - 1) / 3) : 0;   // Fleet: tougher pilots in later rounds
   const obj = shrink(heavy ? buildCruiser(ENEMY_COLOR.getHex()) : buildFighter(ENEMY_COLOR.getHex()));
   obj.position.copy(pos);
   const e = {
-    type: heavy ? 'cruiser' : 'fighter', role, group, obj, hp: st.hp, maxHp: st.hp, radius: (heavy ? 0.34 : 0.2) * S,
+    type: heavy ? 'cruiser' : 'fighter', role, group, obj, hp: st.hp + vet, maxHp: st.hp + vet, radius: (heavy ? 0.34 : 0.2) * S,
     fwd: _v1.copy(ARENA_C).sub(pos).normalize().clone(), bank: 0,
     turn: st.turn + wave * 0.06, speed: st.speed * S * (1 + wave * 0.05),
     fireInterval: Math.max(st.fire * 0.45, st.fire - wave * 0.12), range: st.range * S,
@@ -817,16 +848,6 @@ function updateEnemies(dt) {
           else goal.copy(g.ambushPt);                // run home, drawing them toward the ambush
           break;
         }
-        case 'escort': {
-          // Guard the flagship: circle it, and pounce on anything of yours that comes close to it.
-          const cap = g.cap;
-          if (!cap || !cap.alive) { e.role = 'flank'; break; }
-          const threat = nearestTo(cap.obj.position, tg);
-          if (threat && threat.obj.position.distanceTo(cap.obj.position) < 3.2 * S) { e.target = T = threat; mode = 'attack'; break; }
-          const a = g.t * 0.5 + (e.side > 0 ? 0 : Math.PI);
-          goal.copy(cap.obj.position).add(_es.set(Math.cos(a), 0.3 * Math.sin(a * 0.7), Math.sin(a)).multiplyScalar(1.3 * S));
-          break;
-        }
         case 'hunter': mode = 'attack'; break;
         case 'ambush': {
           if (g.sprung) mode = 'attack';
@@ -890,7 +911,7 @@ function updateEnemies(dt) {
 
     // Fire (with lead) when the target is in range, roughly ahead, and not behind a star.
     e.fireCd -= dt;
-    if (T && state === 'playing' && e.fireCd <= 0 && e.spawnFade >= 1 && e.retreatT <= 0) {
+    if (T && combat() && e.fireCd <= 0 && e.spawnFade >= 1 && e.retreatT <= 0) {
       leadPoint(p, T, bulletSpeed, _ea).lerp(T.obj.position, 1 - AI.lead).add(_v3.randomDirection().multiplyScalar(e.acc));
       const to = _es.subVectors(_ea, p);
       const dist = to.length();
@@ -923,14 +944,13 @@ function damageEnemy(e, amount) {
   if (e.hp <= 0) {
     explode(e.obj, ENEMY_COLOR, _v1.copy(e.fwd).multiplyScalar(e.speed), e.type === 'cruiser');
     sfx.boom(e.obj.position, e.type === 'cruiser');
-    score += e.points * wave;
-    kills++;
-    haptic('right', 0.6, 60);
+    if (state === 'playing') { score += e.points * wave; kills++; }
+    if (state !== 'lobby') haptic('right', 0.6, 60);
   } else {
     // Damaged: pull back for a moment before coming in again.
     if (e.retreatCd <= 0) { e.retreatT = 2.0; e.retreatCd = 4; }
-    sfx.ping(e.obj.position);
-    if (gameMode === 'fighter') haptic('right', 0.3, 25);
+    if (state !== 'lobby') sfx.ping(e.obj.position);
+    if (gameMode === 'fighter' && state !== 'lobby') haptic('right', 0.3, 25);
   }
 }
 function damageTarget(t) { if (t === player) damagePlayer(); else if (t.kind === 'capital') damageCapital(t); else damageBot(t); }
@@ -940,6 +960,7 @@ function damageTarget(t) { if (t === player) damagePlayer(); else if (t.kind ===
 // anchor's heading is the order; the bots fly their own ships: formation, engage, dodge, separation.
 // Squadron mode has one squad whose anchor is the (invisible) player ship. Fleet mode has three
 // colour-coded squads plus two friendly capital ships, all commandable.
+const DRIFT = 0.3 * CRUISE;                        // Fleet round start: everything drifts forward this slowly
 const BOT_N = 4, BOT_HP = 3, BOT_SPACING = 0.6 * S, LEASH = 2.2 * S, BOT_RANGE = 4.5 * S;
 const CAP_SCALE = 2.4, CAP_HP = 60, CAP_SPEED = 0.4 * S, CAP_BOOST = 0.7 * S, CAP_RADIUS = 0.75 * S;
 function teamMode() { return gameMode === 'squadron' || gameMode === 'fleet'; }
@@ -1155,7 +1176,7 @@ function updateSquad(sq, dt) {
     }
     // Shoot only with a clear line: never through a friendly ship or a star.
     b.fireCd -= dt;
-    if (engaged && b.target && b.fireCd <= 0 && state === 'playing') {
+    if (engaged && b.target && b.fireCd <= 0 && combat()) {
       _bS.subVectors(_bT, p);
       if (_bS.length() < BOT_RANGE && b.fwd.angleTo(_bS) < 0.22 && !friendsInLine(b, _bT) && !obstBlocks(p, b.target.obj.position)) {
         playerBullets.spawn(_v3.copy(p).addScaledVector(b.fwd, 0.2 * S), _v1.copy(_bS).normalize().multiplyScalar(7 * S), 1.2);
@@ -1184,18 +1205,24 @@ function updateSquad(sq, dt) {
 // Squadron mode: one squad, commanded through the player ship.
 function updateBots(dt) {
   syncSquadToPlayer();
-  SQUAD.engaged = squadEngaged = input.fire && state === 'playing';
+  SQUAD.engaged = squadEngaged = input.fire && combat();
   updateSquad(SQUAD, dt);
 }
 function damageBot(b) {
-  if (!b.alive || b.invuln > 0 || state !== 'playing') return;
+  if (!b.alive || b.invuln > 0 || !combat()) return;
+  const sq = b.unit;
+  sq.hurt = (sq.hurt || 0) + 1;                      // squadron leaders notice when their pilots take hits
+  if (state === 'tutorial') { b.hp = Math.max(1, b.hp - 1); b.invuln = 0.6; b.flash = 0.2; return; }   // nobody dies in training
   b.hp--;
   b.invuln = 0.6;
   b.flash = 0.2;
+  if (state === 'lobby') {
+    if (b.hp <= 0) { b.alive = false; b.obj.visible = false; explode(b.obj, sq.color, _v1.copy(b.fwd).multiplyScalar(b.speed), true); }
+    return;
+  }
   sfx.ping(b.obj.position);
   haptic('left', 0.4, 40);
   if (b.hp > 0) return;
-  const sq = b.unit;
   b.alive = false;
   b.obj.visible = false;
   explode(b.obj, sq.color, _v1.copy(b.fwd).multiplyScalar(b.speed), true);
@@ -1219,8 +1246,12 @@ function gameOver(title) {
   state = 'gameover';
   stateTimer = 0;
   saveBest();
+  recordGame(gameMode, wave, score, kills);
   showMessage(title, endLine(), 9999);
+  log(`gameover mode=${gameMode} round=${wave} score=${score} kills=${kills}`);
 }
+// Everything that fights: real games, the ambient lobby skirmish and the tutorial.
+function combat() { return state === 'playing' || state === 'lobby' || state === 'tutorial'; }
 
 // ---------------------------------------------------------------- Fleet: units, selection, orders
 const selected = new Set();
@@ -1261,25 +1292,26 @@ function resetFleet() {
   FLEET_SQUADS.forEach((sq, i) => {
     sq.anchor.set((i - 1) * 1.6 * S, (i - 1) * 0.3 * S, HB.z * 0.45);
     sq.fwd.set(0, 0, -1); sq.q.copy(BOX_FWD_Q); sq.right.set(1, 0, 0).applyQuaternion(sq.q);
-    sq.speed = CRUISE; sq.engaged = false; sq.prefTarget = null; sq.order.type = 'move';
+    sq.speed = DRIFT; sq.engaged = false; sq.prefTarget = null; sq.order.type = 'idle'; sq.tac = null; sq.smart = false; sq.hurt = 0;
     resetSquad(sq, on);
   });
   FLEET_CAPS.forEach((c, i) => resetCapital(c, on, new THREE.Vector3((i ? 1 : -1) * 1.4 * S, -0.6 * S, HB.z * 0.65), new THREE.Vector3(0, 0, -1)));
   for (const c of enemyCaps) resetCapital(c, false);
-  for (const u of UNITS) { u.ring.visible = false; u.line.visible = false; }
+  for (const u of UNITS) { u.ring.visible = false; u.line.visible = false; u.order.type = 'idle'; }
+  // Round start: nothing selected, no orders - everything drifts forward slowly so you can organise.
   selected.clear();
-  if (on) selectUnits(UNITS, true);
 }
 function resetCapital(c, on, pos, fwd) {
-  c.alive = on; c.obj.visible = on; c.bar.visible = on; c.hp = c.maxHp; c.flash = 0; c.engaged = false; c.prefTarget = null;
-  c.order.type = 'move'; c.speed = CAP_SPEED;
+  c.alive = on; c.obj.visible = on; c.bar.visible = on; c.hp = c.maxHp; c.flash = 0; c.engaged = false; c.prefTarget = null; c.hideT = 0;
+  c.order.type = 'move'; c.speed = c.side === 'friend' ? DRIFT : CAP_SPEED;
   if (pos) c.obj.position.copy(pos);
   if (fwd) c.fwd.copy(fwd);
   quatFromDir(c.fwd, c.obj.quaternion);
   tintShip(c.obj, c.color);
 }
 function damageCapital(c, amount = 1) {
-  if (!c.alive || state !== 'playing') return;
+  if (!c.alive || !combat()) return;
+  if (state === 'tutorial' && c.side === 'friend') { c.hp = Math.max(1, c.hp - amount); c.flash = 0.06; return; }
   c.hp -= amount;
   c.flash = 0.06;
   if (c.hp > 0) { if (c.side === 'friend') haptic('left', 0.2, 20); return; }
@@ -1288,7 +1320,7 @@ function damageCapital(c, amount = 1) {
   blink(c.obj.position, c.color);
   sfx.boom(c.obj.position, true);
   if (c.side === 'enemy') {
-    score += 1000 * wave; kills++;
+    if (state === 'playing') { score += 1000 * wave; kills++; }
     haptic('right', 1.0, 200);
     if (enemyCaps.every((x) => !x.alive)) {
       // Flagship(s) down: the rest of the enemy fleet jumps out. Wave won.
@@ -1309,7 +1341,7 @@ function damageCapital(c, amount = 1) {
 function capitalGuns(c, dt, foes, interval, range) {
   for (const t of c.turrets) {
     t.cd -= dt;
-    if (t.cd > 0 || state !== 'playing') continue;
+    if (t.cd > 0 || !combat()) continue;
     _bS.copy(t.off).applyQuaternion(c.obj.quaternion).multiplyScalar(S * CAP_SCALE).add(c.obj.position);
     let best = null, bd = range;
     for (const f of foes) {
@@ -1322,7 +1354,7 @@ function capitalGuns(c, dt, foes, interval, range) {
     if (c.side === 'friend' && friendsInLine(c, _bT)) { t.cd = 0.15; continue; }
     _bD.subVectors(_bT, _bS).normalize();
     if (c.side === 'friend') playerBullets.spawn(_bS, _bD.clone().multiplyScalar(speed), 1.6);
-    else enemyBullets.spawn(_bS, _bD.clone().multiplyScalar(speed), 2.2);
+    else enemyBullets.spawn(_bS, _bD.clone().multiplyScalar(speed), 2.2, 'cap');
     if (Math.random() < 0.3) (c.side === 'friend' ? sfx.laser(_bS) : sfx.enemyLaser(_bS));
     t.cd = interval * rand(0.8, 1.25);
   }
@@ -1361,7 +1393,7 @@ function nearestFoeDist(p, foes) {
   return d;
 }
 function updateFleet(dt) {
-  const playing = state === 'playing';
+  const playing = combat();
   const foes = foesList();
   for (const u of UNITS) {
     if (!unitAlive(u)) { u.ring.visible = false; u.line.visible = false; continue; }
@@ -1369,13 +1401,19 @@ function updateFleet(dt) {
     const cap = u.kind === 'capital';
     const pos = unitCenter(u);
     // Orders that point somewhere.
-    if (u.order.type !== 'move' && !orderTargetPos(u, _fu)) {
+    if (u.order.type !== 'move' && u.order.type !== 'idle' && !orderTargetPos(u, _fu)) {
       showMessage(`${u.name}`, u.order.type === 'attack' ? 'Target destroyed - holding course' : 'Escort lost - holding course', 1.4);
       u.order.type = 'move'; u.prefTarget = null;
     }
     const near = nearestFoeDist(pos, foes);
     let desired = null, spd = cap ? CAP_SPEED : CRUISE;
-    if (u.order.type === 'move') {
+    u.smart = !cap && SMART_LEADERS && playing && smartLeader(u, dt, sel, near);
+    if (u.smart) { desired = _fd; spd = u.tac.spd; }       // the leader set _fd, engaged and prefTarget
+    else if (u.order.type === 'idle') {
+      // No orders yet: drift forward slowly in formation; only defend yourself if an enemy gets really close.
+      desired = _fd.copy(u.fwd); spd = DRIFT;
+      u.engaged = playing && near < 1.3 * S; u.prefTarget = null;
+    } else if (u.order.type === 'move') {
       if (sel) {
         desired = _fd.copy(player.fwd);
         u.engaged = playing && input.fire;
@@ -1421,13 +1459,13 @@ function updateFleet(dt) {
         const d = _bS.length(), min = u.radius + o.radius;
         if (d < min && d > 1e-5) pos.addScaledVector(_bS, (min - d) / d);
       }
-      capitalGuns(u, dt, foes, u.engaged ? 0.3 : 0.6, (u.engaged ? 6.0 : 4.5) * S);
+      capitalGuns(u, dt, foes, u.engaged ? 0.3 : 0.6, (u.engaged ? 6.0 : u.order.type === 'idle' ? 2.5 : 4.5) * S);
       u.flash = Math.max(0, u.flash - dt);
       tintShip(u.obj, u.flash > 0 ? WHITE : u.color);
       updateBar(u);
     } else {
       // Squad anchor: selected + move follows the command orientation exactly; otherwise turn toward the order.
-      if (sel && u.order.type === 'move') {
+      if (sel && u.order.type === 'move' && !u.smart) {
         if (activeSteer() === 'mirror') u.q.copy(player.mq); else quatFromDir(player.fwd, u.q);
         u.fwd.copy(player.fwd);
       } else {
@@ -1475,7 +1513,9 @@ function updateEnemyCaps(dt) {
     const T = nearestTo(pos, FLEET_CAPS.filter((x) => x.alive)) || nearestTo(pos, tg);
     const goal = _fu;
     if (!T) goal.copy(pos).addScaledVector(c.fwd, 1);
-    else if (AI.cover && c.hp < c.maxHp * 0.35 && coverPoint(T.obj.position, pos, goal)) { /* hide behind a star */ }
+    // Hide behind a star when badly damaged, but only for a while (12 s in all), so a round can't stall
+    // with a lone capital ship and a hidden flagship that never meet.
+    else if (AI.cover && c.hp < c.maxHp * 0.35 && (c.hideT = (c.hideT || 0) + dt) < 12 && coverPoint(T.obj.position, pos, goal)) { /* hide */ }
     else {
       _bS.subVectors(pos, T.obj.position);
       if (_bS.lengthSq() < 1e-6) _bS.set(0, 0, -1);
@@ -1501,10 +1541,22 @@ function updateEnemyCaps(dt) {
     obstPushOut(pos, c.radius);
     capitalGuns(c, dt, tg, Math.max(0.25, 0.8 - wave * 0.05), 5.2 * S);
     // Round 7+: each flagship launches a pair of fighters every 20 s.
-    if (AI.launch && state === 'playing' && (c.launchT -= dt) <= 0 && enemies.length < 40) { c.launchT = 20; spawnGroup('flank', 2, wave, c); }
+    if (AI.launch && state === 'playing' && (c.launchT -= dt) <= 0 && enemies.length < 40) { c.launchT = 20; launchFighters(c, 2); }
     c.flash = Math.max(0, c.flash - dt);
     tintShip(c.obj, c.flash > 0 ? WHITE : c.color);
     updateBar(c);
+  }
+}
+// Round 7+: a flagship launches fighters that join the smallest of the existing groups.
+function launchFighters(c, n) {
+  const g = groups.filter((x) => x.role !== 'bait').sort((a, b) => a.members.length - b.members.length)[0];
+  if (!g) { spawnGroup('flank', n, wave, c); return; }
+  for (let i = 0; i < n; i++) {
+    const pos = c.obj.position.clone().add(_v1.randomDirection().multiplyScalar(c.radius + 0.2 * S));
+    obstPushOut(pos, 0.3 * S);
+    const e = spawnEnemy(g.role === 'hunter' || g.role === 'sniper' ? g.role : 'flank', wave, pos, g);
+    e.side = i % 2 ? 1 : -1;
+    g.members.push(e);
   }
 }
 function spawnEnemyCaps(n) {
@@ -1518,6 +1570,209 @@ function spawnEnemyCaps(n) {
     resetCapital(c, true, p, new THREE.Vector3(0, 0, 1));
     c.speed = CAP_SPEED * 0.8;
   });
+}
+
+// ---------------------------------------------------------------- Fleet: smart squadron leaders (your side only)
+// The pilots fly exactly as before. The leader only moves the squadron's anchor (heading + speed) and
+// decides when the squadron engages. It takes over with an attack / hold / guard order, and while you
+// hold the trigger on a selected squadron. Tactics, picked by situation:
+//   approach - come in from a flank, never head-on; squadrons attacking the same target split the angles
+//   run      - engage on the way through ("boom"); a much weaker target is pressed without letting up
+//   zoom     - stop shooting and boost out of range, toward cover behind a star when one is near
+//              (then swing round and approach again, from a new angle)
+//   cover    - outnumbered or taking hits: break off, regroup behind a star, then go again
+//   defend   - a capital ship near the squadron is under attack: go and help it first
+let SMART_LEADERS = !(TEST && URLQ.get('ai') === 'old');
+const _sl = new THREE.Vector3(), _sl2 = new THREE.Vector3(), _sl3 = new THREE.Vector3(), _sl4 = new THREE.Vector3();
+function targetCenter(t, out) {
+  if (!t) return null;
+  if (t.members) { const a = t.members.filter((e) => e.hp > 0); return a.length ? centroid(a, out) : null; }
+  if (t.kind === 'capital') return t.alive ? out.copy(t.obj.position) : null;
+  return t.hp > 0 ? out.copy(t.obj.position) : null;
+}
+function targetStrength(t) {
+  if (t.members) return t.members.reduce((n, e) => n + (e.hp > 0 ? (e.type === 'cruiser' ? 2 : 1) : 0), 0);
+  return t.kind === 'capital' ? 6 : 1;
+}
+function targetFwd(t, out) {
+  out.set(0, 0, 0);
+  if (t.members) for (const e of t.members) { if (e.hp > 0) out.add(e.fwd); } else out.copy(t.fwd);
+  if (out.lengthSq() < 1e-6) out.set(0, 0, 1);
+  return out.normalize();
+}
+// The nearest enemy group (or flagship) within r of p.
+function nearestThreat(p, r) {
+  let best = null, bd = r;
+  for (const e of enemies) { if (e.hp <= 0) continue; const d = e.obj.position.distanceTo(p); if (d < bd) { bd = d; best = e.group; } }
+  for (const c of enemyCaps) { if (!c.alive) continue; const d = c.obj.position.distanceTo(p) - c.radius; if (d < bd) { bd = d; best = c; } }
+  return best;
+}
+// A group attacking one of your capital ships near this squadron (2+ enemies close to it).
+function capitalThreat(sq) {
+  for (const c of FLEET_CAPS) {
+    if (!c.alive || c.obj.position.distanceTo(sq.anchor) > 7 * S) continue;
+    let n = 0, nearE = null, nd = Infinity;
+    for (const e of enemies) {
+      if (e.hp <= 0) continue;
+      const d = e.obj.position.distanceTo(c.obj.position);
+      if (d < 2.6 * S) { n++; if (d < nd) { nd = d; nearE = e; } }
+    }
+    if (n >= 2 && nearE) return nearE.group;
+  }
+  return null;
+}
+// Where to start an attack run from: a flank point around the target. Squadrons going for the same
+// target take different angles; every new run comes from a new angle.
+// Run geometry for a target: where attack runs start (a flagship: just outside its gun range) and
+// how close a run goes before breaking away.
+const FLAG_GUN = 5.2 * S;
+function runStart(t) { return t.kind === 'capital' ? FLAG_GUN + 0.6 * S : 2.1 * S; }
+function attackMates(target) { return FLEET_SQUADS.filter((q) => q.smart && q.tac && q.tac.target === target && unitAlive(q)); }
+function approachPoint(sq, target, tpos, out) {
+  const mates = attackMates(target);
+  if (!mates.includes(sq)) mates.push(sq);
+  const m = mates.length, k = FLEET_SQUADS.filter((q) => mates.includes(q)).indexOf(sq);
+  const f = targetFwd(target, _sl3);
+  const side = sideOf(f, _sl4);
+  const up = _v3.crossVectors(side, f).normalize();
+  wrapDelta(tpos, sq.anchor, _v2);
+  const base = _v2.dot(side) >= 0 ? 0 : Math.PI;                 // start on the side you're already on
+  const a0 = base + (k * 2 * Math.PI) / m + sq.tac.bearing * 1.1;
+  // Of a few angles near our slot, take the one furthest from any other flagship's guns - and, when
+  // attacking a flagship, one where a star hides you from its turrets while you wait.
+  const capT = target.kind === 'capital';
+  let bestA = a0, bestS = -Infinity;
+  for (const da of capT ? [0, 0.45, -0.45, 0.9, -0.9, 1.35, -1.35] : [0, 0.6, -0.6, 1.2, -1.2]) {
+    const a = a0 + da;
+    _v2.copy(side).multiplyScalar(Math.cos(a)).addScaledVector(up, Math.sin(a) * 0.5).addScaledVector(f, -0.25).normalize().multiplyScalar(runStart(target)).add(tpos);
+    let sc = -Math.abs(da) * 0.5;
+    if (capT && obstBlocks(_v2, tpos)) sc += 2;
+    for (const c of enemyCaps) if (c.alive && c !== target) sc += Math.min(0, c.obj.position.distanceTo(_v2) - FLAG_GUN - 0.5 * S);
+    if (sc > bestS) { bestS = sc; bestA = a; }
+  }
+  out.copy(side).multiplyScalar(Math.cos(bestA)).addScaledVector(up, Math.sin(bestA) * 0.5).addScaledVector(f, -0.25).normalize();
+  return out.multiplyScalar(runStart(target)).add(tpos);
+}
+// Steer clear of enemy flagships' gun range (except the one you're attacking).
+function avoidFlagships(anchor, target, d, w) {
+  for (const c of enemyCaps) {
+    if (!c.alive || c === target) continue;
+    wrapDelta(c.obj.position, anchor, _v2);
+    const dd = _v2.length(), r = FLAG_GUN + 0.6 * S;
+    if (dd < r && dd > 1e-4) d.addScaledVector(_v2, (w * (r - dd)) / (r * dd));
+  }
+}
+function smartLeader(sq, dt, sel, near) {
+  const o = sq.order;
+  if (!sq.tac) sq.tac = { phase: null, t: 0, target: null, bearing: 0, spd: CRUISE, runDir: new THREE.Vector3(), defend: false, ready: false };
+  const tac = sq.tac;
+  sq.hurt = Math.max(0, (sq.hurt || 0) - dt * 0.4);
+  const alive = sq.bots.filter((b) => b.alive).length;
+  // Who to fight.
+  let target = null;
+  if (o.type === 'attack') target = o.target;
+  else if (o.type === 'hold') target = nearestThreat(o.point, 4 * S);
+  else if (sel && o.type === 'move' && input.fire) target = nearestThreat(sq.anchor, 6 * S);
+  else { tac.phase = null; return false; }
+  // Protect a capital ship under attack first (unless you sent them after a flagship).
+  tac.defend = false;
+  if (!(target && target.kind === 'capital')) { const th = capitalThreat(sq); if (th) { target = th; tac.defend = true; } }
+  const tpos = target && targetCenter(target, _sl);
+  if (!tpos) { tac.phase = null; return false; }                 // nothing to fight: the normal order applies
+  if (target !== tac.target || !tac.phase) { tac.target = target; tac.phase = 'approach'; tac.t = 0; tac.ready = false; }
+  tac.t += dt;
+  const anchor = sq.anchor, capT = target.kind === 'capital', R = runStart(target);
+  wrapDelta(anchor, tpos, _sl2);
+  const dist = _sl2.length();
+  let foesNear = 0;
+  for (const e of enemies) if (e.hp > 0 && e.obj.position.distanceTo(anchor) < 3 * S) foesNear++;
+  const outnumbered = foesNear >= alive + 3 || (alive <= 1 && foesNear >= 2);
+  const hurting = sq.hurt >= 3;
+  const weak = !capT && targetStrength(target) <= alive - 1;
+  if ((outnumbered || hurting) && tac.phase !== 'cover' && !tac.defend) { tac.phase = 'cover'; tac.t = 0; }
+  let engaged = near < 1.2 * S, spd = CRUISE;
+  const d = _fd;
+  const next = (ph) => { tac.phase = ph; tac.t = 0; tac.ready = false; };
+  switch (tac.phase) {
+    case 'approach': {
+      approachPoint(sq, target, tpos, _sl3);
+      wrapDelta(anchor, _sl3, d);
+      const toP = d.length();
+      d.normalize();
+      // Don't cut across the target on the way to the flank: push round it.
+      if (dist < R * 1.3) d.addScaledVector(_v2.copy(_sl2).multiplyScalar(-1 / Math.max(dist, 1e-3)), 1.2 * (1 - dist / (R * 1.3)));
+      spd = dist > R + 4 * S ? BOOST : CRUISE * 1.15;
+      if (!capT) engaged = engaged || dist < BOT_RANGE * 0.8;   // shots of opportunity on the way in
+      if (toP < 0.9 * S || (dist < R * 1.15 && tac.t > 1.5)) tac.ready = true;
+      if (tac.ready && capT) {
+        // At the start point: wait (circling) until every squadron going for this flagship is in place,
+        // then all go in together - its turrets can only shoot at one of you at a time.
+        d.crossVectors(_v2.copy(_sl2).normalize(), UP);
+        if (d.lengthSq() < 1e-4) d.set(1, 0, 0);
+        d.normalize().addScaledVector(_sl2, (dist - R) / Math.max(dist, 1e-3));
+        d.normalize();
+        spd = CRUISE * 0.6;
+      }
+      const go = capT ? tac.ready && (attackMates(target).every((q) => q.tac.ready || q.tac.phase === 'run') || tac.t > 7) : tac.ready || tac.t > 10;
+      if (go || tac.defend || tac.t > 14) { next('run'); tac.runDir.copy(_sl2).normalize(); tac.hurt0 = sq.hurt; }
+      break;
+    }
+    case 'run': {
+      engaged = true; spd = CRUISE;
+      if (capT) {
+        // Strafing run on a flagship: in to firing range, then curve round it (hard to hit), and break
+        // away before getting too close.
+        const want = target.radius + 2.3 * S;
+        d.copy(_sl2).normalize();
+        if (dist < want + 0.4 * S) { _v2.crossVectors(d, UP); if (_v2.lengthSq() < 1e-4) _v2.set(1, 0, 0); d.multiplyScalar((dist - want) / (0.4 * S)).addScaledVector(_v2.normalize(), 1).normalize(); }
+        // ...or as soon as its turrets start finding the range.
+        if (dist < target.radius + 1.6 * S || tac.t > 4 || sq.hurt - (tac.hurt0 || 0) > 1.5) { next('zoom'); tac.runDir.copy(_sl2).normalize().negate(); }
+        break;
+      }
+      // Through the group and out the other side.
+      d.copy(_sl2).addScaledVector(tac.runDir, 1.5 * S).normalize();
+      const passed = -_sl2.dot(tac.runDir) > 1.2 * S;
+      if (passed || tac.t > (weak ? 7 : 5)) {
+        if (weak || tac.defend) { next('approach'); tac.bearing++; }   // weak target: swing straight back in
+        else {
+          next('zoom');
+          const fl = nearestTo(anchor, enemyCaps.filter((c) => c.alive));
+          if (fl && fl.obj.position.distanceTo(anchor) < FLAG_GUN + 1.5 * S) { wrapDelta(fl.obj.position, anchor, tac.runDir); tac.runDir.normalize(); }
+        }
+      }
+      break;
+    }
+    case 'zoom': {
+      // Out of range, fast, toward cover if a star is close.
+      d.copy(tac.runDir);
+      const cp = coverPoint(tpos, anchor, _sl3);
+      if (cp && cp.distanceTo(anchor) < 4 * S) { wrapDelta(anchor, cp, _v2); d.multiplyScalar(0.4).addScaledVector(_v2.normalize(), 0.6); }
+      d.normalize();
+      spd = BOOST;
+      const out = capT ? dist > R : dist > LEASH + BOT_RANGE + 0.8 * S;
+      if ((out && tac.t > 1.2) || tac.t > 5) { next('approach'); tac.bearing++; }
+      break;
+    }
+    case 'cover': {
+      // Regroup behind a star (or just away from the fight), then go again.
+      const cp = coverPoint(tpos, anchor, _sl3);
+      if (cp && cp.distanceTo(anchor) < 7 * S) {
+        wrapDelta(anchor, cp, d);
+        const dd = d.length();
+        if (dd < 0.8 * S) { d.crossVectors(d.lengthSq() > 1e-6 ? d.normalize() : sq.fwd, UP); if (d.lengthSq() < 1e-4) d.set(1, 0, 0); spd = CRUISE * 0.6; }
+        else spd = BOOST;
+      } else { d.copy(_sl2).multiplyScalar(-1); spd = BOOST; }
+      d.normalize();
+      if ((tac.t > 3 && !outnumbered && sq.hurt < 1) || tac.t > 7) { next('approach'); tac.bearing++; sq.hurt = 0; }
+      break;
+    }
+    default: next('approach');
+  }
+  if (tac.phase !== 'run') { avoidFlagships(anchor, target, d, 2.5); d.normalize(); }
+  sq.engaged = engaged;
+  sq.prefTarget = engaged ? target : null;
+  tac.spd = spd;
+  return true;
 }
 
 // ---------------------------------------------------------------- Fleet: pointing (left hand / mouse)
@@ -1592,6 +1847,7 @@ function fleetOrder() {
   if (what) {
     // Ordered units leave direct command; select them again to steer them yourself.
     for (const u of sel) if (u.order.type !== 'move') selected.delete(u);
+    lastOrderWhat = what;
     showMessage(what, sel.map((u) => u.name).join(', '), 1.4);
     sfx.ping(null);
     haptic('left', 0.4, 40);
@@ -1603,8 +1859,8 @@ const selRay = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THRE
 selRay.visible = false;
 
 // ---------------------------------------------------------------- mode switching
-function applyMode() {
-  gameMode = settings.mode;
+function applyMode(mode = settings.mode) {
+  gameMode = mode;
   const sq = teamMode();
   setBoxB(MODE_BOX[gameMode]);
   freshStars();
@@ -1620,7 +1876,8 @@ function applyMode() {
   resetFleet();
 }
 function damagePlayer() {
-  if (!player.alive || player.invuln > 0 || state !== 'playing') return;
+  if (!player.alive || player.invuln > 0 || !combat()) return;
+  if (state === 'tutorial') { player.invuln = 1.0; player.flash = 0.25; sfx.hit(); haptic('right', 0.6, 80); return; }   // can't die in training
   player.hp--;
   player.invuln = 1.0;
   player.flash = 0.25;
@@ -1634,27 +1891,25 @@ function damagePlayer() {
     trail.visible = false;
     explode(player.obj, PLAYER_COLOR, _v1.copy(player.fwd).multiplyScalar(player.speed), true);
     sfx.boom(player.obj.position, true);
-    sfx.chime(false);
-    state = 'gameover';
-    stateTimer = 0;
-    saveBest();
-    showMessage('SHIP DESTROYED', endLine(), 9999);
+    gameOver('SHIP DESTROYED');
   }
 }
 
 // ---------------------------------------------------------------- game state
-let state = 'title';   // title | playing | gameover
+let state = 'lobby';   // lobby | tutorial | playing | gameover
+let simTime = 0;
+const hitStats = { cap: 0, fighter: 0 };              // test: what hits your fighters
 let stateTimer = 0;
 let wave = 0, score = 0, kills = 0, intermission = 0, screenFlash = 0;
 let best = 0;
 try { best = Number(localStorage.getItem('battleRoomBest')) || 0; } catch (e) { /* ignore */ }
-// The goal is the highest round: the best round reached is kept per mode.
-const bestRound = { fighter: 0, squadron: 0, fleet: 0 };
-try { Object.assign(bestRound, JSON.parse(localStorage.getItem('battleRoomBestRound') || '{}')); } catch (e) { /* ignore */ }
+// The goal is the highest round: the best round reached is kept per mode (in stats.js).
+const bestRound = { get fighter() { return stats.modes.fighter.best; }, get squadron() { return stats.modes.squadron.best; }, get fleet() { return stats.modes.fleet.best; } };
 function saveBest() {
   best = Math.max(best, score);
-  bestRound[gameMode] = Math.max(bestRound[gameMode] || 0, wave);
-  try { localStorage.setItem('battleRoomBest', String(best)); localStorage.setItem('battleRoomBestRound', JSON.stringify(bestRound)); } catch (e) { /* ignore */ }
+  stats.modes[gameMode].best = Math.max(stats.modes[gameMode].best, wave);
+  try { localStorage.setItem('battleRoomBest', String(best)); } catch (e) { /* ignore */ }
+  saveStats();
 }
 function endLine() { return `Reached round ${wave}  (best ${bestRound[gameMode] || 0})   Score ${score}\n${restartHint()}`; }
 
@@ -1663,15 +1918,12 @@ function startWave(n) {
   const unlocked = setAI(n);
   const heavies = Math.floor((n - 1) / 2);
   if (gameMode === 'fleet') {
-    // A flagship (two from wave 3) with escorts, plus the Squadron-style attack groups.
+    // A flagship (two from round 3) and a FEW big groups (2 in round 1, 3 from round 2, 4 from round 4)
+    // that grow and get tougher each round, so you never have to manage lots of tiny groups.
     spawnEnemyCaps(n);
-    for (const c of enemyCaps) if (c.alive) spawnGroup('escort', 2 + Math.floor(n / 2), n, c);
-    spawnGroup('pincer', 2, n);
-    spawnGroup('flank', 2 + Math.floor(n / 2), n);
-    spawnGroup('sniper', 1 + Math.floor(n / 3), n);
-    if (n >= 2) spawnGroup('bait', 3, n);
-    if (n >= 3) spawnGroup('flank', 2 + Math.floor(n / 3), n);
-    if (heavies) spawnGroup('heavy', heavies, n);
+    const plan = ['pincer', 'flank', 'bait', n >= 6 ? 'hunter' : 'sniper'].slice(0, n >= 4 ? 4 : n >= 2 ? 3 : 2);
+    const size = { pincer: 3 + n, flank: 2 + n, bait: 3 + Math.floor(n / 2), sniper: 2 + Math.floor(n / 2), hunter: 2 + Math.floor(n / 2) };
+    plan.forEach((role, i) => spawnGroup(role, size[role], n, null, i === 0 ? Math.ceil(heavies / 2) : i === 1 ? Math.floor(heavies / 2) : 0));
   } else if (gameMode === 'squadron') {
     // Coordinated groups; more of them, and more varied, as the waves go on.
     spawnGroup('pincer', 2, n);
@@ -1688,7 +1940,7 @@ function startWave(n) {
     if (n >= 4) spawnGroup('pincer', 2, n);
     if (heavies) spawnGroup('heavy', heavies, n);
   }
-  if (AI.hunters) spawnGroup('hunter', 2 + Math.floor((n - 6) / 3), n);
+  if (AI.hunters && gameMode !== 'fleet') spawnGroup('hunter', 2 + Math.floor((n - 6) / 3), n);
   const nCaps = enemyCaps.filter((c) => c.alive).length;
   const what = nCaps ? `${nCaps} flagship${nCaps > 1 ? 's' : ''} + ${enemies.length} fighters` : `${enemies.length} hostiles inbound`;
   showMessage(`ROUND ${n}`, unlocked.length ? `${what}\nNEW: ${unlocked.join(', ')}` : what, unlocked.length ? 3.6 : 2.4);
@@ -1709,8 +1961,11 @@ function startRound(n) {
   freshStars();
   startWave(n);
 }
-function startGame() {
+function startGame(round = START_WAVE) {
   sfx.init();
+  tutorial.stop();
+  lobbyPanel.visible = false;
+  tutFreeze = false;
   for (const e of enemies) board.remove(e.obj);
   enemies.length = 0;
   groups.length = 0;
@@ -1724,17 +1979,171 @@ function startGame() {
   needNeutral = true;
   stateTimer = 0;
   intermission = 0;
-  hideTitle();
-  startRound(START_WAVE);
-}
-function showIdlePrompt() {
-  if (state === 'title') {
-    if (renderer.xr.isPresenting) showMessage('BATTLE ROOM: ' + gameMode.toUpperCase(), 'RIGHT TRIGGER starts - B switches mode (Fighter / Squadron / Fleet)\n' + steerHelp(activeSteer()), 9999);
-  } else if (state === 'gameover') showMessage({ squadron: 'SQUADRON LOST', fleet: 'FLEET LOST' }[gameMode] || 'SHIP DESTROYED', endLine(), 9999);
+  startRound(round);
+  log(`game start mode=${gameMode} round=${round} smart=${SMART_LEADERS}`);
 }
 function restartHint() {
-  return renderer.xr.isPresenting ? 'Pull TRIGGER or press A to restart' : 'Click or press R to restart';
+  return 'Back to the lobby in a moment';
 }
+// Leave a running game for the lobby (Settings > Leave game); it still counts as a game played.
+function leaveGame() {
+  if (state === 'playing' || state === 'gameover') { if (state === 'playing') { saveBest(); recordGame(gameMode, wave, score, kills); } enterLobby(); }
+  else if (state === 'tutorial') finishTutorial();
+}
+
+// ---------------------------------------------------------------- lobby
+// Where you land after entering VR (once the tutorial is done) and a few seconds after each game.
+// A small blue squadron and red raiders skirmish round the stars; you can grab and resize the room;
+// the panel on the right picks the mode, starts the game and shows your stats.
+let lobbyT = 0, lobbySpawnT = 0, lobbyReviveT = 0;
+const lobbyPanel = new Panel(0.44, 880, 1040);
+rig.add(lobbyPanel.mesh);
+const MODE_INFO = { fighter: 'Fly one ship yourself', squadron: 'Lead a squadron of 4 bot fighters', fleet: 'Command 3 squadrons + 2 capital ships' };
+function drawLobby() {
+  const P = lobbyPanel, W = P.W;
+  P.begin('BATTLE ROOM');
+  P.text('GAME MODE', 36, 128, { size: 26, color: UI.dim });
+  MODES.forEach((m, i) => P.button('mode:' + m, 30 + i * 277, 142, 264, 84, m.toUpperCase(), { active: settings.mode === m, size: 30 }));
+  P.text(MODE_INFO[settings.mode], W / 2, 270, { size: 26, align: 'center', maxW: W - 60 });
+  P.button('start', 30, 296, W - 60, 118, 'START', { big: true, size: 56 });
+  P.text('STATS', 36, 470, { size: 26, color: UI.dim });
+  const cols = [400, 590, 780];
+  ['BEST ROUND', 'GAMES', 'LAST'].forEach((h, i) => P.text(h, cols[i], 470, { size: 20, color: UI.dim, align: 'center', maxW: 180 }));
+  MODES.forEach((m, i) => {
+    const y = 512 + i * 42, st = stats.modes[m];
+    P.text(m.toUpperCase(), 36, y, { size: 26, color: settings.mode === m ? UI.gold : UI.text, maxW: 250 });
+    [st.best, st.games, st.last].forEach((v, k) => P.text(String(v), cols[k], y, { size: 28, bold: k === 0, color: k === 0 ? UI.title : UI.text, align: 'center', maxW: 170 }));
+  });
+  const rows = [
+    ['Win streak', `${stats.streak}   (best ${stats.bestStreak})`], ['Total kills', String(stats.kills)],
+    ['Games played', String(stats.games)], ['Time played', fmtTime(stats.time)], ['Best score', String(Math.max(stats.bestScore, best))],
+  ];
+  rows.forEach(([l, v], i) => {
+    const y = 664 + i * 40;
+    P.text(l, 36, y, { size: 25, color: UI.text, maxW: 380 });
+    P.text(v, W - 36, y, { size: 25, color: UI.title, align: 'right', maxW: 400 });
+  });
+  P.button('tutorial', 30, 884, 400, 78, 'REDO TUTORIAL', { size: 28 });
+  P.button('settings', W - 430, 884, 400, 78, 'SETTINGS', { size: 28 });
+  P.text('GRIP: move the room     GRIP + STICK: resize', W / 2, 1012, { size: 22, color: UI.dim, align: 'center', maxW: W - 40 });
+  P.end();
+}
+lobbyPanel.onClick = (id) => {
+  if (id.startsWith('mode:')) { setSetting('mode', id.slice(5)); sfx.ping(null); }
+  else if (id === 'start') startGame();
+  else if (id === 'tutorial') startTutorial();
+  else if (id === 'settings') toggleSettings(true);
+  log('lobby click ' + id);
+};
+function clearBattle() {
+  for (const e of enemies) board.remove(e.obj);
+  enemies.length = 0;
+  groups.length = 0;
+  for (const c of enemyCaps) resetCapital(c, false);
+  playerBullets.clear();
+  enemyBullets.clear();
+}
+function enterLobby() {
+  state = 'lobby';
+  stateTimer = 0;
+  tutorial.stop();
+  tutFreeze = false;
+  clearBattle();
+  wave = 1;
+  setAI(2);
+  applyMode('squadron');
+  setShape(pickShape(_shapeTmp));
+  freshStars();
+  resetPlayer();
+  player.obj.visible = false;
+  trail.visible = false;
+  resetBots();
+  lobbyT = 0; lobbySpawnT = 1.0; lobbyReviveT = 0;
+  hideMessage();
+  lobbyPanel.visible = true;
+  drawLobby();
+  log('lobby');
+}
+// The ambient skirmish: the blue squadron's leader wanders round the room and engages anything near.
+function updateLobby(dt) {
+  lobbyT += dt;
+  const t = lobbyT * 0.22, p = player.obj.position;
+  const at = (k, out) => out.set(Math.sin(k) * HB.x * 0.55, Math.sin(k * 1.7) * HB.y * 0.35, Math.cos(k * 0.8) * HB.z * 0.5);
+  at(t, p);
+  at(t + 0.05, _v1).sub(p);
+  if (_v1.lengthSq() > 1e-8) player.fwd.copy(_v1.normalize());
+  quatFromDir(player.fwd, player.obj.quaternion);
+  player.speed = CRUISE;
+  refreshFriends();
+  syncSquadToPlayer();
+  SQUAD.engaged = squadEngaged = enemies.some((e) => e.obj.position.distanceTo(p) < 4 * S);
+  updateSquad(SQUAD, dt);
+  updateEnemies(dt);
+  playerBullets.update(dt);
+  enemyBullets.update(dt);
+  updateCollisions();
+  if (!enemies.length && (lobbySpawnT -= dt) <= 0) { spawnGroup(Math.random() < 0.5 ? 'pincer' : 'flank', 3, 1); lobbySpawnT = 3; }
+  if (!bots.some((b) => b.alive) && (lobbyReviveT += dt) > 2.5) { resetSquad(SQUAD, true); lobbyReviveT = 0; }
+}
+
+// ---------------------------------------------------------------- tutorial (steps live in tutorial.js)
+const TUT_KEY = 'battleRoomTutorialDone';
+let tutFreeze = false, tutStageName = '', shotsFired = 0, lastOrderWhat = '';
+function tutorialDone() { try { return localStorage.getItem(TUT_KEY) === '1'; } catch (e) { return false; } }
+function startTutorial() {
+  state = 'tutorial';
+  stateTimer = 0;
+  lobbyPanel.visible = false;
+  hideMessage();
+  score = 0; kills = 0; wave = 1;
+  setAI(1);
+  tutStageName = '';
+  tutorial.start();
+  log('tutorial start');
+}
+function finishTutorial() {
+  try { localStorage.setItem(TUT_KEY, '1'); } catch (e) { /* ignore */ }
+  log('tutorial done');
+  enterLobby();
+}
+// Set the scene for a group of tutorial steps.
+function tutStage(name) {
+  clearBattle();
+  selected.clear();
+  tutStageName = name;
+  const cube = () => setShape(_v1.set(BOX_B, BOX_B, BOX_B));
+  if (name === 'box' || name === 'fly' || name === 'enemy') {
+    if (gameMode !== 'fighter' || name === 'box') { applyMode('fighter'); cube(); }
+    if (name === 'box' || tutFreeze) resetPlayer();
+    tutFreeze = name === 'box';
+    if (tutFreeze) player.obj.position.set(0, 0, 0);       // just your ship, in the middle of the room
+  } else {
+    tutFreeze = false;
+    applyMode(name);
+    cube();
+    freshStars();
+    resetPlayer();
+    resetBots();
+    resetFleet();
+  }
+  needNeutral = true;
+}
+function spawnTut(kind, n) {
+  if (kind === 'flagship') { spawnEnemyCaps(1); const c = enemyCaps[0]; c.maxHp = c.hp = 25; return; }
+  const g = spawnGroup(kind === 'practice' ? 'flank' : 'pincer', n, 1);
+  for (const e of g.members) {
+    if (kind === 'practice') { e.fireInterval = 1e9; e.fireCd = 1e9; e.speed *= 0.55; e.hp = e.maxHp = 1; }
+    else { e.fireInterval *= 1.8; e.acc *= 1.8; }
+  }
+}
+const tutorial = createTutorial({
+  get input() { return input; }, get player() { return player; }, get settings() { return settings; }, setSetting,
+  get shots() { return shotsFired; }, enemyCount: () => enemies.length + enemyCaps.filter((c) => c.alive).length,
+  spawnTut, get selected() { return selected; }, unitsAlive: () => UNITS.filter(unitAlive).length,
+  get lastOrder() { return lastOrderWhat; }, set lastOrder(v) { lastOrderWhat = v; },
+  stage: tutStage, finishTutorial, ping: () => sfx.ping(null), log,
+});
+rig.add(tutorial.card.mesh, tutorial.big.mesh);
 
 // ---------------------------------------------------------------- HUD (one canvas: DOM on desktop, texture on the VR wrist)
 const hudCanvas = document.getElementById('hud');
@@ -1771,10 +2180,9 @@ function showMessage(title, sub = '', dur = 2) {
   // In VR, messages go on a small panel on the LEFT wrist (right of the score panel) so nothing
   // covers the battle. Only the title-screen prompt uses the big floating panel.
   const xr = renderer.xr.isPresenting;
-  const big = xr && state === 'title';
+  const big = xr && state === 'gameover';
   msgPanel.visible = big;
   wristMsg.visible = xr && !big;
-  msgEl.classList.toggle('title', state === 'title');
 }
 function hideMessage() {
   msgTime = 0;
@@ -1791,7 +2199,8 @@ function getCamForwardFlat(out) {
   return out.normalize();
 }
 // Fleet wrist panel: every unit (selected ones marked), its hull and current order, the enemy flagships.
-const ORDER_TAG = { move: 'MOVE', hold: 'HOLD', follow: 'FOLW', attack: 'ATK' };
+const ORDER_TAG = { move: 'MOVE', hold: 'HOLD', follow: 'FOLW', attack: 'ATK', idle: 'IDLE' };
+const TAC_TAG = { approach: 'APPR', run: 'RUN', zoom: 'ZOOM', cover: 'CVR', defend: 'DEF', press: 'FIRE' };
 function drawFleetHud() {
   const g = hctx;
   g.font = '20px monospace';
@@ -1814,7 +2223,7 @@ function drawFleetHud() {
       });
     }
     g.fillStyle = '#bfefff';
-    if (alive) g.fillText(u.engaged ? 'FIRE' : ORDER_TAG[u.order.type], 204, y);
+    if (alive) g.fillText(u.smart && u.tac && u.tac.phase ? TAC_TAG[u.tac.defend ? 'defend' : u.tac.phase] : u.engaged ? 'FIRE' : ORDER_TAG[u.order.type], 204, y);
   });
   // Enemy flagships.
   let x = 22;
@@ -1827,7 +2236,7 @@ function drawFleetHud() {
     x += 90;
   }
   g.fillStyle = '#5fa9bf'; g.font = '16px monospace';
-  g.fillText(state === 'playing' && intermission > 0 ? 'NEXT ROUND...' : fleetHover ? 'POINTING: ' + hoverLabel(fleetHover) : 'L: point+trig select', 20, 240);
+  g.fillText(state === 'playing' && intermission > 0 ? 'NEXT ROUND...' : fleetHover ? 'POINTING: ' + hoverLabel(fleetHover) : 'L: point+trig select', 20, 240, 250);
 }
 function drawHud() {
   const W = hudCanvas.width, H = hudCanvas.height;
@@ -2006,7 +2415,7 @@ shipArrow.renderOrder = 20;
 shipArrow.visible = false;
 camera.add(shipArrow);
 function updateShipArrow(xr) {
-  if (!player.alive || state === 'title') { shipArrow.visible = false; return; }
+  if (!player.alive || state === 'lobby' || tutFreeze) { shipArrow.visible = false; return; }
   _v1.copy(player.obj.position);
   camera.worldToLocal(_v1);
   let visibleOnScreen;
@@ -2093,7 +2502,7 @@ for (let i = 0; i < 2; i++) {
     if (hand !== 'left' && hand !== 'right') return;
     hands[hand] = c;
     c.add(buildControllerGizmo(hand === 'left' ? 0xffcc66 : 0x33ddff));
-    if (hand === 'left') c.add(hudPanel, wristMsg, selRay);
+    if (hand === 'left') c.add(hudPanel, wristMsg, selRay, lPointer);
     else c.add(pointer, gimbal);
     log(`controller connected: ${hand} gamepad=${!!ev.data.gamepad}`);
   });
@@ -2119,11 +2528,10 @@ function haptic(hand, intensity, ms) {
 
 renderer.xr.addEventListener('sessionstart', () => {
   document.body.classList.add('in-vr');
-  hideTitle();
   rig.position.set(0, 0, 0);
   needNeutral = true;
   msgPanel.position.set(0, HEAD_H, -1.8);
-  if (state === 'title' || state === 'gameover') showIdlePrompt();
+  if (state !== 'playing') { if (tutorialDone()) enterLobby(); else startTutorial(); }
   log('xr sessionstart');
 });
 renderer.xr.addEventListener('sessionend', () => {
@@ -2138,49 +2546,58 @@ renderer.xr.addEventListener('sessionend', () => {
 function applySettings(changed) {
   player.turn = 2.8 * TURN_MULS[settings.turnSpeed];
   if (changed === 'boxSize') { box.size = BOX_SIZES[settings.boxSize]; applyBoard(); saveBox(); }
-  if (changed === 'mode' && settings.mode !== gameMode) {
-    // Switching mode: restart in the new mode (or just rebuild the title scene).
-    if (state === 'title') { applyMode(); showIdlePrompt(); } else startGame();
-    needNeutral = true;
-  }
+  if (changed === 'mode' && settings.mode !== gameMode && (state === 'playing' || state === 'gameover')) { startGame(); needNeutral = true; }
+  if (changed === 'mode' && state === 'lobby') drawLobby();
 }
 
 // ---------------------------------------------------------------- settings menu (VR panel + desktop overlay)
 let menuOpen = false, menuHover = -1;
-const MENU_W = 512, MENU_TOP = 70, MENU_ROW = 56, MENU_ROWS = SETTINGS_DEF.length + 1;
+const MENU_W = 760, MENU_TOP = 84, MENU_ROW = 66, MENU_ROWS = SETTINGS_DEF.length + 1, MENU_M = 0.46;
 const menuCanvas = document.createElement('canvas');
 menuCanvas.width = MENU_W; menuCanvas.height = MENU_TOP + MENU_ROWS * MENU_ROW + 44;
 const mnctx = menuCanvas.getContext('2d');
 const menuTex = new THREE.CanvasTexture(menuCanvas);
 menuTex.colorSpace = THREE.SRGBColorSpace;
-const menuPanel = new THREE.Mesh(new THREE.PlaneGeometry(0.5, (0.5 * menuCanvas.height) / MENU_W),
+const menuPanel = new THREE.Mesh(new THREE.PlaneGeometry(MENU_M, (MENU_M * menuCanvas.height) / MENU_W),
   new THREE.MeshBasicMaterial({ map: menuTex, transparent: true, depthTest: false, fog: false, side: THREE.DoubleSide }));
 menuPanel.renderOrder = 30;
 menuPanel.visible = false;
 rig.add(menuPanel);
 function optLabel(d) { const o = d.opts.find((x) => x[0] === settings[d.key]); return o ? o[1] : ''; }
+// Every label and value is shrunk to fit its own column, so nothing overlaps.
+const menuLayout = [];                               // drawn text extents per row (checked by the tests)
+function fitText(g, str, x, y, maxW, size, bold) {
+  let sz = size;
+  g.font = `${bold ? 'bold ' : ''}${sz}px monospace`;
+  while (sz > 12 && g.measureText(str).width > maxW) { sz--; g.font = `${bold ? 'bold ' : ''}${sz}px monospace`; }
+  g.fillText(str, x, y);
+  const w = g.measureText(str).width;
+  const x0 = g.textAlign === 'center' ? x - w / 2 : g.textAlign === 'right' ? x - w : x;
+  menuLayout.push({ str, x0, x1: x0 + w, y0: y - sz * 0.78, y1: y + sz * 0.22 });
+}
 function drawMenu() {
   const g = mnctx, W = MENU_W, H = menuCanvas.height;
+  menuLayout.length = 0;
   g.clearRect(0, 0, W, H);
-  g.fillStyle = 'rgba(0,10,22,0.9)'; g.fillRect(0, 0, W, H);
+  g.fillStyle = 'rgba(0,10,22,0.92)'; g.fillRect(0, 0, W, H);
   g.strokeStyle = 'rgba(80,220,255,0.8)'; g.lineWidth = 3; g.strokeRect(2, 2, W - 4, H - 4);
-  g.fillStyle = '#9ff'; g.font = 'bold 34px monospace'; g.textAlign = 'center';
-  g.fillText('SETTINGS', W / 2, 48);
+  g.fillStyle = '#9ff'; g.textAlign = 'center';
+  fitText(g, 'SETTINGS', W / 2, 58, W - 40, 42, true);
+  const colL = W * 0.47 - 30, colR = W * 0.47 - 30;
   for (let i = 0; i < MENU_ROWS; i++) {
     const y = MENU_TOP + i * MENU_ROW;
-    if (i === menuHover) { g.fillStyle = 'rgba(60,200,255,0.25)'; g.fillRect(10, y, W - 20, MENU_ROW - 6); }
-    g.strokeStyle = 'rgba(80,220,255,0.35)'; g.lineWidth = 1; g.strokeRect(10, y, W - 20, MENU_ROW - 6);
-    g.font = '24px monospace';
+    if (i === menuHover) { g.fillStyle = 'rgba(60,200,255,0.25)'; g.fillRect(12, y, W - 24, MENU_ROW - 8); }
+    g.strokeStyle = 'rgba(80,220,255,0.35)'; g.lineWidth = 2; g.strokeRect(12, y, W - 24, MENU_ROW - 8);
     if (i < SETTINGS_DEF.length) {
       const d = SETTINGS_DEF[i];
-      g.textAlign = 'left'; g.fillStyle = '#bfefff'; g.fillText(d.label, 24, y + 34);
-      g.textAlign = 'right'; g.fillStyle = '#ffcc66'; g.fillText((d.action || optLabel(d)) + ' >', W - 24, y + 34);
+      g.textAlign = 'left'; g.fillStyle = '#bfefff'; fitText(g, d.label, 28, y + 39, colL, 27);
+      g.textAlign = 'right'; g.fillStyle = '#ffcc66'; fitText(g, (d.action || optLabel(d)) + ' >', W - 28, y + 39, colR, 27, true);
     } else {
-      g.textAlign = 'center'; g.fillStyle = '#9ff'; g.fillText('CLOSE', W / 2, y + 34);
+      g.textAlign = 'center'; g.fillStyle = '#9ff'; fitText(g, 'CLOSE', W / 2, y + 39, W - 60, 28, true);
     }
   }
-  g.textAlign = 'center'; g.fillStyle = '#5fa9bf'; g.font = '18px monospace';
-  g.fillText(renderer.xr.isPresenting ? 'Point + trigger to change - X+Y closes' : 'Tab closes', W / 2, H - 16);
+  g.textAlign = 'center'; g.fillStyle = '#5fa9bf';
+  fitText(g, renderer.xr.isPresenting ? 'Point + trigger to change - X+Y closes' : 'Tab closes', W / 2, H - 18, W - 40, 22);
   menuTex.needsUpdate = true;
 }
 function setSetting(key, val) {
@@ -2194,6 +2611,7 @@ function setSetting(key, val) {
 function cycleSetting(i) {
   if (i >= SETTINGS_DEF.length) { toggleSettings(false); return; }
   const d = SETTINGS_DEF[i];
+  if (d.key === '_lobby') { toggleSettings(false); leaveGame(); sfx.ping(null); return; }
   if (d.action) { resetBox(); showMessage('BOX RESET', 'Back in front of you', 1.0); sfx.ping(null); return; }
   const k = d.opts.findIndex((o) => o[0] === settings[d.key]);
   setSetting(d.key, d.opts[(k + 1) % d.opts.length][0]);
@@ -2204,16 +2622,7 @@ function toggleSettings(open = !menuOpen) {
   menuHover = -1;
   if (renderer.xr.isPresenting) {
     menuPanel.visible = open;
-    if (open) {
-      // Float it in front of you (rig-local; the rig never rotates), facing you.
-      camera.getWorldDirection(_v1); _v1.y = 0;
-      if (_v1.lengthSq() < 1e-6) _v1.set(0, 0, -1);
-      _v1.normalize();
-      menuPanel.position.copy(camera.position).addScaledVector(_v1, 0.5);
-      menuPanel.position.y += 0.02;
-      menuPanel.rotation.set(0, Math.atan2(-_v1.x, -_v1.z), 0);
-      pointer.visible = true;
-    }
+    if (open) { placeSide(menuPanel, -1, MENU_M); pointer.visible = true; }   // left of the room, so it never covers the battle
   }
   document.getElementById('settings').classList.toggle('hidden', !(open && !renderer.xr.isPresenting));
   drawMenu();
@@ -2241,7 +2650,7 @@ function buildDesktopSettings() {
     if (d.action) {
       const btn = document.createElement('button');
       btn.textContent = d.action; btn.style.marginTop = '0';
-      btn.addEventListener('click', () => { resetBox(); showMessage('BOX RESET', 'Back in front of you', 1.0); });
+      btn.addEventListener('click', () => { if (d.key === '_lobby') leaveGame(); else { resetBox(); showMessage('BOX RESET', 'Back in front of you', 1.0); } });
       row.appendChild(btn); box.appendChild(row);
       continue;
     }
@@ -2268,9 +2677,12 @@ let yaw = 0, pitch = -0.12;
 const raycaster = new THREE.Raycaster();
 
 window.addEventListener('keydown', (e) => {
+  if (!TEST) return;                                 // VR only: the keyboard is a hidden test control
   keys.add(e.code);
-  if (e.code === 'KeyR' && state !== 'title') startGame();
+  if (e.code === 'KeyR') startGame();
   if (e.code === 'Enter' && state !== 'playing' && !renderer.xr.isPresenting) startGame();
+  if (e.code === 'KeyL') enterLobby();
+  if (e.code === 'KeyT') startTutorial();
   if (e.code === 'KeyC') resetBox();
   if ((e.code === 'Equal' || e.code === 'Minus')) setTimeout(saveBox, 0);
   if (e.code === 'Tab') { e.preventDefault(); if (!e.repeat) toggleSettings(); }
@@ -2303,19 +2715,12 @@ canvasEl.addEventListener('pointerdown', (e) => {
   lastMX = e.clientX; lastMY = e.clientY;
   sfx.init();
   if (e.button === 2) { lookDrag = true; return; }
-  if (e.button === 0) {
-    mouseDown = true;
-    if (state === 'gameover' && stateTimer > 1.0) startGame();
-  }
+  if (e.button === 0 && TEST) mouseDown = true;
 });
 window.addEventListener('pointerup', (e) => {
   if (e.button === 2) lookDrag = false;
   if (e.button === 0) mouseDown = false;
 });
-document.getElementById('startbtn').addEventListener('click', (e) => { e.stopPropagation(); settings.mode = 'fighter'; saveSettings(); syncDesktopSettings(); startGame(); });
-document.getElementById('startsq').addEventListener('click', (e) => { e.stopPropagation(); settings.mode = 'squadron'; saveSettings(); syncDesktopSettings(); startGame(); });
-document.getElementById('startfleet').addEventListener('click', (e) => { e.stopPropagation(); settings.mode = 'fleet'; saveSettings(); syncDesktopSettings(); startGame(); });
-function hideTitle() { document.getElementById('title').classList.add('hidden'); }
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -2357,10 +2762,7 @@ function gatherInputVR(dt) {
       if (sy > 0.5) input.brake = true;
       if (sy < -0.5) input.boost = true;
     }
-    if (btn(5) && !prevB && !menuOpen) {
-      if (state === 'title') { setSetting('mode', nextMode()); sfx.ping(null); }   // B on the title = switch mode
-      else if (settings.steer === 'stick') toggleInvert();                // B = invert (thumbstick mode)
-    }
+    if (btn(5) && !prevB && !menuOpen && state === 'playing' && settings.steer === 'stick') toggleInvert();   // B = invert (thumbstick mode)
     input.relX = 0; input.relY = 0;
     if (rel) {
       // Stick click = re-center.
@@ -2395,6 +2797,9 @@ function gatherInputVR(dt) {
     const trigEdge = trig && !prevTrigMenu;
     prevTrigMenu = trig;
     if (menuOpen) { input.fire = false; input.restart = false; updateMenuPointer(trigEdge); }
+    else if (uiRay('right', R, trig, trigEdge)) { input.fire = false; input.restart = false; }
+    boxGrab('right', R, btn(1), sy, dt);
+    if (state === 'lobby' || tutFreeze) input.boost = false;
   }
 
   if (L && L.userData.source && L.userData.source.gamepad) {
@@ -2407,6 +2812,9 @@ function gatherInputVR(dt) {
     if (xy && !prevXY) toggleSettings();
     prevXY = xy;
     const lt = btn(0);
+    const onUi = !menuOpen && uiRay('left', L, lt, lt && !prevLTrig);
+    boxGrab('left', L, btn(1), sy, dt);
+    if (onUi || state === 'lobby') { selRay.visible = false; prevLStick = btn(3); prevLTrig = lt; prevLGrip = btn(1); return; }
     if (gameMode === 'fleet') {
       // FLEET: the left controller points a selection ray.
       L.getWorldPosition(_v3);
@@ -2415,15 +2823,15 @@ function gatherInputVR(dt) {
       const hp = fleetHover.unit ? unitCenter(fleetHover.unit) : fleetHover.foe ? fleetHover.foe.obj.position : fleetHover.star ? fleetHover.star.c : fleetHover.point;
       selRay.scale.z = Math.max(0.05, board.localToWorld(_v1.copy(hp)).distanceTo(_v3));
       selRay.visible = !menuOpen;
-      const playing = state === 'playing' && !menuOpen;
+      const playing = (state === 'playing' || state === 'tutorial') && !menuOpen;
       // Stick click = select ALL; trigger = select what you point at; grip = order the selection.
       if (btn(3) && !prevLStick && playing) selectUnits(UNITS);
-      if (lt && !prevLTrig && !menuOpen) { if (playing) fleetSelect(); else input.restart = true; }
+      if (lt && !prevLTrig && playing) fleetSelect();
       if (btn(1) && !prevLGrip && playing) fleetOrder();
     } else {
       selRay.visible = false;
       // Stick click = put the box back in its default spot (also in Settings).
-      if (btn(3) && !prevLStick) { resetBox(); showMessage('BOX RESET', 'Back in front of you', 1.0); }
+      if (btn(3) && !prevLStick && !tutFreeze) { resetBox(); showMessage('BOX RESET', 'Back in front of you', 1.0); }
       // LEFT TRIGGER = shoot (and start / restart).
       if (!menuOpen) {
         if (lt) input.fire = true;
@@ -2437,6 +2845,67 @@ function gatherInputVR(dt) {
     if (sy < -0.5) input.boost = true;
     if (sy > 0.5) input.brake = true;
   }
+}
+
+// ---------------------------------------------------------------- VR panels: pointer rays + box grab
+// Both controllers can point at the lobby / tutorial panels; the trigger presses the button you point at.
+const lPointer = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]),
+  new THREE.LineBasicMaterial({ color: 0xffcc66, transparent: true, opacity: 0.35, fog: false }));
+lPointer.visible = false;
+const uiHit = { left: null, right: null };
+const uiHeld = { left: false, right: false };          // a trigger press that clicked a button (not a shot)
+function activePanels() { return [lobbyPanel, tutorial.card, tutorial.big].filter((p) => p.visible); }
+function uiRay(hand, ctrl, trig, edge) {
+  const line = hand === 'right' ? pointer : lPointer;
+  ctrl.getWorldPosition(_v3);
+  _v2.set(0, 0, -1).applyQuaternion(ctrl.getWorldQuaternion(_q));
+  raycaster.set(_v3, _v2);
+  let best = null, bp = null;
+  for (const P of activePanels()) { const h = P.pick(raycaster); if (h && (!best || h.dist < best.dist)) { best = h; bp = P; } }
+  uiHit[hand] = best ? { panel: bp, id: best.id } : null;
+  for (const P of activePanels()) {
+    const hov = (uiHit.right && uiHit.right.panel === P && uiHit.right.id) || (uiHit.left && uiHit.left.panel === P && uiHit.left.id) || null;
+    if (P.hover !== hov) { P.hover = hov; if (P === lobbyPanel) drawLobby(); else tutorial.redraw(); }
+  }
+  const showRay = !!best || state === 'lobby';
+  if (hand === 'left') line.visible = showRay;
+  else if (showRay) line.visible = true;
+  line.scale.set(1, 1, best ? best.dist : 0.5);
+  if (edge && best && best.id) { uiHeld[hand] = true; haptic(hand, 0.3, 25); sfx.ping(null); bp.onClick(best.id); }
+  if (!trig) uiHeld[hand] = false;
+  return !!best || uiHeld[hand];
+}
+// Lobby and the first tutorial step: hold a grip to move the room; push that hand's stick to resize it.
+const grab = { hand: null, start: new THREE.Vector3(), x: 0, y: 0, z: 0, moved: 0 };
+function boxGrab(hand, ctrl, grip, sy, dt) {
+  const allowed = (state === 'lobby' || tutFreeze) && !menuOpen;
+  if (!allowed || !grip) { if (grab.hand === hand) { grab.hand = null; saveBox(); } return; }
+  ctrl.getWorldPosition(_v3);
+  if (grab.hand === null) { grab.hand = hand; grab.start.copy(_v3); grab.x = box.x; grab.y = box.y; grab.z = box.z; }
+  if (grab.hand !== hand) return;
+  box.x = grab.x + _v3.x - grab.start.x; box.y = grab.y + _v3.y - grab.start.y; box.z = grab.z + _v3.z - grab.start.z;
+  if (Math.abs(sy) > 0.15) box.size = clamp(box.size * Math.exp(-sy * dt * 0.9), 0.3, 2.0);
+  grab.moved += _v3.distanceTo(grab.start) * dt;
+  applyBoard();
+}
+// Panels sit beside the room (and follow it when you move it), turned to face you.
+function placeSide(mesh, side, widthM) {
+  const sc = board.scale.x;
+  mesh.position.set(board.position.x + side * (HB.x * sc + 0.07 + widthM / 2), board.position.y + 0.03, board.position.z + HB.z * sc * 0.55);
+  camera.getWorldPosition(_v1);
+  faceYaw(mesh, _v1);
+}
+function placeBelow(mesh, heightM) {
+  const sc = board.scale.x;
+  mesh.position.set(board.position.x, board.position.y - HB.y * sc - 0.03 - heightM / 2, board.position.z + HB.z * sc);
+  camera.getWorldPosition(_v1);
+  faceYaw(mesh, _v1);
+}
+function placePanels() {
+  if (lobbyPanel.visible) placeSide(lobbyPanel.mesh, 1, lobbyPanel.widthM);
+  if (tutorial.card.visible) placeSide(tutorial.card.mesh, 1, tutorial.card.widthM);
+  if (tutorial.big.visible) placeBelow(tutorial.big.mesh, (tutorial.big.widthM * tutorial.big.H) / tutorial.big.W);
+  if (menuPanel.visible) placeSide(menuPanel, -1, MENU_M);
 }
 
 function gatherInputDesktop() {
@@ -2495,22 +2964,22 @@ function gatherInputDesktop() {
       input.boost = nd > 3 * S;
     }
   }
-  if (DEMO && gameMode === 'fleet' && state === 'playing') {
-    // Fleet autopilot: every few seconds, squads hunt the nearest enemy group and capital ships the flagship.
-    input.fire = false;
-    demoOrderT -= 1 / 60;
-    if (demoOrderT <= 0) {
-      demoOrderT = 4;
-      const flag = enemyCaps.find((c) => c.alive);
-      for (const u of UNITS) {
-        if (!unitAlive(u)) continue;
-        const near = nearestTo(unitCenter(u), enemies.filter((e) => e.hp > 0));
-        const tgt = u.kind === 'capital' || !near ? flag : near.group;
-        if (tgt) { u.order.type = 'attack'; u.order.target = tgt; selected.delete(u); }
-      }
-    }
+}
+// Test autopilot for Fleet: squadrons go after the nearest enemy group (keeping a live target),
+// capital ships after the flagship. The same orders for the smart and the old squadron leaders.
+function demoFleet(dt) {
+  input.fire = false;
+  demoOrderT -= dt;
+  if (demoOrderT > 0) return;
+  demoOrderT = 4;
+  const flag = enemyCaps.find((c) => c.alive);
+  for (const u of UNITS) {
+    if (!unitAlive(u)) continue;
+    if (u.order.type === 'attack' && orderTargetPos(u, _v1)) continue;
+    const near = nearestTo(unitCenter(u), enemies.filter((e) => e.hp > 0));
+    const tgt = u.kind === 'capital' || !near ? flag : near.group;
+    if (tgt) { u.order.type = 'attack'; u.order.target = tgt; selected.delete(u); }
   }
-  if (DEMO && state === 'gameover' && stateTimer > 3) startGame();
 }
 let demoOrderT = 0;
 
@@ -2571,10 +3040,10 @@ function flyMirror(dt) {
 let lastFlyMode = '';
 
 function updatePlayer(dt) {
-  if (!player.alive) return;
+  if (!player.alive || tutFreeze) return;
   const p = player.obj.position;
   const mode = activeSteer();
-  pointer.visible = mode === 'point';
+  pointer.visible = mode === 'point' || !!uiHit.right;
   if (mode === 'mirror' && lastFlyMode !== 'mirror') quatFromDir(player.fwd, player.mq);   // coming from another mode
   lastFlyMode = mode;
   if (mode === 'mirror') {
@@ -2622,7 +3091,8 @@ function updatePlayer(dt) {
 
   // Shooting, with gentle aim assist toward an enemy inside a narrow cone.
   player.fireCd -= dt;
-  if (input.fire && player.fireCd <= 0 && state === 'playing') {
+  if (input.fire && player.fireCd <= 0 && combat() && !tutFreeze) {
+    shotsFired++;
     const dir = player.fwd.clone();
     let bestE = null, bestA = 0.2;
     for (const e of enemies) {
@@ -2666,7 +3136,7 @@ function updateCollisions() {
     for (const b of enemyBullets.list) {
       if (b.dead) continue;
       for (const t of friends) {
-        if (t.alive && segPointDist(b.prev, b.pos, t.obj.position) < (t.radius || 0.14 * S)) { b.dead = true; damageTarget(t); break; }
+        if (t.alive && segPointDist(b.prev, b.pos, t.obj.position) < (t.radius || 0.14 * S)) { b.dead = true; if (t.unit) hitStats[b.src || 'fighter']++; damageTarget(t); break; }
       }
     }
   }
@@ -2698,13 +3168,63 @@ function updateCollisions() {
 
 function updateCameraRig() { /* the view never moves */ }
 
+// One simulation step. Rounds, the lobby skirmish, the tutorial and game over -> lobby.
+let statsSaveT = 0;
+function simStep(dt) {
+  stateTimer += dt;
+  simTime += dt;
+  if (state === 'lobby') {
+    updateMorph(dt);
+    updateStars(dt);
+    updateLobby(dt);
+    if (DEMO && !BENCH && stateTimer > 2) startGame();
+  } else if (!menuOpen) {
+    updateMorph(dt);
+    updateStars(dt);
+    if (DEMO && gameMode === 'fleet' && state === 'playing') demoFleet(dt);
+    updatePlayer(dt);
+    refreshFriends();
+    if (gameMode === 'squadron') updateBots(dt);
+    if (gameMode === 'fleet') { updateFleet(dt); updateEnemyCaps(dt); }
+    updateEnemies(dt);
+    playerBullets.update(dt);
+    enemyBullets.update(dt);
+    updateCollisions();
+    if (state === 'tutorial') tutorial.update(dt);
+    else if (state === 'playing') {
+      stats.time += dt;
+      if ((statsSaveT += dt) > 15) { statsSaveT = 0; saveStats(); }
+      if (enemies.length === 0 && enemyCaps.every((c) => !c.alive)) {
+        if (intermission <= 0) {
+          // Round cleared: bonus, the stars fade out and the room reshapes; then a fresh battle starts.
+          intermission = 3.2;
+          morphTo(pickShape(_shapeTmp), 2.4);
+          starTarget = 0;
+          const bonus = 500 * wave;
+          score += bonus;
+          saveBest();
+          showMessage(`ROUND ${wave} ${gameMode === 'fleet' ? 'WON' : 'CLEARED'}`, `+${bonus} round bonus - next: a fresh battle, full strength`, 2.8);
+          log(`round cleared mode=${gameMode} round=${wave} t=${simTime.toFixed(1)}`);
+        } else {
+          intermission -= dt;
+          if (intermission <= 0) startRound(wave + 1);
+        }
+      }
+    } else if (state === 'gameover') {
+      reticle.visible = false;
+      if (stateTimer > 4.5 && !BENCH) enterLobby();
+    }
+  }
+  updateEffects(dt);
+  if (msgTime > 0 && msgTime < 9000) { msgTime -= dt; if (msgTime <= 0) hideMessage(); }
+}
+
 let hudTimer = 0, statusTimer = 0, frames = 0;
 let lastT = performance.now();
 function loop() {
   const now = performance.now();
   const dt = Math.min((now - lastT) / 1000, 0.05);
   lastT = now;
-  stateTimer += dt;
   frames++;
   const xr = renderer.xr.isPresenting;
 
@@ -2717,66 +3237,17 @@ function loop() {
   grid.position.x = Math.round(camPos.x / GRID_STEP) * GRID_STEP;
   grid.position.z = Math.round(camPos.z / GRID_STEP) * GRID_STEP;
 
-  if (state === 'title') {
-    // Idle demo: ship circles in front of you.
-    const t = stateTimer * 0.6;
-    player.obj.position.set(Math.sin(t) * HB.x * 0.6, Math.sin(t * 2) * HB.y * 0.25, Math.cos(t) * HB.z * 0.5);
-    player.fwd.set(Math.cos(t), Math.cos(t * 2) * 0.33, -Math.sin(t) * 0.5).normalize();
-    quatFromDir(player.fwd, player.obj.quaternion);
-    player.mq.copy(player.obj.quaternion);
-    refreshFriends();
-    if (gameMode === 'squadron') updateBots(dt);   // the squadron flies formation behind the demo path
-    if (gameMode === 'fleet') updateFleet(dt);
-    updateStars(dt);
-    reticle.visible = false;
-    if (xr && input.restart) startGame();
-  } else if (!menuOpen) {
-    updateMorph(dt);
-    updateStars(dt);
-    updatePlayer(dt);
-    refreshFriends();
-    if (gameMode === 'squadron') updateBots(dt);
-    if (gameMode === 'fleet') { updateFleet(dt); updateEnemyCaps(dt); }
-    updateEnemies(dt);
-    playerBullets.update(dt);
-    enemyBullets.update(dt);
-    updateCollisions();
-    if (state === 'playing') {
-      if (enemies.length === 0 && enemyCaps.every((c) => !c.alive)) {
-        if (intermission <= 0) {
-          // Round cleared: bonus, the stars fade out and the room reshapes; then a fresh battle starts.
-          intermission = 3.2;
-          morphTo(pickShape(_shapeTmp), 2.4);
-          starTarget = 0;
-          const bonus = 500 * wave;
-          score += bonus;
-          saveBest();
-          showMessage(`ROUND ${wave} ${gameMode === 'fleet' ? 'WON' : 'CLEARED'}`, `+${bonus} round bonus - next: a fresh battle, full strength`, 2.8);
-        } else {
-          intermission -= dt;
-          if (intermission <= 0) startRound(wave + 1);
-        }
-      }
-    } else if (state === 'gameover') {
-      reticle.visible = false;
-      if (input.restart && stateTimer > 1.0) startGame();
-    }
-  }
+  for (let k = 0; k < SIM; k++) simStep(dt);
   playerBullets.sync();
   enemyBullets.sync();
-  updateEffects(dt);
-
-  // Messages.
-  if (msgTime > 0 && msgTime < 9000) {
-    msgTime -= dt;
-    if (msgTime <= 0) { hideMessage(); if (state === 'title' || state === 'gameover') showIdlePrompt(); }
-  }
+  placePanels();
   if (xr && msgPanel.visible) {
     _v1.copy(camPos).addScaledVector(camFwd, 1.8);
     msgPanel.position.lerp(_v1, 1 - Math.exp(-3 * dt));
     msgPanel.lookAt(camPos);
   }
   reticle.lookAt(camPos);
+  hudPanel.visible = state !== 'lobby';
 
   // Red screen flash on hit (desktop overlay; in VR the ship flash + haptics carry it).
   screenFlash = Math.max(0, screenFlash - dt);
@@ -2796,12 +3267,14 @@ function loop() {
   renderer.render(scene, camera);
 }
 
-applyMode();
 applySettings();
 buildDesktopSettings();
+if (AUTO_MODE && MODES.includes(AUTO_MODE)) settings.mode = AUTO_MODE;   // test: this mode (not saved)
+enterLobby();
 drawMenu();
 drawHud();
 renderer.setAnimationLoop(loop);
+if (AUTO_MODE && !DEMO && !BENCH) startGame();
 log('READY three r' + THREE.REVISION);
 
 // Hooks for automated testing / tinkering from the console.
@@ -2812,5 +3285,10 @@ window.__game = {
   get steerMode() { return activeSteer(); }, get invertY() { return invertY; },
   settings, setSetting, neutralQ, input, gimbal, board, box, mirrorQ, bots, obstacles, groups,
   get mode() { return gameMode; }, get boxB() { return BOX_B; }, HB, get morphing() { return morphT < 1; }, AI, bestRound, damageBot, get msgTitle() { return msgTitle; }, get msgSub() { return msgSub; }, get starsOn() { return starsOn; }, get starAlpha() { return starAlpha; }, startRound, wristMsg, msgPanel, hudPanel, UNITS, FLEET_SQUADS, FLEET_CAPS, enemyCaps, selected, selectUnits, fleetOrder, fleetSelect, pickAlongRay, damageCapital, get fleetHover() { return fleetHover; }, set fleetHover(v) { fleetHover = v; }, selRay, get friends() { return friends; }, get squadEngaged() { return squadEngaged; },
+  lobbyPanel, tutorial, enterLobby, startTutorial, finishTutorial, stats, recordGame, leaveGame, grab, uiHit, placePanels,
+  get simTime() { return simTime; }, hitStats, menuLayout, get kills() { return kills; }, get smart() { return SMART_LEADERS; }, setSmart(v) { SMART_LEADERS = v; },
+  get tutStage() { return tutStageName; }, get tutFreeze() { return tutFreeze; }, get lastOrder() { return lastOrderWhat; }, get shots() { return shotsFired; },
+  tutorialDone, spawnTut, applyBoard, drawMenu, get menuCanvas() { return menuCanvas; }, MENU_TOP, MENU_ROW, MENU_ROWS,
+  startGameAt(mode, round) { settings.mode = mode; startGame(round); },
   get enemyBullets() { return enemyBullets.list.length; }, get bullets() { return playerBullets.list.length; }, toggleSettings, get menuOpen() { return menuOpen; }, get menuHover() { return menuHover; }, menuPanel,
 };

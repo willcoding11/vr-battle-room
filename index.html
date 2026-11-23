@@ -31,19 +31,22 @@
   #message .s { font-size: 13px; margin-top: 4px; white-space: pre-line; color: #bfefff; }
   body.in-vr #message { display: none; }
   #flash { position: fixed; inset: 0; background: radial-gradient(ellipse at center, rgba(255,0,30,0) 40%, rgba(255,0,30,.6) 100%); opacity: 0; pointer-events: none; }
-  #title { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,8,.55); }
-  #title.hidden { display: none; }
-  #title .box { max-width: 760px; max-height: calc(100vh - 24px); overflow-y: auto; box-sizing: border-box; border: 1px solid #2aa9cc; padding: 24px 32px; background: rgba(0,10,22,.85); box-shadow: 0 0 30px #0af4; }
-  #title h1 { margin: 0 0 6px; letter-spacing: 10px; font-size: 40px; color: #9ff; }
-  #title p { color: #bfefff; line-height: 1.4; margin: 8px 0; font-size: 13px; }
-  #title td { padding: 2px 10px 2px 0; font-size: 13px; color: #bfefff; vertical-align: top; }
-  #title td:first-child { color: #ffcc66; white-space: nowrap; }
-  #startbtn, #startsq, #startfleet { margin-top: 14px; font: bold 18px monospace; padding: 10px 24px; background: #022; color: #9ff; border: 1px solid #3cf; cursor: pointer; }
-  #startbtn:hover, #startsq:hover, #startfleet:hover { background: #044; }
+  /* VR only: one big ENTER VR button over the lobby battle. */
+  #enter { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, rgba(0,0,8,.35) 0%, rgba(0,0,8,.8) 100%); }
+  body.in-vr #enter, body.demo #enter { display: none; }
+  #enter .box { text-align: center; border: 1px solid #2aa9cc; padding: 34px 48px 26px; background: rgba(0,10,22,.85); box-shadow: 0 0 30px #0af4; max-width: calc(100vw - 60px); box-sizing: border-box; }
+  #enter h1 { margin: 0 0 6px; letter-spacing: 12px; font-size: 44px; color: #9ff; }
+  #enter .tag { margin: 0 0 26px; color: #5fa9bf; font-size: 15px; letter-spacing: 2px; }
+  #vrbutton { font: bold 40px monospace; letter-spacing: 6px; padding: 24px 70px; background: #022; color: #9ff; border: 2px solid #3cf; cursor: pointer; box-shadow: 0 0 24px #0af6; }
+  #vrbutton:hover:not(:disabled) { background: #044; color: #fff; }
+  #vrbutton:disabled { opacity: .45; cursor: default; box-shadow: none; }
+  #xrnote { margin: 18px 0 0; min-height: 1em; color: #ffcc66; font-size: 15px; }
+  /* Hidden test-only desktop UI (?test). */
+  #hud, #message, #crosshint, #gear { display: none; }
+  body.test #hud, body.test #message, body.test #crosshint, body.test #gear { display: block; }
+  body.in-vr #hud, body.in-vr #message, body.in-vr #crosshint, body.in-vr #gear { display: none; }
   #crosshint { position: fixed; right: 12px; top: 10px; font-size: 12px; color: #4a8fa3; pointer-events: none; text-align: right; }
-  body.in-vr #crosshint { display: none; }
   #gear { position: fixed; left: 12px; top: 10px; font: bold 14px monospace; padding: 6px 12px; background: #022; color: #9ff; border: 1px solid #3cf; cursor: pointer; z-index: 5; }
-  body.in-vr #gear { display: none; }
   #settings { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); background: rgba(0,10,22,.94); border: 1px solid #3cf; padding: 18px 24px; z-index: 6; box-shadow: 0 0 30px #0af4; }
   #settings.hidden { display: none; }
   #settings h2 { margin: 0 0 12px; letter-spacing: 6px; color: #9ff; }
@@ -57,29 +60,21 @@
 <canvas id="hud" width="512" height="256"></canvas>
 <div id="message"><div class="t"></div><div class="s"></div></div>
 <div id="flash"></div>
-<div id="crosshint">mouse steers &middot; click shoots (Squadron/Fleet: hold = engage) &middot; Fleet: 1-5 select, 0 all, G order &middot; Shift boost &middot; N mode &middot; +/- box size &middot; Tab settings &middot; R restart</div>
+<div id="crosshint">TEST MODE &middot; Enter start &middot; L lobby &middot; T tutorial &middot; N mode &middot; mouse steers &middot; click shoots &middot; Shift boost &middot; Fleet: 1-5 select, 0 all, G order &middot; Tab settings</div>
 <button id="gear">&#9881; Settings (Tab)</button>
 <div id="settings" class="hidden">
   <h2>SETTINGS</h2>
   <div id="settings-rows"></div>
   <button id="settings-close">Close (Tab)</button>
 </div>
-<div id="title">
+<div id="enter">
   <div class="box">
     <h1>BATTLE ROOM</h1>
-    <p>A miniature battle in a box in front of you. Fly out of one side of the box and you come back in the opposite side. The room changes shape (long, flat, tall or cube) every game and between rounds. <b>Every round is a fresh battle</b>: your side comes back at full strength, new star positions, and a smarter enemy. Reach the highest round you can. Messages show on your left wrist. Three modes:</p>
-    <p><b>FIGHTER</b>: fly the cyan ship yourself and win round after round. Enemies fight in groups: pincer pairs, flankers, snipers that hold range, heavies.<br>
-    <b>SQUADRON</b>: a much bigger, zoomed-out battlefield with big floating spherical "stars" (cover). You command 4 bot fighters: your right controller sets the direction they head in, and they fly themselves.<br>
-    <b>FLEET</b>: an even bigger battle. You command 3 squadrons (blue, green, gold) and 2 capital ships against an enemy fleet. Destroy the enemy flagship to win the round; it's over only when both capital ships AND all your fighters are gone. LEFT hand points: <b>trigger selects</b> what you point at, <b>stick click selects all</b>, <b>grip gives an order</b> (point at a spot or star = hold/guard, at one of yours = follow, at an enemy = attack). The right hand steers the selection exactly like Squadron. Desktop: 1-5 select, 0 all, G order at the mouse.</p>
-    <table>
-      <tr><td>VR right hand</td><td><b>Mirror steering (default)</b>: the ship (or, in Squadron, the squadron's heading) turns with your right controller, with gain (Fighter 2x, Squadron 3x), in any direction, including loops. <b>Trigger: shoot</b> (Squadron/Fleet: <b>hold = engage</b>: the bots spread out a little and attack; release = regroup) &middot; <b>grip: boost</b> (Squadron: only while not engaging) &middot; A brake &middot; <b>click the stick</b> to re-center &middot; on the title: <b>B cycles Fighter / Squadron / Fleet</b>, trigger starts</td></tr>
-      <tr><td>VR left hand</td><td>Extras: trigger shoots &middot; grip boosts &middot; stick forward boost / back brake &middot; stick click resets the box (Fleet: selects all; box reset is also in Settings) &middot; <b>X+Y: settings</b> (mode, steering, gains, turn speed, box size, box reset) &middot; wrist shows score, hull / squadron status and radar</td></tr>
-      <tr><td>Desktop</td><td>The ship / squadron heading follows the mouse &middot; Left click / Space shoot (Squadron: hold to engage) &middot; Shift boost &middot; F brake &middot; N switch mode &middot; M cycles steering &middot; +/- box size &middot; C reset box &middot; right-drag or arrow keys look &middot; Tab settings &middot; R restart</td></tr>
-    </table>
-    <button id="startbtn">START FIGHTER</button> <button id="startsq" class="startb">START SQUADRON</button> <button id="startfleet">START FLEET</button>
-    <p style="font-size:12px;color:#5fa9bf">On a Quest: press ENTER VR at the bottom of the page, then B picks the mode and the right trigger starts.</p>
+    <p class="tag">A TABLETOP SPACE BATTLE FOR META QUEST</p>
+    <button id="vrbutton" disabled>ENTER VR</button>
+    <p id="xrnote"></p>
   </div>
 </div>
-<script type="module" src="js/main.js?v=12"></script>
+<script type="module" src="js/main.js?v=13"></script>
 </body>
 </html>
