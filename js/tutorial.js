@@ -1,9 +1,10 @@
 // First-run tutorial: one idea per step, on one card that always looks the same:
 //   section + progress bar / which hand / short title / one line / big animated icon / status.
 // The button to use also glows on the controller you hold. Each step waits for you to do it, shows a
-// short "NICE!" beat, then fades calmly into the next. Info steps use the CONTINUE button centred below
-// the room. G is the game API from main.js.
-import { Panel, drawIcon, HAND_COLOR, HI, UI } from './ui.js?v=15';
+// short "NICE!" beat, then fades calmly into the next. Info steps use the NEXT button on the card.
+// The Fleet part ends with ship types and deployment (the card moves to the left of the room while the
+// deployment panel is on the right). G is the game API from main.js.
+import { Panel, drawIcon, HAND_COLOR, HI, UI } from './ui.js?v=16';
 
 const READ = 1.2;          // seconds before an action counts (time to read the card)
 const NICE = 1.5;          // the "NICE!" beat
@@ -86,6 +87,14 @@ export function createTutorial(G) {
     { id: 'flagship', sect: 'FLEET', hand: 'left', title: 'SINK THE FLAGSHIP', line: 'Grip at the flagship: attack it', icon: 'flagship', hi: { left: ['grip'] },
       enter: () => { G.selectAll(); G.spawnTut('flagship', 1); }, check: () => G.enemyCount() === 0, meter: () => [G.flagshipDamage(), 1],
       hint: orderHint(() => G.lastOrder.startsWith('ATTACK'), 'the red flagship') },
+    // v16: ship classes and deployment (before every Fleet battle).
+    { id: 'types', sect: 'FLEET', title: 'SHIP TYPES', line: 'Each type has its own job', icon: 'types', info: true },
+    { id: 'pick', sect: 'FLEET', stage: 'deploy', hand: 'right', title: 'DEPLOY: PICK A TYPE', line: 'Point at a type + trigger: pick', icon: 'pickType', hi: { right: ['trigger'] },
+      check: () => G.deployPicked },
+    { id: 'place', sect: 'FLEET', hand: 'left', title: 'DEPLOY: PLACE SHIPS', line: 'Point left + trigger: place 2', icon: 'place', hi: { left: ['trigger'] },
+      check: () => G.deployCount >= 2, meter: () => [Math.min(2, G.deployCount), 2] },
+    { id: 'begin', sect: 'FLEET', hand: 'right', title: 'START THE BATTLE', line: 'Press START BATTLE: fight!', icon: 'startBattle', hi: { right: ['trigger'] },
+      check: () => !G.deploying },
     { id: 'done', sect: 'FLEET', title: 'TRAINING COMPLETE', line: 'Press NEXT to go to the lobby', icon: 'check', info: true, last: true },
   ];
   const val = (v) => (typeof v === 'function' ? v() : v);

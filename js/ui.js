@@ -1,6 +1,7 @@
 // VR UI: canvas-textured panels with pointer-ray buttons, and small animated controller icons.
 // Same look as the wrist HUD: dark navy glass, cyan frame, monospace text, gold highlights.
 import * as THREE from '../vendor/three.module.js';
+import { drawClassGlyph } from './ships.js?v=16';
 
 export const UI = {
   bg: 'rgba(0,10,22,0.88)', frame: 'rgba(80,220,255,0.8)', faint: 'rgba(80,220,255,0.35)',
@@ -359,6 +360,49 @@ export function drawIcon(g, kind, x, y, s, t, hand = 'right') {
       const tx = ex + s * 0.18, ty = cy - cs * 0.2;
       capitalShip(g, tx, ty, s * 0.42, '#ff4455');
       ring(g, tx, ty, s * (0.24 + 0.02 * pulse(t, 6)), '#ff4455');
+      break;
+    }
+    // v16: ship classes and deployment.
+    case 'types': {
+      const L = [['fighter', 'FIGHTER', 'all-round'], ['interceptor', 'INTERCEPT', 'hunts fighters'], ['bomber', 'BOMBER', 'hits capitals'], ['shield', 'SHIELD', 'guards friends']];
+      L.forEach(([k, n, d], i) => {
+        const gx = x + (i % 2 ? s * 0.25 : -s * 0.25), gy = y - s * 0.22 + Math.floor(i / 2) * s * 0.46;
+        drawClassGlyph(g, k, gx, gy - s * 0.04, s * 0.22 * (1 + 0.06 * Math.sin(t * 2 + i)), '#7fe9ff');
+        g.fillStyle = '#bfefff'; g.textAlign = 'center';
+        g.font = `bold ${Math.round(s * 0.082)}px monospace`; g.fillText(n, gx, gy + s * 0.15);
+        g.fillStyle = '#5fa9bf'; g.font = `${Math.round(s * 0.066)}px monospace`; g.fillText(d, gx, gy + s * 0.225);
+      });
+      break;
+    }
+    case 'pickType': {
+      controller(g, cx - s * 0.08, cy, cs * 0.9, 0, ['trigger'], t, hand, s * 0.3);
+      const px = ex + s * 0.1, py = y - s * 0.32, k = Math.floor((t * 0.8) % 4);
+      ['fighter', 'interceptor', 'bomber', 'shield'].forEach((c, i) => {
+        const on = i === k;
+        g.strokeStyle = on ? '#ffcc66' : 'rgba(80,220,255,0.5)'; g.lineWidth = on ? 4 : 2;
+        g.strokeRect(px - s * 0.2, py + i * s * 0.17, s * 0.4, s * 0.14);
+        drawClassGlyph(g, c, px - s * 0.1, py + i * s * 0.17 + s * 0.07, s * 0.1, on ? '#ffcc66' : '#7fe9ff');
+        g.fillStyle = on ? '#ffcc66' : '#5fa9bf'; g.fillRect(px - s * 0.02, py + i * s * 0.17 + s * 0.055, s * 0.16, s * 0.03);
+      });
+      break;
+    }
+    case 'place': {
+      controller(g, cx, cy, cs, 0, ['trigger'], t, hand, s * 0.36);
+      // Your half of the room (green) with ships appearing in it.
+      const bx = ex + s * 0.12, by = cy - cs * 0.2;
+      g.strokeStyle = 'rgba(85,255,153,0.7)'; g.lineWidth = 3; g.setLineDash([8, 6]); g.strokeRect(bx - s * 0.2, by - s * 0.2, s * 0.4, s * 0.4); g.setLineDash([]);
+      const k = (t * 0.7) % 1;
+      ring(g, bx, by, s * (0.06 + 0.03 * pulse(t, 6)), HI);
+      if (k > 0.5) drawClassGlyph(g, 'fighter', bx, by, s * 0.12, '#33ddff', -Math.PI / 2);
+      drawClassGlyph(g, 'bomber', bx - s * 0.12, by + s * 0.12, s * 0.1, '#3d8bff', -Math.PI / 2);
+      break;
+    }
+    case 'startBattle': {
+      controller(g, cx - s * 0.05, cy, cs * 0.9, 0, ['trigger'], t, hand, s * 0.3);
+      const bx = ex + s * 0.1, by = y - s * 0.05, k = pulse(t, 4);
+      g.strokeStyle = `rgba(255,204,102,${0.4 + 0.6 * k})`; g.lineWidth = 5; g.strokeRect(bx - s * 0.24, by - s * 0.09, s * 0.48, s * 0.18);
+      g.fillStyle = '#ffcc66'; g.textAlign = 'center'; g.font = `bold ${Math.round(s * 0.07)}px monospace`;
+      g.fillText('START', bx, by - s * 0.005); g.fillText('BATTLE', bx, by + s * 0.065);
       break;
     }
     case 'check': {

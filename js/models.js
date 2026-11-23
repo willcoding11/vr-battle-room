@@ -111,6 +111,50 @@ export function buildCruiser(color = 0xff2233) {
   return makeWire(v, e, color, { scale: 1.6, pointSize: 0.025 });
 }
 
+// v16 Fleet ship classes (both sides, in the side's colour). Each has its own silhouette.
+// Interceptor: a long thin needle with small forward-swept wings (fast, fragile).
+export function buildInterceptor(color = 0x33ddff) {
+  const v = [
+    [0, 0, 0.27],          // 0 nose
+    [0, 0.03, -0.12],      // 1 tail top
+    [0, -0.025, -0.12],    // 2 tail bottom
+    [-0.12, 0, 0.04],      // 3 left wing tip (swept forward)
+    [0.12, 0, 0.04],       // 4 right wing tip
+    [-0.03, 0, -0.08],     // 5 left wing root
+    [0.03, 0, -0.08],      // 6 right wing root
+    [0, 0.065, -0.13],     // 7 fin tip
+  ];
+  const e = [[0, 1], [0, 2], [1, 2], [0, 5], [0, 6], [5, 3], [6, 4], [3, 0], [4, 0], [5, 1], [6, 1], [5, 2], [6, 2], [1, 7]];
+  return makeWire(v, e, color);
+}
+// Bomber: a wide, heavy flying wing with two engine pods underneath (slow, big punch).
+export function buildBomber(color = 0x33ddff) {
+  const v = [
+    [0, 0.02, 0.14],       // 0 nose
+    [-0.22, 0, -0.08],     // 1 left tip
+    [0.22, 0, -0.08],      // 2 right tip
+    [-0.08, 0.04, -0.12],  // 3 rear left top
+    [0.08, 0.04, -0.12],   // 4 rear right top
+    [0, -0.04, -0.06],     // 5 belly
+    [-0.1, -0.06, 0.06],   // 6 left pod front
+    [-0.1, -0.06, -0.14],  // 7 left pod back
+    [0.1, -0.06, 0.06],    // 8 right pod front
+    [0.1, -0.06, -0.14],   // 9 right pod back
+  ];
+  const e = [[0, 1], [0, 2], [1, 3], [2, 4], [3, 4], [0, 3], [0, 4], [0, 5], [5, 1], [5, 2], [5, 3], [5, 4],
+    [6, 7], [8, 9], [6, 1], [7, 1], [8, 2], [9, 2], [6, 5], [8, 5]];
+  return makeWire(v, e, color, { scale: 1.1 });
+}
+// Shield ship: a compact diamond hull inside a ring (the shield emitter).
+export function buildShieldShip(color = 0x33ddff) {
+  const v = [[0, 0, 0.16], [0, 0, -0.12], [-0.08, 0, 0], [0.08, 0, 0], [0, 0.08, 0], [0, -0.08, 0]];
+  const e = [[0, 2], [0, 3], [0, 4], [0, 5], [1, 2], [1, 3], [1, 4], [1, 5], [2, 4], [4, 3], [3, 5], [5, 2]];
+  const n = 10, r = 0.17, base = v.length;
+  for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; v.push([Math.cos(a) * r, Math.sin(a) * r, -0.02]); e.push([base + i, base + ((i + 1) % n)]); }
+  e.push([2, base + 5], [3, base], [4, base + 3], [5, base + 8]);
+  return makeWire(v, e, color);
+}
+
 // Small wireframe gizmo drawn at a controller.
 export function buildControllerGizmo(color) {
   const v = [

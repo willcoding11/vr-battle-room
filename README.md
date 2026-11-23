@@ -13,11 +13,11 @@ don't need to install an app or turn on developer mode. **It is VR only:** the p
 
 ## Tutorial
 
-The first time you enter VR, a short tutorial runs automatically (about 3 minutes, 26 small steps).
+The first time you enter VR, a short tutorial runs automatically (about 3.5 minutes, 30 small steps).
 It teaches **one thing per step** on a single instruction card that always sits in the same place,
 beside the room's right wall, and always has the same layout:
 
-- the section (ROOM / FLY / SQUADRON / FLEET) and a progress bar with **step N / 26**
+- the section (ROOM / FLY / SQUADRON / FLEET) and a progress bar with **step N / 30**
 - **which hand** to use (RIGHT HAND in cyan, LEFT HAND in gold, the colours of your controllers)
 - a short title and one plain line saying what to do and why ("Pull right trigger: shoot")
 - a big animated icon: a Quest Touch controller with the button to use pulsing green, and what it does
@@ -38,7 +38,10 @@ The steps:
 2. **Fly:** steer your ship; pick a steering style; shoot; boost; destroy one practice target, then three more.
 3. **Squadron:** your 4 fighters; lead them; attack (hold trigger); regroup (let go); finish the enemies.
 4. **Fleet:** your fleet; select a squadron (left trigger); select everything (left stick click); steer the fleet;
-   giving orders (left grip); HOLD, GUARD, FOLLOW and ATTACK orders; watch them attack; sink a training flagship.
+   giving orders (left grip); HOLD, GUARD, FOLLOW and ATTACK orders; watch them attack; sink a training flagship;
+   **ship types** (what each class is for); **deployment**: pick a type on the panel, place two squadrons with the
+   left trigger, press START BATTLE. (While you deploy, the card moves to the left of the room, because the
+   deployment panel is on the right.)
 5. **Training complete**, then on to the lobby. Completion is saved on the device.
 
 Practice ships never shoot and nothing of yours can be destroyed during training, and the score HUD stays
@@ -60,6 +63,11 @@ Fleet steps use the left hand:
 
 ![fleet select](screenshots/22-tut-fleet-select.png)
 
+Ship types and deployment (the card moves to the left of the room while the deployment panel is on the right):
+
+![ship types](screenshots/27-tut-ship-types.png)
+![deploy](screenshots/28-tut-deploy-place.png)
+
 ## Lobby
 
 After the tutorial, every time you enter VR, and a few seconds after a game ends, you are in the **lobby**.
@@ -67,10 +75,12 @@ A blue-vs-red skirmish plays out around the stars in the room as a backdrop.
 
 - **Grip** (either hand) and drag to move the room; **grip + that hand's stick up/down** resizes it.
 - The **panel on the right** of the room (point with either controller's ray, pull the trigger):
-  - **Mode:** Fighter / Squadron / Fleet, with a one-line description, and a big **START** button.
-  - **Stats** (saved on the device): best round, games and last round for each mode, win streak (a "win" is a
-    game in which you cleared at least round 1; the streak counts wins in a row) and best streak, total kills,
-    games played, time played and best score.
+  - Your **rank**, an **XP bar** to the next rank, and your **stars** (of 54).
+  - **COMMAND SCHOOL**: the campaign (see below), with the next battle named on the button.
+  - **FREE PLAY:** Fighter / Squadron / Fleet, with a one-line description, and **START FREE PLAY** (endless rounds).
+  - **Stats** (saved on the device): best round, games and last round for each free-play mode, win streak (a "win" is a
+    game in which you cleared at least round 1; the streak counts wins in a row) and best streak, kills, time played
+    and best score.
   - **REDO TUTORIAL** and **SETTINGS**.
 
 ![lobby](screenshots/14-lobby.png)
@@ -78,6 +88,37 @@ A blue-vs-red skirmish plays out around the stars in the room as a backdrop.
 Settings (left X + Y, or the lobby button) open on a panel to the **left** of the room:
 
 ![settings](screenshots/15-settings.png)
+
+## Command School (campaign)
+
+**COMMAND SCHOOL** in the lobby opens the battle select: **18 hand-designed battles**, from Launchie to Commander.
+Battles 1-5 are **Fighter**, 6-10 **Squadron** and 11-18 **Fleet**. Each battle is one round with its own
+enemy line-up, a short briefing and a par time. A battle opens once you have won the one before it; locked
+battles say LOCKED, open ones show your best stars.
+
+Each battle earns **1 to 3 stars**:
+1. **Win** the battle.
+2. **Few losses:** Fighter: lose at most 2 hull; Squadron: lose at most 1 ship; Fleet: lose at most a third of
+   your fleet's points.
+3. **Fast:** win within the par time.
+
+Every new star is worth **100 XP**, and every win 50 XP more. XP sets your **rank**, and ranks unlock ship types,
+a bigger Fleet budget and more deployment slots (in the campaign and in free play):
+
+| Rank | XP | Ship types you can deploy | Extra budget | Squadron slots | Capital slots |
+|---|---|---|---|---|---|
+| Launchie | 0 | Fighter, Capital | +0 | 3 | 2 |
+| Cadet | 300 | Fighter, Capital | +2 | 3 | 2 |
+| Toon Member | 800 | + **Interceptor** | +4 | 4 | 2 |
+| Toon Leader | 1400 | + **Bomber** | +6 | 4 | 2 |
+| Squad Commander | 2100 | + **Shield** | +8 | 5 | 2 |
+| Fleet Captain | 3000 | all | +12 | 5 | 3 |
+| Commander | 4200 | all | +16 | 6 | 3 |
+
+After a battle the result (stars, XP, time, losses, any rank-up and new ship types) shows on your wrist and then
+in the battle select. Progress is saved on the device. **Free play** (endless rounds) is still there in the lobby.
+
+![campaign](screenshots/25-campaign.png)
 
 ## Three modes
 
@@ -156,17 +197,46 @@ the commanded heading, dodge incoming bullets, and never run into each other.
 
 ### Fleet
 
-The biggest, most zoomed-out battlefield (the room still changes shape and has sphere stars).
-You command a whole fleet:
-- **3 squadrons** of 4 bot fighters: **Blue**, **Green** and **Gold**. Each one flies and
-  fights exactly like the Squadron-mode squadron.
-- **2 friendly capital ships** (big cyan cruisers). Their turrets fire automatically at the
-  nearest enemy in range. They are slow but tough (60 hull), and you can command them like a squadron.
+The biggest, most zoomed-out battlefield: since v16 the room is **much bigger** (half-size 11, was 7.5) with
+**15 stars** (was 8), and the two sides start far apart, so positioning matters. The room still changes shape.
+Every unit carries a small **tag** that stays a readable size however far away it is: a bracket with the class
+letter in your unit's colour (F, I, B, S, C), and a red diamond with the class letter over each enemy group.
+
+You command a fleet of colour-coded squadrons (Blue, Green, Gold, Violet, Orange, White; 4 bots each, flying
+and fighting like the Squadron-mode squadron) and up to 3 **capital ships** (big cyan cruisers, 60 hull, slow,
+turrets that fire automatically at the nearest enemy in range). You can command a capital ship like a squadron.
+
+**Deployment (before every Fleet round).** The enemy is already in place, frozen, so you can see its layout:
+its flagships and its groups, each tagged with its class. You have a **budget** of points (free play: 32 + your
+rank bonus + 3 per round; campaign: set per battle + your rank bonus) and a number of squadron and capital-ship
+**slots** (from your rank). Your half of the room (the near half) is outlined in green.
+- The **panel on the right** lists the ship classes with their role and cost (locked ones show the rank that
+  unlocks them), the budget left, the slots used, and a one-line enemy summary. Pick a class with the trigger.
+- **Left ray + trigger** on empty space: place a squadron (or capital ship) of that class there. A green ring
+  means you can; red means you can't (the wrist says why: budget, slots or locked).
+- **Left trigger on a placed unit** picks it up; it follows your ray; **trigger** again drops it.
+- **Left grip** on a unit removes it (the points come back). **Left stick up / down** places further / nearer.
+- **AUTO (COUNTERS)** fills the budget with counters to what the enemy brought; **CLEAR** empties it.
+- **START BATTLE** starts the round. Your last fleet is placed again for the next round, so you can just press START.
+
+**Ship classes.** A squadron (4 ships) is all one class; so is each enemy group. Each class has its own shape:
+
+| Class | Cost | Hull | Speed | Job | Strong against | Weak against |
+|---|---|---|---|---|---|---|
+| **Fighter** | 4 | 3 | normal | all-rounder (the original ship) | nothing special | nothing special |
+| **Interceptor** | 4 | 2.5 | fast (1.4x), rapid fire, dodges 40% of small-arms hits (not capital-ship flak) | hunts fighters and bombers (enemy interceptors go for your bombers first) | fighters, bombers | flagships, shields |
+| **Bomber** | 5 | 4 | slow (0.72x) | heavy shots: 4x damage to capital ships, hard hits on shields (enemy bombers go for your capital ships) | flagships, shields | interceptors, fighters |
+| **Shield** | 5 | 3.5 | 0.95x | a shield bubble soaks shots aimed at ships near it (12 hits, recharging 1.5 per second; bomber shots drain it 3x, capital shots 2x); light guns | interceptors, holding off a flagship | enemy shields (slow stalemates) |
+| **Capital** | 10 | 60 | slow | turrets all round, very tough | interceptors | bombers, big swarms |
+
+The classic fleet (3 fighter squadrons and 2 capital ships, 32 points) is placed for you the first time.
 
 The enemy brings a **flagship** (two from round 3) plus **2 to 4 attack groups** (pincer, flank, bait, and
 a sniper or hunter pack) using all the Squadron tactics. The flagships have no escort groups. Later rounds
 don't add more groups; the groups get **bigger and better** (more ships, heavy cruisers inside the groups,
-extra veteran hull every few rounds).
+extra veteran hull every few rounds). In free play the enemy's groups get classes as the rounds go up:
+fighters in round 1, interceptors from round 2, bombers from round 3, shields from round 4 (the newest class
+always appears in the round it arrives).
 **Destroy every enemy flagship to win the round.** Any remaining enemy fighters then jump out.
 **It's game over only when both capital ships AND every one of your fighters are destroyed.**
 If both capitals fall, the wrist warns "CAPITALS LOST - fighters only" and you fight on with
@@ -174,9 +244,24 @@ the squadrons you have left (and the other way round: capitals alone fight on to
 round starts with the full fleet again. Rounds get harder: more and smarter enemies, tougher flagships
 and faster flagship guns.
 
-**Round start.** Every round starts with **no orders and nothing selected**. The whole fleet drifts
+**Round start.** After deployment the round starts with **no orders and nothing selected**. The whole fleet drifts
 forward very slowly in formation (wrist tag `IDLE`) and nothing attacks on its own until you give an
 order; a unit only shoots back in self-defence if an enemy comes very close.
+
+**Movement (v16).** Squadrons cruise and dogfight a little slower than before (85% cruise), scaled by their class.
+When a unit has a hold, guard or attack point far away (more than a few ship lengths), it **boosts there
+automatically** (wrist tag `BST`) and stops boosting as soon as it is fighting. Enemy groups also cruise fast
+while far from the fight.
+
+**Squadron autonomy (v16).** When a unit's attack target is destroyed (or the unit it was following is lost), it
+**decides for itself** what to do next, and the wrist says so, e.g. **"BLUE → ASSISTING GREEN"** with the reason
+underneath. In order of value:
+- **Assist** a friendly unit that is losing its fight (more enemy strength around it than it has), or
+- **attack a weakened enemy:** a group that is already small or damaged, or a badly damaged flagship,
+- otherwise **guard a capital ship** (escort it) or **hold at a star**, in cover on the side away from the enemy.
+
+The choice weighs distance and the unit's class (bombers prefer flagships, interceptors fighter and bomber groups).
+A decided order shows on the wrist with a `*` (e.g. `ATK*`) for a few seconds. You can always override it.
 
 **Smart squadron leaders.** Once a squadron has an attack, hold or guard order (or you engage with it),
 its leader fights as a squadron, not just as four pilots (individual pilots fly as before):
@@ -194,6 +279,12 @@ its leader fights as a squadron, not just as four pilots (individual pilots fly 
 
 The wrist shows each squadron's current phase: `APPR` (moving to the start point), `RUN`, `ZOOM`,
 `CVR` (regrouping in cover) or `DEF` (defending a capital).
+
+![fleet deployment](screenshots/24-fleet-deploy.png)
+
+Unit tags in battle (brackets with class letters; red diamonds over enemy groups):
+
+![fleet tags](screenshots/26-fleet-tags.png)
 
 **Selecting (left hand).** The left controller casts a pointing ray, and the wrist shows what it points at.
 - **Left trigger** selects the unit you point at (a squadron or a capital ship).
@@ -228,7 +319,7 @@ The volume stays about the same, so the difficulty stays fair, and the size is c
 most about 1.5 m wide or deep, 1.35 m tall with the Medium box size). A deeper room grows
 away from you, so its near face never comes closer.
 
-**Messages** (round start and new enemy tactics, round cleared, wingman down, game over...) appear on a small
+**Messages** (round start and new enemy tactics, round cleared, wingman down, unit decisions, game over...) appear on a small
 panel on your left wrist, to the right of the score panel, so nothing covers the battle.
 Only the short game-over message floats in front of you.
 
@@ -249,6 +340,7 @@ Only the short game-over message floats in front of you.
 | Left | **Click the thumbstick** | Put the box back in its default spot (Fleet: select all; use Settings > Box position) | Same |
 | Left | **X + Y together** | Settings, on a panel to the left of the room (point and pull the trigger to change; the game pauses) | Same |
 | Left | **Fleet only** | | Point the ray; **trigger** = select the unit you point at, **stick click** = select all, **grip** = quick order (hold / guard / follow / attack) |
+| Left | **Fleet deployment** | | Point the ray; **trigger** = place / pick up / drop, **grip** = remove, **stick up/down** = further / nearer. Right ray on the panel: class, AUTO, CLEAR, START BATTLE |
 | Left | **Look at your wrist** | Score, round, best round, hull, a top-down radar, and the message panel | Score, round, squadron status, a radar with the stars, and the message panel |
 
 Other steering modes (in Settings) also work in all modes:
@@ -292,7 +384,33 @@ debug HUD, and sends errors and status lines to a local test server:
 | L / T | Lobby / tutorial |
 
 Extra test options (with `?test`): `&demo` autopilot, `&mode=fighter|squadron|fleet`, `&wave=5` start at round 5,
-`&sim=6` run the simulation 6x faster, `&ai=old` use the old (v12) Fleet squadron leaders, `&bench` let a test script drive games.
+`&sim=6` run the simulation 6x faster, `&ai=old` use the old (v12) Fleet squadron leaders, `&bench` let a test script drive games,
+`&unlockall` unlock every campaign battle, rank and ship type. With `&demo`, Fleet deployment is done automatically (AUTO).
+
+### Fleet ship class balance (v16 autopilot duels)
+
+Your side: 2 squadrons of one class (or 1 capital ship); enemy: 2 groups of one class worth 4x the points (enemy
+pilots are much weaker one-on-one), or a lone flagship (80 hull). Both sides on autopilot, round-3 enemy AI,
+2 seeds each, 12x simulation speed (final settings; the flagship column and the fighter/interceptor rows are from the second tuning round, which only differed in bomber-vs-shield numbers). The number is **how much of your force was lost** (lower is better; 100% = lost):
+
+| Yours \ Enemy | Fighters | Interceptors | Bombers | Shields | Flagship |
+|---|---|---|---|---|---|
+| **Fighter** | 50% | 63% | **6%** | 88% (1 of 2 lost) | 19% (45 s) |
+| **Interceptor** | **19%** | 44% | **13%** | 81% (1 of 2 lost) | 100% (lost) |
+| **Bomber** | 63% (1 of 2 lost) | 63% (1 of 2 lost) | 31% | **56%** | **13% (29 s)** |
+| **Shield** | 44% | **38%** | 25% | 69% | **0%** (78 s, soaked 68 hits) |
+| **Capital** | lost | **0%** | lost (77% of the enemy left) | lost | |
+
+So: interceptors are the answer to fighters and bombers and useless against flagships; bombers sink flagships
+fastest and are the best answer to shields, but get torn up by fighters and interceptors; shields are the
+answer to interceptors and can sit in a flagship's fire without loss, but kill slowly; capital ships shred
+interceptors and die to bombers. AUTO deployment picks counters from this.
+
+Free play on autopilot (AUTO deployment every round, all classes unlocked): 2 games, both reached **round 10**.
+
+Round 1 of the class tuning (before the numbers above) had every class at 2-5 hull: the 5-hull bombers and
+shields won everything and interceptors lost almost everything, so hull went down (bomber 4, shield 3.5),
+interceptors got 2.5 hull and their dodge, and bomber shots got harder on shields.
 
 ### Fleet AI: smart leaders vs the old leaders
 
@@ -339,7 +457,9 @@ the left stick to put the box back in its default spot.
 ## Files
 
 - `index.html` - page with the ENTER VR button (plus the hidden test HUD)
-- `js/main.js` - game: scene, input, player, enemy AI, squadron bots, fleet (selection, orders, capital ships, smart squadron leaders), stars, rounds and enemy tactic unlocks, lobby, HUD, effects
+- `js/main.js` - game: scene, input, player, enemy AI, squadron bots, fleet (selection, orders, capital ships, smart squadron leaders, autonomy, deployment, unit tags), stars, rounds and enemy tactic unlocks, campaign battles, lobby, HUD, effects
+- `js/ships.js` - the Fleet ship classes (stats, damage table, shield) and their 2D silhouettes
+- `js/campaign.js` - Command School: battles, ranks, stars, XP, unlocks (saved on the device)
 - `js/ui.js` - VR panels (canvas text and buttons picked with a controller ray) and the animated controller icons
 - `js/controller.js` - the wireframe controller gizmos at your hands, with the tutorial's glowing button markers
 - `js/tutorial.js` - the step-by-step tutorial
@@ -352,6 +472,7 @@ the left stick to put the box back in its default spot.
 ## Not done yet / ideas
 
 - Fleet: drag-box selection and waypoint chains
+- Superweapons / big set-piece moments (deliberately not in v16)
 - A louder warning when an enemy attacks from behind (positional sound only, so far)
 - More comfort options (seated height, volume)
 - So far it has only been tested in an emulator (IWER) and in desktop Firefox, not yet on a real Quest
