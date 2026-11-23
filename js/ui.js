@@ -62,11 +62,15 @@ export class Panel {
     const hov = this.hover === id;
     if (o.active) { g.fillStyle = UI.active; g.fillRect(x, y, w, h); }
     if (hov) { g.fillStyle = UI.hover; g.fillRect(x, y, w, h); }
-    g.strokeStyle = o.active ? UI.gold : hov ? UI.title : UI.faint;
-    g.lineWidth = o.big || hov || o.active ? 3 : 2;
-    g.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    // Subtle buttons (e.g. "skip") only show a frame when you point at them.
+    if (!o.subtle || hov) {
+      g.strokeStyle = o.active ? UI.gold : hov ? UI.title : UI.faint;
+      g.lineWidth = o.big || hov || o.active ? 3 : 2;
+      g.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    }
     const size = o.size || Math.min(34, Math.floor(h * 0.45));
-    this.text(label, x + w / 2, y + h / 2 + size * 0.36, { size, bold: !!(o.big || o.active), color: o.active ? UI.gold : o.color || UI.title, align: 'center', maxW: w - 20 });
+    const col = o.active ? UI.gold : o.subtle && !hov ? UI.dim : o.color || UI.title;
+    this.text(label, x + w / 2, y + h / 2 + size * 0.36, { size, bold: !!(o.big || o.active), color: col, align: 'center', maxW: w - 20 });
   }
   // Ray test: returns the button id under the ray (or '' on the panel, null off it) and the distance.
   pick(raycaster) {
@@ -94,38 +98,71 @@ export function faceYaw(mesh, target) {
 }
 
 // ---------------------------------------------------------------- animated icons
-// A side-view sketch of a Touch controller: handle, tracking ring, thumbstick, trigger and grip.
-// `hi` lists the parts to highlight (pulsing gold): 'trigger' | 'grip' | 'stick' | 'stickUp' | 'stickDown' | 'stickCircle'.
-const pulse = (t, f = 4) => 0.55 + 0.45 * Math.sin(t * f);
-function controller(g, x, y, s, rot, hi, t, ray) {
+// A side view of a Quest Touch Plus controller (front to the right): the head with the thumbstick and
+// two face buttons on top, the index trigger under the front of the head, and the grip on the front of
+// the handle. Drawn in the hand's colour (right = cyan, left = gold); the part to use pulses green,
+// exactly like the glowing part on the controller you hold in VR.
+export const HAND_COLOR = { right: '#33ddff', left: '#ffcc66', either: '#bfefff' };
+export const HI = '#55ff99';
+const pulse = (t, f = 5) => 0.5 + 0.5 * Math.sin(t * f);
+const hiCol = (t) => `rgba(85,255,153,${0.55 + 0.45 * pulse(t)})`;
+// hi: 'trigger' | 'grip' | 'stick' | 'stickUp' | 'stickDown' | 'stickUpDown' | 'stickCircle' | 'stickClick' | 'release'
+function controller(g, x, y, s, rot, hi, t, hand = 'right', ray = 0) {
+  const col = HAND_COLOR[hand] || HAND_COLOR.right;
+  const has = (k) => hi.includes(k);
   g.save();
   g.translate(x, y); g.rotate(rot);
-  g.lineWidth = Math.max(2, s * 0.05);
-  const base = '#7fe9ff';
-  const gold = `rgba(255,204,102,${pulse(t)})`;
+  g.lineWidth = Math.max(2, s * 0.035);
+  g.lineJoin = 'round';
   if (ray) {
-    g.strokeStyle = 'rgba(255,204,102,0.7)'; g.setLineDash([s * 0.08, s * 0.06]);
-    g.beginPath(); g.moveTo(0, -s * 0.5); g.lineTo(0, -s * 0.5 - ray); g.stroke(); g.setLineDash([]);
+    g.strokeStyle = 'rgba(255,255,255,0.75)'; g.setLineDash([s * 0.06, s * 0.05]);
+    g.beginPath(); g.moveTo(s * 0.3, -s * 0.2); g.lineTo(s * 0.3 + ray, -s * 0.2); g.stroke(); g.setLineDash([]);
   }
-  // Handle.
-  g.strokeStyle = base;
-  g.beginPath(); g.roundRect(-s * 0.17, -s * 0.1, s * 0.34, s * 0.95, s * 0.14); g.stroke();
-  // Tracking ring.
-  g.beginPath(); g.arc(0, -s * 0.32, s * 0.36, Math.PI * 0.85, Math.PI * 2.15); g.stroke();
-  // Thumbstick (on top).
-  let sx = 0, sy = 0;
-  if (hi.includes('stickUp')) sy = -Math.abs(Math.sin(t * 2.5)) * s * 0.07;
-  if (hi.includes('stickDown')) sy = Math.abs(Math.sin(t * 2.5)) * s * 0.07;
-  if (hi.includes('stickCircle')) { sx = Math.cos(t * 2) * s * 0.06; sy = Math.sin(t * 2) * s * 0.06; }
-  const stickHi = hi.some((h) => h.startsWith('stick'));
-  g.fillStyle = stickHi ? gold : base;
-  g.beginPath(); g.arc(sx, -s * 0.12 + sy, s * 0.075, 0, Math.PI * 2); g.fill();
-  if (hi.includes('stickClick')) { g.strokeStyle = gold; g.beginPath(); g.arc(0, -s * 0.12, s * (0.12 + 0.06 * pulse(t, 6)), 0, Math.PI * 2); g.stroke(); }
-  // Trigger (front, under the ring) and grip (side of the handle).
-  g.fillStyle = hi.includes('trigger') ? gold : 'rgba(127,233,255,0.35)';
-  g.beginPath(); g.roundRect(-s * 0.32, s * 0.02, s * 0.14, s * 0.2, s * 0.05); g.fill();
-  g.fillStyle = hi.includes('grip') ? gold : 'rgba(127,233,255,0.35)';
-  g.beginPath(); g.roundRect(s * 0.12, s * 0.28, s * 0.13, s * 0.36, s * 0.05); g.fill();
+  // Handle (down and back), then the head on top of it.
+  g.save(); g.translate(-s * 0.06, -s * 0.12); g.rotate(0.38);
+  g.fillStyle = 'rgba(0,10,22,0.9)'; g.strokeStyle = col;
+  g.beginPath(); g.roundRect(-s * 0.11, 0, s * 0.22, s * 0.6, s * 0.1); g.fill(); g.stroke();
+  // Grip button on the front of the handle.
+  const gh = has('grip');
+  g.fillStyle = gh ? hiCol(t) : 'rgba(127,233,255,0.22)'; g.strokeStyle = gh ? HI : col;
+  g.beginPath(); g.roundRect(s * 0.05, s * 0.1, s * 0.09, s * 0.28, s * 0.04); g.fill(); g.stroke();
+  if (gh) { g.strokeStyle = `rgba(85,255,153,${0.5 * pulse(t)})`; g.lineWidth = Math.max(2, s * 0.025); g.beginPath(); g.roundRect(s * 0.0, s * 0.05, s * 0.19, s * 0.38, s * 0.08); g.stroke(); g.lineWidth = Math.max(2, s * 0.035); }
+  g.restore();
+  // Trigger under the front of the head.
+  const th = has('trigger');
+  g.fillStyle = th ? hiCol(t) : 'rgba(127,233,255,0.22)'; g.strokeStyle = th ? HI : col;
+  g.beginPath(); g.roundRect(s * 0.12, -s * 0.13, s * 0.1, s * 0.2, s * 0.05); g.fill(); g.stroke();
+  if (th) { g.strokeStyle = `rgba(85,255,153,${0.5 * pulse(t)})`; g.beginPath(); g.arc(s * 0.17, -s * 0.03, s * 0.17, 0, Math.PI * 2); g.stroke(); }
+  if (has('release')) {
+    const k = (t * 1.2) % 1;
+    g.strokeStyle = `rgba(255,255,255,${1 - k})`; g.beginPath(); g.moveTo(s * (0.3 + k * 0.12), -s * 0.03); g.lineTo(s * (0.42 + k * 0.12), -s * 0.03); g.stroke();
+  }
+  // Head.
+  g.fillStyle = 'rgba(0,10,22,0.95)'; g.strokeStyle = col;
+  g.beginPath(); g.roundRect(-s * 0.3, -s * 0.3, s * 0.6, s * 0.2, s * 0.09); g.fill(); g.stroke();
+  // Face buttons (behind the stick) with their letters: A / X nearer your thumb, B / Y further forward.
+  const letters = hand === 'left' ? ['X', 'Y'] : ['A', 'B'];
+  g.fillStyle = col; g.strokeStyle = col;
+  [-0.21, -0.1].forEach((bx, i) => {
+    g.beginPath(); g.arc(s * bx, -s * 0.3, s * 0.035, Math.PI, 0); g.fill();
+    g.font = `bold ${Math.round(s * 0.075)}px monospace`; g.textAlign = 'center';
+    g.fillText(letters[i], s * bx, -s * 0.36);
+  });
+  // Thumbstick (stem + cap), tilted / clicked when highlighted.
+  const sh = hi.some((k) => k.startsWith('stick'));
+  let tilt = 0;
+  if (has('stickUp')) tilt = -Math.abs(Math.sin(t * 2.5)) * 0.5;
+  if (has('stickDown')) tilt = Math.abs(Math.sin(t * 2.5)) * 0.5;
+  if (has('stickUpDown')) tilt = Math.sin(t * 2.2) * 0.5;
+  if (has('stickCircle')) tilt = Math.sin(t * 2) * 0.5;
+  const click = has('stickClick') ? Math.max(0, Math.sin(t * 5)) * s * 0.025 : 0;
+  g.save(); g.translate(s * 0.08, -s * 0.3 + click); g.rotate(tilt);
+  g.strokeStyle = sh ? HI : col; g.fillStyle = sh ? hiCol(t) : col;
+  g.beginPath(); g.moveTo(0, 0); g.lineTo(0, -s * 0.07); g.stroke();
+  g.beginPath(); g.ellipse(0, -s * 0.085, s * 0.08, s * 0.03, 0, 0, Math.PI * 2); g.fill();
+  g.restore();
+  if (has('stickClick')) { g.strokeStyle = `rgba(85,255,153,${0.8 * (1 - pulse(t, 5))})`; g.beginPath(); g.ellipse(s * 0.08, -s * 0.39, s * (0.1 + 0.05 * pulse(t, 5)), s * (0.04 + 0.02 * pulse(t, 5)), 0, 0, Math.PI * 2); g.stroke(); }
+  if (sh && !has('stickClick')) { g.strokeStyle = `rgba(85,255,153,${0.5 * pulse(t)})`; g.beginPath(); g.arc(s * 0.08, -s * 0.37, s * 0.13, 0, Math.PI * 2); g.stroke(); }
   g.restore();
 }
 function ship(g, x, y, s, ang, col = '#33ddff') {
@@ -134,14 +171,20 @@ function ship(g, x, y, s, ang, col = '#33ddff') {
   g.beginPath(); g.moveTo(s * 0.5, 0); g.lineTo(-s * 0.35, -s * 0.3); g.lineTo(-s * 0.15, 0); g.lineTo(-s * 0.35, s * 0.3); g.closePath(); g.stroke();
   g.restore();
 }
-function arrow(g, x0, y0, x1, y1, col = 'rgba(255,204,102,0.9)') {
+function dart(g, x, y, s, ang, col = '#33ddff') {
+  g.save(); g.translate(x, y); g.rotate(ang);
+  g.fillStyle = 'rgba(51,221,255,0.35)'; g.strokeStyle = col; g.lineWidth = Math.max(2, s * 0.1); g.lineJoin = 'round';
+  g.beginPath(); g.moveTo(s * 0.6, 0); g.lineTo(-s * 0.4, -s * 0.38); g.lineTo(-s * 0.15, 0); g.lineTo(-s * 0.4, s * 0.38); g.closePath(); g.fill(); g.stroke();
+  g.restore();
+}
+function arrow(g, x0, y0, x1, y1, col = 'rgba(255,255,255,0.8)') {
   g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 3;
   g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
   const a = Math.atan2(y1 - y0, x1 - x0);
-  g.beginPath(); g.moveTo(x1, y1); g.lineTo(x1 - 12 * Math.cos(a - 0.45), y1 - 12 * Math.sin(a - 0.45)); g.lineTo(x1 - 12 * Math.cos(a + 0.45), y1 - 12 * Math.sin(a + 0.45)); g.closePath(); g.fill();
+  g.beginPath(); g.moveTo(x1, y1); g.lineTo(x1 - 14 * Math.cos(a - 0.45), y1 - 14 * Math.sin(a - 0.45)); g.lineTo(x1 - 14 * Math.cos(a + 0.45), y1 - 14 * Math.sin(a + 0.45)); g.closePath(); g.fill();
 }
-function cube(g, x, y, r, col = 'rgba(80,220,255,0.8)') {
-  g.strokeStyle = col; g.lineWidth = 2;
+function cube(g, x, y, r, col = 'rgba(80,220,255,0.85)') {
+  g.strokeStyle = col; g.lineWidth = 3;
   const o = r * 0.45;
   g.strokeRect(x - r, y - r + o * 0.5, 2 * r - o, 2 * r - o);
   g.strokeRect(x - r + o, y - r - o * 0.5, 2 * r - o, 2 * r - o);
@@ -152,122 +195,174 @@ function cube(g, x, y, r, col = 'rgba(80,220,255,0.8)') {
   g.moveTo(x + r - o, y + r - o * 0.5); g.lineTo(x + r, y + r - o * 1.5);
   g.stroke();
 }
-function ring(g, x, y, r, col) { g.strokeStyle = col; g.lineWidth = 3; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.stroke(); }
-function formation(g, x, y, s, spread, col = '#33ddff') {
-  for (let i = 0; i < 4; i++) ship(g, x + (i - 1.5) * s * (0.35 + spread), y + (i % 2) * spread * s * 0.5, s * 0.3, -Math.PI / 2, col);
+function ring(g, x, y, r, col, w = 3) { g.strokeStyle = col; g.lineWidth = w; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.stroke(); }
+// Four ships side by side, all heading `ang` (default: to the right, toward the target).
+function formation(g, x, y, s, spread, col = '#33ddff', ang = 0) {
+  const px = -Math.sin(ang), py = Math.cos(ang), ax = Math.cos(ang), ay = Math.sin(ang);
+  for (let i = 0; i < 4; i++) {
+    const o = (i - 1.5) * s * (0.3 + spread), b = (i % 2) * spread * s * 0.5;
+    dart(g, x + px * o - ax * b, y + py * o - ay * b, s * 0.26, ang, col);
+  }
+}
+function bullets(g, x0, y0, x1, y1, t, n = 3, col = '136,244,255') {
+  for (let i = 0; i < n; i++) {
+    const f = (t * 1.5 + i / n) % 1;
+    g.fillStyle = `rgba(${col},${1 - f * 0.7})`;
+    g.beginPath(); g.arc(x0 + (x1 - x0) * f, y0 + (y1 - y0) * f, 4, 0, Math.PI * 2); g.fill();
+  }
+}
+function capitalShip(g, x, y, s, col = '#a8f0ff') {
+  g.strokeStyle = col; g.lineWidth = 3;
+  g.beginPath(); g.moveTo(x - s * 0.45, y); g.lineTo(x - s * 0.2, y - s * 0.14); g.lineTo(x + s * 0.4, y - s * 0.08); g.lineTo(x + s * 0.48, y);
+  g.lineTo(x + s * 0.4, y + s * 0.08); g.lineTo(x - s * 0.2, y + s * 0.14); g.closePath(); g.stroke();
 }
 
-// Draw icon `kind` centred at (x, y), about `s` pixels tall, at animation time t (seconds).
-export function drawIcon(g, kind, x, y, s, t) {
+// Draw icon `kind` centred at (x, y), about `s` pixels tall, at animation time t (seconds), for `hand`.
+// Layout is the same for every icon: the controller on the left, what it does on the right.
+export function drawIcon(g, kind, x, y, s, t, hand = 'right') {
   g.save();
+  const cx = x - s * 0.3, cy = y + s * 0.12, cs = s * 0.8;      // controller
+  const ex = x + s * 0.38, ey = y;                               // effect
   switch (kind) {
+    case 'room': {
+      const k = Math.sin(t * 0.8);
+      cube(g, x, y, s * 0.34);
+      ship(g, x + k * s * 0.08, y + s * 0.02, s * 0.14, k * 0.6, '#33ddff');
+      break;
+    }
     case 'gripMove': {
-      const dx = Math.sin(t * 1.6) * s * 0.35;
-      controller(g, x - s * 0.25 + dx, y + s * 0.1, s * 0.75, -0.25, ['grip'], t);
-      cube(g, x + s * 0.45 + dx, y - s * 0.1, s * 0.18);
-      arrow(g, x - s * 0.05, y - s * 0.48, x + s * 0.35, y - s * 0.48);
-      arrow(g, x - s * 0.05, y - s * 0.48, x - s * 0.45, y - s * 0.48);
+      const dx = Math.sin(t * 1.4) * s * 0.12;
+      controller(g, cx + dx, cy, cs, 0, ['grip'], t, hand);
+      cube(g, ex + dx, ey, s * 0.16);
+      arrow(g, ex - s * 0.05, ey + s * 0.3, ex + s * 0.18, ey + s * 0.3);
+      arrow(g, ex + s * 0.05, ey + s * 0.3, ex - s * 0.18, ey + s * 0.3);
       break;
     }
     case 'gripResize': {
-      const k = 1 + 0.35 * Math.sin(t * 1.6);
-      controller(g, x - s * 0.3, y + s * 0.1, s * 0.75, -0.25, ['grip', Math.sin(t * 1.6) > 0 ? 'stickUp' : 'stickDown'], t);
-      cube(g, x + s * 0.4, y, s * 0.16 * k);
+      const k = 1 + 0.4 * Math.sin(t * 2.2);
+      controller(g, cx, cy, cs, 0, ['grip', 'stickUpDown'], t, hand);
+      cube(g, ex, ey, s * 0.14 * k);
       break;
     }
-    case 'mirror': {
-      const a = Math.sin(t * 1.2) * 0.45;
-      controller(g, x - s * 0.3, y + s * 0.15, s * 0.7, a, [], t);
-      ship(g, x + s * 0.38, y, s * 0.4, -Math.PI / 2 + a * 2);
-      arrow(g, x - s * 0.05, y - s * 0.05, x + s * 0.12, y - s * 0.05, 'rgba(127,233,255,0.6)');
+    case 'mirror': case 'steerHand': {
+      const a = Math.sin(t * 1.2) * 0.4;
+      controller(g, cx, cy, cs, a, [], t, hand);
+      arrow(g, x - s * 0.02, y, x + s * 0.12, y);
+      ship(g, ex + s * 0.05, ey, s * 0.32, a * 2);
       break;
     }
     case 'relative': {
       const a = Math.sin(t * 1.2) * 0.35;
-      controller(g, x - s * 0.3, y + s * 0.15, s * 0.7, a, [], t);
-      ring(g, x + s * 0.38, y, s * 0.22, 'rgba(127,233,255,0.6)');
-      g.fillStyle = '#ffffff'; g.beginPath(); g.arc(x + s * 0.38 + a * s * 0.5, y, s * 0.05, 0, Math.PI * 2); g.fill();
+      controller(g, cx, cy, cs, a, [], t, hand);
+      ring(g, ex, ey, s * 0.18, 'rgba(127,233,255,0.6)');
+      g.fillStyle = '#ffffff'; g.beginPath(); g.arc(ex + a * s * 0.4, ey, s * 0.04, 0, Math.PI * 2); g.fill();
       break;
     }
     case 'point': {
-      const a = Math.sin(t * 1.2) * 0.4;
-      controller(g, x - s * 0.15, y + s * 0.3, s * 0.6, a, [], t, s * 0.5);
-      ship(g, x - s * 0.15 + Math.sin(a) * s * 0.85, y + s * 0.3 - Math.cos(a) * s * 0.85, s * 0.28, -Math.PI / 2 + a);
+      const a = Math.sin(t * 1.2) * 0.3;
+      controller(g, cx, cy, cs, a, [], t, hand, s * 0.35);
+      ship(g, ex + s * 0.05, ey + Math.sin(a) * s * 0.5 - s * 0.05, s * 0.26, a);
       break;
     }
     case 'stick': {
-      controller(g, x - s * 0.3, y + s * 0.15, s * 0.75, -0.2, ['stickCircle'], t);
-      ship(g, x + s * 0.38, y, s * 0.4, -Math.PI / 2 + Math.cos(t * 2) * 0.6);
+      controller(g, cx, cy, cs, 0, ['stickCircle'], t, hand);
+      ship(g, ex + s * 0.05, ey, s * 0.32, Math.sin(t * 2) * 0.6);
       break;
     }
     case 'trigger': {
-      controller(g, x - s * 0.3, y + s * 0.15, s * 0.75, -0.3, ['trigger'], t);
-      ship(g, x + s * 0.12, y, s * 0.3, 0);
-      for (let i = 0; i < 3; i++) {
-        const f = (t * 1.5 + i / 3) % 1;
-        g.fillStyle = `rgba(136,244,255,${1 - f})`;
-        g.fillRect(x + s * (0.3 + f * 0.4), y - 2, s * 0.08, 4);
-      }
+      controller(g, cx, cy, cs, 0, ['trigger'], t, hand);
+      ship(g, ex - s * 0.08, ey, s * 0.24, 0);
+      bullets(g, ex + s * 0.06, ey, ex + s * 0.4, ey, t);
       break;
     }
     case 'boost': {
-      controller(g, x - s * 0.3, y + s * 0.15, s * 0.75, -0.3, ['grip'], t);
-      ship(g, x + s * 0.35, y, s * 0.32, 0);
+      controller(g, cx, cy, cs, 0, ['grip'], t, hand);
+      ship(g, ex + s * 0.12, ey, s * 0.28, 0);
       for (let i = 0; i < 4; i++) {
         const f = (t * 2 + i / 4) % 1;
         g.strokeStyle = `rgba(255,204,102,${0.8 * (1 - f)})`; g.lineWidth = 3;
-        g.beginPath(); g.moveTo(x + s * (0.18 - f * 0.25), y - s * 0.12 + i * s * 0.08); g.lineTo(x + s * (0.05 - f * 0.25), y - s * 0.12 + i * s * 0.08); g.stroke();
+        const yy = ey - s * 0.1 + i * s * 0.065;
+        g.beginPath(); g.moveTo(ex - s * (0.02 + f * 0.25), yy); g.lineTo(ex - s * (0.14 + f * 0.25), yy); g.stroke();
       }
+      break;
+    }
+    case 'target': {
+      controller(g, cx, cy, cs, 0, ['trigger'], t, hand);
+      ship(g, ex - s * 0.12, ey + s * 0.05, s * 0.2, -0.3);
+      const tx = ex + s * 0.3, ty = ey - s * 0.12;
+      ship(g, tx, ty, s * 0.18, Math.PI, '#ff4455');
+      ring(g, tx, ty, s * (0.12 + 0.02 * pulse(t, 6)), 'rgba(255,68,85,0.8)', 2);
+      bullets(g, ex - s * 0.02, ey + s * 0.02, tx, ty, t);
+      break;
+    }
+    case 'squad': {
+      // Four filled darts in a V, all heading the same way (up), with the heading arrow ahead.
+      const V = [[-0.28, -0.3], [-0.12, -0.1], [-0.12, 0.1], [-0.28, 0.3]];
+      const k = Math.sin(t * 1.5) * s * 0.02;
+      for (const [vx, vy] of V) dart(g, x + vx * s + k, y + vy * s, s * 0.17, 0);
+      arrow(g, x + s * 0.02, y, x + s * 0.36, y, 'rgba(127,233,255,0.8)');
       break;
     }
     case 'engage': {
-      controller(g, x - s * 0.35, y + s * 0.15, s * 0.7, -0.3, ['trigger'], t);
-      const sp = 0.25 + 0.2 * (0.5 + 0.5 * Math.sin(t * 2));
-      formation(g, x + s * 0.3, y + s * 0.1, s * 0.6, sp);
-      ship(g, x + s * 0.3, y - s * 0.35, s * 0.22, Math.PI / 2, '#ff4455');
+      controller(g, cx, cy, cs, 0, ['trigger'], t, hand);
+      const sp = 0.05 + 0.2 * pulse(t, 2);
+      formation(g, ex - s * 0.08, ey, s * 0.45, sp);
+      ship(g, ex + s * 0.32, ey, s * 0.18, Math.PI, '#ff4455');
+      bullets(g, ex + s * 0.02, ey, ex + s * 0.28, ey, t);
       break;
     }
     case 'regroup': {
-      controller(g, x - s * 0.35, y + s * 0.15, s * 0.7, -0.3, [], t);
-      const sp = 0.45 * (0.5 + 0.5 * Math.cos(t * 1.5));
-      formation(g, x + s * 0.3, y, s * 0.6, sp);
+      controller(g, cx, cy, cs, 0, ['release'], t, hand);
+      const sp = 0.3 * (0.5 + 0.5 * Math.cos(t * 1.5));
+      formation(g, ex + s * 0.05, ey, s * 0.45, sp);
+      break;
+    }
+    case 'watch': {
+      const k = (t * 0.6) % 1;
+      formation(g, x - s * 0.25 + k * s * 0.15, y, s * 0.45, 0.1, '#3d8bff');
+      ship(g, x + s * 0.32, y, s * 0.2, Math.PI, '#ff4455');
+      bullets(g, x - s * 0.05, y + s * 0.08, x + s * 0.28, y, t);
+      break;
+    }
+    case 'fleet': {
+      capitalShip(g, x - s * 0.15, y - s * 0.2, s * 0.5);
+      capitalShip(g, x + s * 0.25, y - s * 0.05, s * 0.4);
+      formation(g, x - s * 0.3, y + s * 0.28, s * 0.22, 0.05, '#3d8bff');
+      formation(g, x + s * 0.02, y + s * 0.3, s * 0.22, 0.05, '#44ff88');
+      formation(g, x + s * 0.34, y + s * 0.28, s * 0.22, 0.05, '#ffcc33');
       break;
     }
     case 'selectRay': {
-      controller(g, x - s * 0.25, y + s * 0.35, s * 0.55, 0.45, ['trigger'], t, s * 0.55);
-      ring(g, x + s * 0.2, y - s * 0.3, s * (0.15 + 0.03 * pulse(t, 6)), '#ffffff');
-      formation(g, x + s * 0.2, y - s * 0.3, s * 0.35, 0.1, '#3d8bff');
+      controller(g, cx, cy, cs, 0, ['trigger'], t, hand, s * 0.42);
+      ring(g, ex + s * 0.12, cy - cs * 0.2, s * (0.15 + 0.02 * pulse(t, 6)), '#ffffff');
+      for (let i = 0; i < 3; i++) dart(g, ex + s * (0.08 + (i % 2) * 0.05), cy - cs * 0.2 + (i - 1) * s * 0.08, s * 0.08, 0, '#3d8bff');
       break;
     }
     case 'selectAll': {
-      controller(g, x - s * 0.3, y + s * 0.2, s * 0.65, -0.2, ['stickClick'], t);
-      const c = ['#3d8bff', '#44ff88', '#ffcc33', '#a8f0ff'];
-      for (let i = 0; i < 4; i++) ring(g, x + s * 0.25 + (i % 2) * s * 0.22, y - s * 0.25 + Math.floor(i / 2) * s * 0.3, s * 0.09, c[i]);
+      controller(g, cx, cy, cs, 0, ['stickClick'], t, hand);
+      const c = ['#3d8bff', '#44ff88', '#ffcc33', '#a8f0ff', '#a8f0ff'];
+      const lit = Math.floor((t * 2.5) % 7);
+      for (let i = 0; i < 5; i++) ring(g, ex - s * 0.12 + (i % 3) * s * 0.17, ey - s * 0.12 + Math.floor(i / 3) * s * 0.24, s * 0.07, i < lit ? c[i] : 'rgba(127,233,255,0.25)');
       break;
     }
-    case 'orderHold': case 'orderGuard': case 'orderFollow': case 'orderAttack': {
-      controller(g, x - s * 0.3, y + s * 0.35, s * 0.55, 0.5, ['grip'], t, s * 0.5);
-      const tx = x + s * 0.25, ty = y - s * 0.3;
-      if (kind === 'orderHold') { g.strokeStyle = UI.gold; g.lineWidth = 3; g.beginPath(); g.moveTo(tx - 12, ty - 12); g.lineTo(tx + 12, ty + 12); g.moveTo(tx + 12, ty - 12); g.lineTo(tx - 12, ty + 12); g.stroke(); }
-      if (kind === 'orderGuard') { ring(g, tx, ty, s * 0.16, 'rgba(160,185,220,0.9)'); ship(g, tx + s * 0.22, ty, s * 0.15, -Math.PI / 2); }
-      if (kind === 'orderFollow') { ship(g, tx, ty, s * 0.2, 0, '#a8f0ff'); ship(g, tx - s * 0.25 - (t * 20) % 8, ty + s * 0.05, s * 0.14, 0, '#3d8bff'); }
-      if (kind === 'orderAttack') { ship(g, tx, ty, s * 0.22, Math.PI, '#ff4455'); ring(g, tx, ty, s * (0.18 + 0.03 * pulse(t, 6)), '#ff4455'); }
+    case 'orderHold': case 'orderGuard': case 'orderFollow': case 'orderAttack': case 'orders': {
+      controller(g, cx, cy, cs, 0, ['grip'], t, hand, s * 0.38);
+      const tx = ex + s * 0.16, ty = cy - cs * 0.2;
+      if (kind === 'orderHold') { g.strokeStyle = '#ffffff'; g.lineWidth = 3; g.beginPath(); g.moveTo(tx - 12, ty - 12); g.lineTo(tx + 12, ty + 12); g.moveTo(tx + 12, ty - 12); g.lineTo(tx - 12, ty + 12); g.stroke(); ring(g, tx, ty, s * (0.1 + 0.02 * pulse(t, 6)), 'rgba(255,255,255,0.6)', 2); }
+      if (kind === 'orderGuard') { ring(g, tx, ty, s * 0.12, 'rgba(160,185,220,0.9)'); ship(g, tx + s * 0.18 * Math.cos(t), ty + s * 0.18 * Math.sin(t), s * 0.1, t + Math.PI / 2); }
+      if (kind === 'orderFollow') { capitalShip(g, tx + s * 0.02, ty, s * 0.3); ship(g, tx - s * 0.2 - (t * 20) % 10, ty + s * 0.12, s * 0.1, 0, '#3d8bff'); }
+      if (kind === 'orderAttack' || kind === 'orders') { ship(g, tx, ty, s * 0.18, Math.PI, '#ff4455'); ring(g, tx, ty, s * (0.13 + 0.02 * pulse(t, 6)), '#ff4455'); }
       break;
     }
-    case 'capital': {
-      g.strokeStyle = '#a8f0ff'; g.lineWidth = 3;
-      g.beginPath(); g.moveTo(x - s * 0.45, y); g.lineTo(x - s * 0.2, y - s * 0.14); g.lineTo(x + s * 0.4, y - s * 0.08); g.lineTo(x + s * 0.48, y);
-      g.lineTo(x + s * 0.4, y + s * 0.08); g.lineTo(x - s * 0.2, y + s * 0.14); g.closePath(); g.stroke();
-      for (let i = 0; i < 3; i++) {
-        const f = (t * 1.3 + i / 3) % 1;
-        g.fillStyle = `rgba(136,244,255,${1 - f})`;
-        g.fillRect(x + s * (-0.1 + i * 0.2), y - s * (0.16 + f * 0.35), 3, s * 0.08);
-      }
-      formation(g, x, y + s * 0.38, s * 0.45, 0.15, '#3d8bff');
+    case 'flagship': {
+      controller(g, cx, cy, cs, 0, ['grip'], t, hand, s * 0.3);
+      const tx = ex + s * 0.18, ty = cy - cs * 0.2;
+      capitalShip(g, tx, ty, s * 0.42, '#ff4455');
+      ring(g, tx, ty, s * (0.24 + 0.02 * pulse(t, 6)), '#ff4455');
       break;
     }
     case 'check': {
-      g.strokeStyle = '#66ff99'; g.lineWidth = 8; g.beginPath();
+      g.strokeStyle = '#66ff99'; g.lineWidth = Math.max(8, s * 0.06); g.lineCap = 'round'; g.beginPath();
       g.moveTo(x - s * 0.25, y); g.lineTo(x - s * 0.05, y + s * 0.2); g.lineTo(x + s * 0.3, y - s * 0.22); g.stroke();
       break;
     }

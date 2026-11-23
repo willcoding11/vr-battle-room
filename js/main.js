@@ -2,11 +2,12 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { buildPlayerShip, buildFighter, buildCruiser, buildControllerGizmo, tintShip } from './models.js?v=13';
-import { Sfx } from './audio.js?v=13';
-import { Panel, faceYaw, UI } from './ui.js?v=13';
-import { stats, saveStats, recordGame, fmtTime } from './stats.js?v=13';
-import { createTutorial } from './tutorial.js?v=13';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip } from './models.js?v=14';
+import { createTouchController } from './controller.js?v=14';
+import { Sfx } from './audio.js?v=14';
+import { Panel, faceYaw, UI } from './ui.js?v=14';
+import { stats, saveStats, recordGame, fmtTime } from './stats.js?v=14';
+import { createTutorial } from './tutorial.js?v=14';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
@@ -1819,9 +1820,10 @@ function hoverLabel(h) {
   return 'SPACE';
 }
 // Left trigger (or keys 1-5 on desktop): select. Left grip (or G): order the selection.
+let selectMissT = -99;                                 // when the left trigger last missed (tutorial hint)
 function fleetSelect() {
   if (fleetHover && fleetHover.unit) selectUnits([fleetHover.unit]);
-  else showMessage('SELECT', 'Point at a squadron or capital ship', 1.0);
+  else { selectMissT = performance.now() / 1000; showMessage('SELECT', 'Point at a squadron or capital ship', 1.0); }
 }
 function fleetOrder() {
   const h = fleetHover;
@@ -2128,13 +2130,20 @@ function tutStage(name) {
   }
   needNeutral = true;
 }
+// Practice ships never shoot (nothing can hurt you in training); single-shot, slow targets in the FLY part.
 function spawnTut(kind, n) {
-  if (kind === 'flagship') { spawnEnemyCaps(1); const c = enemyCaps[0]; c.maxHp = c.hp = 25; return; }
+  if (kind === 'flagship') { spawnEnemyCaps(1); const c = enemyCaps[0]; c.maxHp = c.hp = 12; c.tut = true; return; }
   const g = spawnGroup(kind === 'practice' ? 'flank' : 'pincer', n, 1);
-  for (const e of g.members) {
-    if (kind === 'practice') { e.fireInterval = 1e9; e.fireCd = 1e9; e.speed *= 0.55; e.hp = e.maxHp = 1; }
-    else { e.fireInterval *= 1.8; e.acc *= 1.8; }
-  }
+  g.members.forEach((e, i) => {
+    e.fireInterval = 1e9; e.fireCd = 1e9; e.tut = true;
+    if (kind === 'weak') e.hp = e.maxHp = 1;
+    if (kind === 'practice') {
+      e.speed *= 0.3; e.hp = e.maxHp = 1;
+      // In front of your ship, spread side by side.
+      e.obj.position.copy(player.obj.position).addScaledVector(player.fwd, 1.6 * S).addScaledVector(sideOf(player.fwd, _v2), (i - (n - 1) / 2) * 0.9 * S);
+      clampIn(e.obj.position, 0.8);
+    }
+  });
 }
 const tutorial = createTutorial({
   get input() { return input; }, get player() { return player; }, get settings() { return settings; }, setSetting,
@@ -2142,6 +2151,14 @@ const tutorial = createTutorial({
   spawnTut, get selected() { return selected; }, unitsAlive: () => UNITS.filter(unitAlive).length,
   get lastOrder() { return lastOrderWhat; }, set lastOrder(v) { lastOrderWhat = v; },
   stage: tutStage, finishTutorial, ping: () => sfx.ping(null), log,
+  get box() { return box; },
+  selectAll: () => selectUnits(UNITS, true),
+  selectSquads: () => selectUnits(FLEET_SQUADS, true),
+  highlight: setTouchHighlight,
+  selectMissed: () => performance.now() / 1000 - selectMissT < 3,
+  cue: () => sfx.ping(null),
+  good: () => { sfx.chime(true); haptic('right', 0.25, 40); haptic('left', 0.25, 40); },
+  flagshipDamage: () => { const c = enemyCaps.find((x) => x.tut); return c ? (c.alive ? 1 - c.hp / c.maxHp : 1) : 0; },
 });
 rig.add(tutorial.card.mesh, tutorial.big.mesh);
 
@@ -2182,7 +2199,7 @@ function showMessage(title, sub = '', dur = 2) {
   const xr = renderer.xr.isPresenting;
   const big = xr && state === 'gameover';
   msgPanel.visible = big;
-  wristMsg.visible = xr && !big;
+  wristMsg.visible = xr && !big && state !== 'tutorial';
 }
 function hideMessage() {
   msgTime = 0;
@@ -2492,6 +2509,13 @@ const gimbal = new THREE.Group();
 
 // ---------------------------------------------------------------- XR controllers
 const hands = { left: null, right: null }; // controller groups by handedness
+// Wireframe Touch Plus models (one per hand); the tutorial makes the button to use glow on them.
+const touch = { left: createTouchController('left', 0xffcc66), right: createTouchController('right', 0x33ddff) };
+let touchHi = {};
+function setTouchHighlight(spec) {
+  touchHi = spec || {};
+  for (const h of ['left', 'right']) touch[h].setHighlight(touchHi[h] || []);
+}
 for (let i = 0; i < 2; i++) {
   const c = renderer.xr.getController(i);
   rig.add(c);
@@ -2501,7 +2525,7 @@ for (let i = 0; i < 2; i++) {
     c.userData.hand = hand;
     if (hand !== 'left' && hand !== 'right') return;
     hands[hand] = c;
-    c.add(buildControllerGizmo(hand === 'left' ? 0xffcc66 : 0x33ddff));
+    c.add(touch[hand].root);
     if (hand === 'left') c.add(hudPanel, wristMsg, selRay, lPointer);
     else c.add(pointer, gimbal);
     log(`controller connected: ${hand} gamepad=${!!ev.data.gamepad}`);
@@ -2901,10 +2925,32 @@ function placeBelow(mesh, heightM) {
   camera.getWorldPosition(_v1);
   faceYaw(mesh, _v1);
 }
+function placeTutCard(mesh, widthM) {
+  const sc = board.scale.x;
+  camera.getWorldPosition(_v1);
+  const x = board.position.x + HB.x * sc + 0.04 + widthM / 2;
+  const near = board.position.z + HB.z * sc, far = board.position.z - HB.z * sc;
+  const z = clamp(_v1.z - Math.max(0.2, x - _v1.x) / Math.tan(0.56), far, near);
+  mesh.position.set(x, Math.min(board.position.y, _v1.y - 0.12), z);
+  faceYaw(mesh, _v1);
+  mesh.scale.setScalar(clamp(mesh.position.distanceTo(_v1) / 1.05, 0.8, 2.4));
+}
+function placeTutBelow(mesh, heightM) {
+  const sc = board.scale.x;
+  const near = board.position.z + HB.z * sc;
+  camera.getWorldPosition(_v1);
+  const z = near - 0.5 * 2 * HB.z * sc;
+  const k = clamp(Math.hypot(_v1.z - z, _v1.y - (board.position.y - HB.y * sc)) / 1.0, 0.8, 2.2);
+  mesh.scale.setScalar(k);
+  mesh.position.set(board.position.x, board.position.y - HB.y * sc - 0.03 - (heightM * k) / 2, z);
+  faceYaw(mesh, _v1);
+  // Tilt it back so it faces your eyes.
+  mesh.rotateX(-Math.atan2(_v1.y - mesh.position.y, Math.hypot(_v1.x - mesh.position.x, _v1.z - mesh.position.z)));
+}
 function placePanels() {
   if (lobbyPanel.visible) placeSide(lobbyPanel.mesh, 1, lobbyPanel.widthM);
-  if (tutorial.card.visible) placeSide(tutorial.card.mesh, 1, tutorial.card.widthM);
-  if (tutorial.big.visible) placeBelow(tutorial.big.mesh, (tutorial.big.widthM * tutorial.big.H) / tutorial.big.W);
+  if (tutorial.card.visible) placeTutCard(tutorial.card.mesh, tutorial.card.widthM);
+  if (tutorial.big.visible) placeTutBelow(tutorial.big.mesh, (tutorial.big.widthM * tutorial.big.H) / tutorial.big.W);
   if (menuPanel.visible) placeSide(menuPanel, -1, MENU_M);
 }
 
@@ -3241,13 +3287,14 @@ function loop() {
   playerBullets.sync();
   enemyBullets.sync();
   placePanels();
+  { const tn = performance.now() / 1000; touch.left.update(tn); touch.right.update(tn); }
   if (xr && msgPanel.visible) {
     _v1.copy(camPos).addScaledVector(camFwd, 1.8);
     msgPanel.position.lerp(_v1, 1 - Math.exp(-3 * dt));
     msgPanel.lookAt(camPos);
   }
   reticle.lookAt(camPos);
-  hudPanel.visible = state !== 'lobby';
+  hudPanel.visible = state !== 'lobby' && state !== 'tutorial';
 
   // Red screen flash on hit (desktop overlay; in VR the ship flash + haptics carry it).
   screenFlash = Math.max(0, screenFlash - dt);
@@ -3288,7 +3335,7 @@ window.__game = {
   lobbyPanel, tutorial, enterLobby, startTutorial, finishTutorial, stats, recordGame, leaveGame, grab, uiHit, placePanels,
   get simTime() { return simTime; }, hitStats, menuLayout, get kills() { return kills; }, get smart() { return SMART_LEADERS; }, setSmart(v) { SMART_LEADERS = v; },
   get tutStage() { return tutStageName; }, get tutFreeze() { return tutFreeze; }, get lastOrder() { return lastOrderWhat; }, get shots() { return shotsFired; },
-  tutorialDone, spawnTut, applyBoard, drawMenu, get menuCanvas() { return menuCanvas; }, MENU_TOP, MENU_ROW, MENU_ROWS,
+  tutorialDone, spawnTut, setTutStage: tutStage, applyBoard, drawMenu, touch, get hudVisible() { return hudPanel.visible; }, get menuCanvas() { return menuCanvas; }, MENU_TOP, MENU_ROW, MENU_ROWS,
   startGameAt(mode, round) { settings.mode = mode; startGame(round); },
   get enemyBullets() { return enemyBullets.list.length; }, get bullets() { return playerBullets.list.length; }, toggleSettings, get menuOpen() { return menuOpen; }, get menuHover() { return menuHover; }, menuPanel,
 };

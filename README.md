@@ -13,24 +13,51 @@ don't need to install an app or turn on developer mode. **It is VR only:** the p
 
 ## Tutorial
 
-The first time you enter VR, a short tutorial runs automatically. It gives one instruction at a time,
-with minimal text and an animated controller icon (the highlighted button or motion pulses), on a
-card to the right of the room. Each step waits until you have actually done it:
+The first time you enter VR, a short tutorial runs automatically (about 3 minutes, 26 small steps).
+It teaches **one thing per step** on a single instruction card that always sits in the same place,
+beside the room's right wall, and always has the same layout:
 
-1. **The room:** only your ship is in the room. Grip-drag to move the room and grip + stick to resize it,
-   then press the big **CONTINUE** button centred below the room.
-2. **Movement:** a list of steering modes (Mirror, Relative, Point, Thumbstick); tap one to try it, then **NEXT**.
-3. **Shooting**, then **boosting**.
-4. **One practice enemy**, then **three more**.
-5. **Squadron basics:** steer the squadron, hold the trigger to engage, release to regroup, boost, finish the enemies.
-6. **Fleet, slowly:** select one unit with the left ray, select all, command the selection with the right hand,
-   then the quick orders **HOLD**, **GUARD**, **FOLLOW** and **ATTACK**, engage, and finally a training flagship.
-7. Then on to the **lobby**. Completion is saved on the device.
+- the section (ROOM / FLY / SQUADRON / FLEET) and a progress bar with **step N / 26**
+- **which hand** to use (RIGHT HAND in cyan, LEFT HAND in gold, the colours of your controllers)
+- a short title and one line of instruction (a few words)
+- a big animated icon: a Quest Touch controller with the button to use pulsing green, and what it does
+- a status line: a progress bar for things you hold or repeat, or **NICE!** when you've done it
 
-Nothing you own can die during training. **SKIP** on the card jumps straight to the lobby, and
-**REDO TUTORIAL** in the lobby runs it again.
+**The same button glows on the controller in your hand.** Both controllers are drawn as wireframe Touch
+controllers; during the tutorial the trigger, grip or stick to use pulses green with a small label next to it.
+
+**Pacing.** Each new card fades in with a soft sound, gives you a moment to read it, then waits for you to
+do the thing. When you do, it shows a check mark and **NICE!**, pauses, and fades calmly into the next step
+(a little slower in the Fleet part). Steps that only explain something use the big **CONTINUE** button
+centred below the room. If something goes wrong, the card says how to fix it (for example *"Missed: point
+right at the ships"* or *"Not quite: point at the red flagship"*).
+
+The steps:
+1. **Room:** your battle room; move it (grip and move your hand); resize it (grip + stick).
+2. **Fly:** steer your ship; pick a steering style; shoot; boost; destroy one practice target, then three more.
+3. **Squadron:** your 4 fighters; lead them; attack (hold trigger); regroup (let go); finish the enemies.
+4. **Fleet:** your fleet; select a squadron (left trigger); select everything (left stick click); steer the fleet;
+   giving orders (left grip); HOLD, GUARD, FOLLOW and ATTACK orders; watch them attack; sink a training flagship.
+5. **Training complete**, then on to the lobby. Completion is saved on the device.
+
+Practice ships never shoot and nothing of yours can be destroyed during training, and the score HUD stays
+hidden so the card is the only thing to read. A subtle **skip tutorial** on the card jumps straight to the
+lobby, and **REDO TUTORIAL** in the lobby runs it again.
 
 ![tutorial](screenshots/16-tutorial.png)
+
+The button to use glows on your controller:
+
+![controller glow](screenshots/18-tut-controller-glow.png)
+
+Moving the room (both grips glow, the bar fills as you move it), and the **NICE!** beat after a step:
+
+![move the room](screenshots/17-tut-move-room.png)
+![nice](screenshots/21-tut-nice.png)
+
+Fleet steps use the left hand:
+
+![fleet select](screenshots/22-tut-fleet-select.png)
 
 ## Lobby
 
@@ -313,6 +340,7 @@ the left stick to put the box back in its default spot.
 - `index.html` - page with the ENTER VR button (plus the hidden test HUD)
 - `js/main.js` - game: scene, input, player, enemy AI, squadron bots, fleet (selection, orders, capital ships, smart squadron leaders), stars, rounds and enemy tactic unlocks, lobby, HUD, effects
 - `js/ui.js` - VR panels (canvas text and buttons picked with a controller ray) and the animated controller icons
+- `js/controller.js` - the wireframe Touch controllers drawn at your hands, with glowing button highlights
 - `js/tutorial.js` - the step-by-step tutorial
 - `js/stats.js` - stats saved on the device (localStorage)
 - `js/models.js` - wireframe ship models (points joined by lines)
