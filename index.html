@@ -55,7 +55,7 @@
 <canvas id="hud" width="512" height="256"></canvas>
 <div id="message"><div class="t"></div><div class="s"></div></div>
 <div id="flash"></div>
-<div id="crosshint">mouse offset steers &middot; click shoots &middot; Shift boost &middot; +/- box size &middot; Tab settings &middot; R restart</div>
+<div id="crosshint">mouse steers &middot; click shoots &middot; Shift boost &middot; +/- box size &middot; Tab settings &middot; R restart</div>
 <button id="gear">&#9881; Settings (Tab)</button>
 <div id="settings" class="hidden">
   <h2>SETTINGS</h2>
@@ -67,14 +67,14 @@
     <h1>BATTLE ROOM</h1>
     <p>A miniature battle in a box in front of you. Fly the cyan ship, destroy the red waves. Fly out of one side of the box and you come back in the opposite side.</p>
     <table>
-      <tr><td>VR right hand</td><td><b>Relative steering (default)</b>: the controller is a flight stick in your hand - tilt left/right to turn, tilt up/down for nose up/down, relative to the ship. Neutral is captured at start; <b>hold grip</b> or <b>click the stick</b> to re-center &middot; Trigger shoot &middot; Stick forward boost &middot; A / stick back brake</td></tr>
-      <tr><td>VR left hand</td><td><b>Grip + drag</b> moves the box &middot; stick up/down resizes it &middot; stick click resets it &middot; <b>X+Y: settings</b> (steering mode, turn speed, box size) &middot; wrist shows score + radar</td></tr>
-      <tr><td>Desktop</td><td>Mouse offset from screen centre steers (relative) &middot; M cycles steering (relative / point / thumbstick: I/K + J/L) &middot; Left click / Space shoot &middot; Shift boost &middot; F brake &middot; +/- box size &middot; C reset box &middot; right-drag or arrow keys look &middot; Tab settings &middot; R restart</td></tr>
+      <tr><td>VR right hand</td><td><b>Mirror steering (default)</b>: the ship points where your right controller points. Hold the controller comfortably - its direction at game start = straight into the box. <b>Click the right stick</b> to re-center. No buttons needed while flying.</td></tr>
+      <tr><td>VR left hand</td><td><b>Trigger: shoot</b> (and start/restart) &middot; stick forward boost / back brake &middot; <b>grip + drag</b> moves the box &middot; grip + stick up/down resizes it &middot; stick click resets it &middot; <b>X+Y: settings</b> (steering mode, turn speed, box size) &middot; wrist shows score + radar</td></tr>
+      <tr><td>Desktop</td><td>The ship points where the mouse points &middot; M cycles steering (mirror / relative / point / thumbstick) &middot; Left click / Space shoot &middot; Shift boost &middot; F brake &middot; +/- box size &middot; C reset box &middot; right-drag or arrow keys look &middot; Tab settings &middot; R restart</td></tr>
     </table>
     <button id="startbtn">START (desktop)</button>
     <p style="font-size:12px;color:#5fa9bf">On a Quest: press ENTER VR at the bottom of the page.</p>
   </div>
 </div>
-<script type="module" src="js/main.js?v=5"></script>
+<script type="module" src="js/main.js?v=6"></script>
 </body>
 </html>

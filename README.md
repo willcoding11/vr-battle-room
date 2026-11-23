@@ -24,34 +24,41 @@ browser with mouse and keyboard.
 
 ### Quest (VR, seated)
 
+You don't need any right-hand buttons while flying: the right hand steers and the left hand does everything else.
+
 | Hand | Input | Action |
 |---|---|---|
-| Right | **Tilt the controller** (Relative steering, default) | The controller is a flight stick in your hand. Tilt or twist it left/right to turn, and tilt it up/down to raise or lower the nose, always **relative to the ship's own heading**. Your hand can stay comfortably in front of you whatever way the ship is flying. There is no response within 5° of neutral, and the turn rate reaches full at 35° |
-| Right | **Hold grip** | Re-center: while held, the ship flies straight and "neutral" follows your hand. Let go at a comfortable angle |
-| Right | **Click the thumbstick** | Re-center neutral instantly (it is also captured when a game starts) |
-| Right | **Trigger** | Shoot along the aim line out of the ship's nose (gentle aim assist) |
-| Right | **Stick forward** / **stick back** or **A** | Boost / brake |
-| Right | *(on the controller)* | A small gimbal: the ring is full deflection and the dot is your current tilt |
+| Right | **Point the controller** (Mirror steering, default) | The ship's nose points the same way as your controller, in 3D, with only a tiny (~65 ms) smoothing. The ship always flies forward. Only the controller's direction counts; wrist roll is ignored, apart from a small cosmetic bank |
+| Right | **Click the thumbstick** | Re-center: the controller's current direction becomes "straight into the box". This happens automatically when a game starts, so hold the controller comfortably then |
+| Left | **Trigger** | Shoot (gentle aim assist). Also starts and restarts the game |
+| Left | **Stick forward / back** | Boost / brake |
 | Left | **Grip + drag** | Move the box |
-| Left | **Stick up / down** | Grow / shrink the box |
+| Left | **Grip + stick up/down** | Grow / shrink the box |
 | Left | **Click the thumbstick** | Put the box back in its default spot |
-| Left | **X + Y together** | Settings (point with the right controller and pull the trigger to change; the game pauses) |
+| Left | **X + Y together** | Settings (point with the right controller and pull the right trigger to change; the game pauses) |
 | Left | **Look at your wrist** | Score, wave, hull and a top-down radar of the box |
+
+The right trigger also shoots, and A brakes, if you prefer.
+
+Other steering modes (in Settings):
+- **Relative (hand stick):** tilt the controller away from a captured neutral to turn the ship relative to its own heading. Hold the right grip or click the stick to re-center. A small gimbal on the controller shows your tilt.
+- **Point:** the ship flies the way you point, with a short laser and ring.
+- **Thumbstick:** the right stick flies the ship. B inverts up/down.
 
 ### Settings (saved on the device, as are the box position and size)
 
 | Setting | Options | Default |
 |---|---|---|
-| Steering | Relative (hand stick) / Point (fly the way you point) / Thumbstick (right stick flies, B inverts) | Relative |
-| Ship turn speed | Normal / Fast / Very fast | Fast |
+| Steering | Mirror / Relative / Point / Thumbstick | Mirror |
+| Ship turn speed (Relative, Point and Thumbstick modes) | Normal / Fast / Very fast | Fast |
 | Box size | Small 0.6 m / Medium 0.9 m / Large 1.2 m | Medium |
 
 ### Desktop (testing without a headset)
 
 | Input | Action |
 |---|---|
-| Mouse | Relative steering: how far the cursor is from the screen centre = how hard you turn |
-| M | Cycle steering: relative / point / thumbstick (I/K + J/L, V inverts) |
+| Mouse | Mirror steering: the ship points where the mouse points |
+| M | Cycle steering: mirror / relative (cursor offset from the centre) / point / thumbstick (I/K + J/L, V inverts) |
 | Left click / Space | Shoot |
 | Shift / F | Boost / brake |
 | + / - | Box size |
