@@ -2,8 +2,8 @@
 // with a mouse + keyboard fallback for desktop browsers.
 import * as THREE from '../vendor/three.module.js';
 import { VRButton } from '../vendor/VRButton.js';
-import { buildPlayerShip, buildFighter, buildCruiser, buildControllerGizmo, tintShip } from './models.js?v=8';
-import { Sfx } from './audio.js?v=8';
+import { buildPlayerShip, buildFighter, buildCruiser, buildControllerGizmo, tintShip } from './models.js?v=9';
+import { Sfx } from './audio.js?v=9';
 
 const TEST = /[?&]test/.test(location.search);
 const DEMO = /[?&]demo/.test(location.search);          // autopilot (attract mode / testing)
@@ -14,9 +14,13 @@ const log = (m) => { if (TEST && window.__log) window.__log(m); };
 const S = 0.5;                                    // world scale: everything is "zoomed out" to half size
 const HEAD_H = 1.2;                               // seated eye height (desktop)
 const ARENA_C = new THREE.Vector3(0, 0, 0);       // battle centre = centre of the box (game units)
-const BOX_B = 1.75;                               // battle box half-size, in game units (box = 3.5 units)
-const ARENA_RH = BOX_B * 0.9;                     // enemy roaming radius (game units)
-const ARENA_RV = BOX_B * 0.9;
+// Battle box half-size in game units. The box keeps its physical size in front of you, so a bigger
+// BOX_B = more room relative to the ships. Fighter: 2.8 (was 1.75). Squadron: zoomed out much further.
+const MODE_BOX = { fighter: 2.8, squadron: 5.0 };
+let BOX_B = MODE_BOX.fighter;
+let ARENA_RH = BOX_B * 0.9;                       // enemy roaming radius (game units)
+let ARENA_RV = BOX_B * 0.9;
+const FRIEND_COLOR = new THREE.Color(0x33ddff);
 const PLAYER_COLOR = new THREE.Color(0x33ddff);
 const ENEMY_COLOR = new THREE.Color(0xff3344);
 const WHITE = new THREE.Color(0xffffff);
@@ -28,14 +32,17 @@ const MAX_ELEV = 1.3;                             // max nose up/down angle (rad
 const FOLLOW_H = 0.3;                             // follow view height = distance * this
 
 // ---------------------------------------------------------------- settings (saved in localStorage)
+const GAIN_OPTS = [['1', '1x'], ['1.5', '1.5x'], ['2', '2x'], ['2.5', '2.5x'], ['3', '3x'], ['3.5', '3.5x']];
 const SETTINGS_DEF = [
+  { key: 'mode', label: 'Game mode', opts: [['fighter', 'Fighter'], ['squadron', 'Squadron']] },
   { key: 'steer', label: 'Steering', opts: [['mirror', 'Mirror (ship = controller)'], ['relative', 'Relative (hand stick)'], ['point', 'Point'], ['stick', 'Thumbstick']] },
-  { key: 'steerGain', label: 'Mirror gain', opts: [['1', '1x'], ['1.5', '1.5x'], ['2', '2x'], ['2.5', '2.5x'], ['3', '3x'], ['3.5', '3.5x']] },
+  { key: 'steerGain', label: 'Mirror gain (Fighter)', opts: GAIN_OPTS },
+  { key: 'steerGainSq', label: 'Mirror gain (Squadron)', opts: GAIN_OPTS },
   { key: 'turnSpeed', label: 'Ship turn speed', opts: [['normal', 'Normal'], ['fast', 'Fast'], ['veryfast', 'Very fast']] },
   { key: 'boxSize', label: 'Box size', opts: [['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']] },
 ];
-const SETTINGS_DEFAULT = { turnSpeed: 'fast', steer: 'mirror', boxSize: 'medium', steerGain: '2' };
-const BOX_SIZES = { small: 0.6, medium: 0.9, large: 1.2 };     // box width in metres
+const SETTINGS_DEFAULT = { mode: 'fighter', turnSpeed: 'fast', steer: 'mirror', boxSize: 'medium', steerGain: '2', steerGainSq: '3' };
+const BOX_SIZES = { small: 0.7, medium: 1.0, large: 1.3 };     // box width in metres
 const TURN_MULS = { normal: 2.0, fast: 2.6, veryfast: 3.4 };   // x the original turn rate
 const settings = { ...SETTINGS_DEFAULT };
 try {
@@ -89,19 +96,36 @@ function applyBoard() {
   box.size = clamp(box.size, 0.3, 2.0);
   board.position.set(box.x, box.y, box.z);
   board.scale.setScalar(box.size / (2 * BOX_B));
+  // Point sprites are sized in world units, so re-fit them to the new board scale.
+  board.traverse((o) => { if (o.userData.ptBase) o.userData.mats[1].size = o.userData.ptBase * S * board.scale.x; });
 }
 function saveBox() { try { localStorage.setItem('battleRoomBox5', JSON.stringify(box)); } catch (e) { /* ignore */ } }
 function resetBox() { Object.assign(box, BOX_DEFAULT, { size: BOX_SIZES[settings.boxSize] }); applyBoard(); saveBox(); }
-applyBoard();
+// Faint wireframe box edges + a floor grid inside the box as a "down" reference (unit box, scaled by BOX_B).
+const boxFrame = new THREE.Group();
 {
-  // Faint wireframe box edges + a floor grid inside the box as a "down" reference.
-  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(2 * BOX_B, 2 * BOX_B, 2 * BOX_B)),
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(2, 2, 2)),
     new THREE.LineBasicMaterial({ color: 0x2a86a8, transparent: true, opacity: 0.7 }));
-  const floor = new THREE.GridHelper(2 * BOX_B, 10, 0x15506a, 0x0d3344);
-  floor.position.y = -BOX_B;
+  const floor = new THREE.GridHelper(2, 10, 0x15506a, 0x0d3344);
+  floor.position.y = -1;
   floor.material.transparent = true;
   floor.material.opacity = 0.5;
-  board.add(edges, floor);
+  boxFrame.add(edges, floor);
+  board.add(boxFrame);
+}
+function setBoxB(b) {
+  BOX_B = b; ARENA_RH = BOX_B * 0.9; ARENA_RV = BOX_B * 0.9;
+  boxFrame.scale.setScalar(BOX_B);
+  applyBoard();
+}
+setBoxB(MODE_BOX[settings.mode] || MODE_BOX.fighter);
+// Shortest vector from a to b in the wrap-around box (each axis wraps).
+function wrapDelta(a, b, out) {
+  out.subVectors(b, a);
+  for (const k of ['x', 'y', 'z']) {
+    if (out[k] > BOX_B) out[k] -= 2 * BOX_B; else if (out[k] < -BOX_B) out[k] += 2 * BOX_B;
+  }
+  return out;
 }
 function outsideBox(p, m = 1) { return Math.abs(p.x) > BOX_B * m || Math.abs(p.y) > BOX_B * m || Math.abs(p.z) > BOX_B * m; }
 // Wrap-around: leave through one face, come back in through the opposite face.
@@ -139,7 +163,7 @@ const sfx = new Sfx();
 sfx.toWorld = (v) => board.localToWorld(v.clone());
 
 // ---------------------------------------------------------------- helpers
-function shrink(obj) { obj.scale.setScalar(S); obj.userData.mats[1].size *= S * board.scale.x; return obj; }
+function shrink(obj) { obj.scale.setScalar(S); obj.userData.ptBase = obj.userData.mats[1].size; obj.userData.mats[1].size *= S * board.scale.x; return obj; }
 function arenaNorm(p) {
   const x = (p.x - ARENA_C.x) / ARENA_RH, y = (p.y - ARENA_C.y) / ARENA_RV, z = (p.z - ARENA_C.z) / ARENA_RH;
   return Math.sqrt(x * x + y * y + z * z);
@@ -325,34 +349,213 @@ function resetPlayer() {
   player.obj.position.set(0, 0, BOX_B * 0.4);
   player.fwd.set(0, 0, -1);
   player.bank = 0; player.yawRate = 0; player.pitchRate = 0; player.speed = CRUISE; player.hp = MAX_HP; player.invuln = 1.5; player.flash = 0;
-  player.alive = true; player.obj.visible = true; trail.visible = true;
+  player.alive = true; player.obj.visible = true; trail.visible = settings.mode !== 'squadron';
   quatFromDir(player.fwd, player.obj.quaternion);
   player.mq.copy(player.obj.quaternion);
   resetTrail();
 }
 
-// ---------------------------------------------------------------- enemies
-const enemies = [];
-function spawnEnemy(type, wave) {
-  const cruiser = type === 'cruiser';
-  const obj = shrink(cruiser ? buildCruiser(ENEMY_COLOR.getHex()) : buildFighter(ENEMY_COLOR.getHex()));
-  let pos;
-  for (let tries = 0; tries < 20; tries++) {
-    // Enter through a random face of the box.
-    pos = new THREE.Vector3(rand(-0.9, 0.9), rand(-0.9, 0.9), rand(-0.9, 0.9)).multiplyScalar(BOX_B);
-    const ax = ['x', 'y', 'z'][Math.floor(Math.random() * 3)];
-    pos[ax] = (Math.random() < 0.5 ? -1 : 1) * BOX_B * 0.98;
-    if (pos.distanceTo(player.obj.position) > 1.4) break;
+// ---------------------------------------------------------------- game mode
+// 'fighter'  = you fly one ship.
+// 'squadron' = you command 4 bot fighters (the right controller sets their heading), in a bigger,
+//              zoomed-out battlefield with Ender's Game "stars" (big fixed obstacles) to use as cover.
+let gameMode = settings.mode;
+
+// ---------------------------------------------------------------- "stars": big fixed obstacles (Squadron)
+// Ships can't pass through them and bullets are blocked, so both sides use them as cover.
+const obstacles = [];
+const obstacleGroup = new THREE.Group();
+board.add(obstacleGroup);
+{
+  const layout = [
+    ['cube', -2.2, 0.8, -1.5, 0.6], ['sphere', 2.4, -1.0, -2.2, 0.7], ['cube', 0.2, 2.0, 0.6, 0.5],
+    ['sphere', -1.6, -1.9, 1.3, 0.6], ['cube', 2.1, 1.4, 2.0, 0.55], ['cube', 1.2, -0.9, -3.4, 0.6],
+    ['sphere', -3.1, 2.2, 2.6, 0.5], ['cube', -3.0, -1.2, -3.2, 0.5],
+  ];
+  const mat = new THREE.LineBasicMaterial({ color: 0x9fb8dd, transparent: true, opacity: 0.6 });
+  const matIn = new THREE.LineBasicMaterial({ color: 0x5a7090, transparent: true, opacity: 0.45 });
+  for (const [type, x, y, z, r] of layout) {
+    const g = new THREE.Group();
+    if (type === 'cube') {
+      g.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(2 * r, 2 * r, 2 * r)), mat));
+      g.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.2 * r, 1.2 * r, 1.2 * r)), matIn));
+    } else {
+      g.add(new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(r, 1)), mat));
+    }
+    g.position.set(x, y, z);
+    obstacleGroup.add(g);
+    obstacles.push({ type, c: new THREE.Vector3(x, y, z), r, R: type === 'cube' ? r * Math.sqrt(3) : r });
   }
+  obstacleGroup.visible = false;
+}
+const _ob = new THREE.Vector3(), _ob2 = new THREE.Vector3(), _ob3 = new THREE.Vector3();
+function inObst(o, p, pad = 0) {
+  if (o.type === 'cube') return Math.abs(p.x - o.c.x) < o.r + pad && Math.abs(p.y - o.c.y) < o.r + pad && Math.abs(p.z - o.c.z) < o.r + pad;
+  return p.distanceTo(o.c) < o.r + pad;
+}
+function obstInside(p, pad = 0) {
+  if (gameMode !== 'squadron') return null;
+  for (const o of obstacles) if (inObst(o, p, pad)) return o;
+  return null;
+}
+// Push a ship (radius rad) out of any obstacle it has run into.
+function obstPushOut(p, rad) {
+  if (gameMode !== 'squadron') return false;
+  let hit = false;
+  for (const o of obstacles) {
+    if (o.type === 'cube') {
+      _ob.set(clamp(p.x, o.c.x - o.r, o.c.x + o.r), clamp(p.y, o.c.y - o.r, o.c.y + o.r), clamp(p.z, o.c.z - o.r, o.c.z + o.r));
+      _ob2.subVectors(p, _ob);
+      const d = _ob2.length();
+      if (d >= rad) continue;
+      hit = true;
+      if (d > 1e-6) p.copy(_ob).addScaledVector(_ob2, rad / d);
+      else {
+        // Centre inside the cube: leave through the nearest face.
+        _ob2.subVectors(p, o.c);
+        let ax = 'x';
+        for (const k of ['y', 'z']) if (Math.abs(_ob2[k]) > Math.abs(_ob2[ax])) ax = k;
+        p[ax] = o.c[ax] + (_ob2[ax] >= 0 ? 1 : -1) * (o.r + rad);
+      }
+    } else {
+      _ob2.subVectors(p, o.c);
+      const d = _ob2.length();
+      if (d >= o.r + rad) continue;
+      hit = true;
+      if (d < 1e-6) _ob2.set(0, 1, 0); else _ob2.divideScalar(d);
+      p.copy(o.c).addScaledVector(_ob2, o.r + rad);
+    }
+  }
+  return hit;
+}
+// Is the straight line a -> b blocked by an obstacle?
+function obstBlocks(a, b) {
+  if (gameMode !== 'squadron') return false;
+  for (const o of obstacles) {
+    if (segPointDist(a, b, o.c) > o.R) continue;
+    const n = Math.max(2, Math.ceil(a.distanceTo(b) / 0.1));
+    for (let i = 0; i <= n; i++) if (inObst(o, _ob3.lerpVectors(a, b, i / n))) return true;
+  }
+  return false;
+}
+// Steer around obstacles ahead (adds a push to `desired`).
+function obstAvoid(p, fwd, speed, desired) {
+  if (gameMode !== 'squadron') return;
+  const look = 0.8 * S + speed * 1.2;
+  for (const o of obstacles) {
+    _ob.subVectors(o.c, p);
+    const dist = _ob.length();
+    const clear = o.R + 0.3 * S;
+    if (dist < clear) desired.addScaledVector(_ob, -1.5 / Math.max(dist, 1e-3));
+    const along = _ob.dot(fwd);
+    if (along <= 0 || along > look + o.R) continue;
+    _ob2.copy(p).addScaledVector(fwd, along).sub(o.c);         // closest-approach offset from the centre
+    let lat = _ob2.length();
+    if (lat >= clear) continue;
+    if (lat < 1e-3) { _ob2.crossVectors(fwd, UP); if (_ob2.lengthSq() < 1e-6) _ob2.set(1, 0, 0); lat = _ob2.length(); }
+    desired.addScaledVector(_ob2, (3 * (clear - lat) / clear) * (1 - along / (look + o.R)) / lat);
+  }
+}
+// A spot hidden behind the obstacle nearest `near`, as seen from `threat`.
+function coverPoint(threat, near, out) {
+  if (gameMode !== 'squadron') return null;
+  let best = null, bd = Infinity;
+  for (const o of obstacles) { const d = o.c.distanceTo(near); if (d < bd) { bd = d; best = o; } }
+  if (!best) return null;
+  _ob.subVectors(best.c, threat);
+  if (_ob.lengthSq() < 1e-6) _ob.set(0, 0, -1);
+  out.copy(best.c).addScaledVector(_ob.normalize(), best.R + 0.35 * S);
+  return clampIn(out);
+}
+function clampIn(p, m = 0.88) {
+  p.x = clamp(p.x, -BOX_B * m, BOX_B * m); p.y = clamp(p.y, -BOX_B * m, BOX_B * m); p.z = clamp(p.z, -BOX_B * m, BOX_B * m);
+  return p;
+}
+function sideOf(fwd, out) {
+  out.crossVectors(fwd, UP);
+  if (out.lengthSq() < 1e-4) out.set(1, 0, 0);
+  return out.normalize();
+}
+function nearestTo(p, list) {
+  let best = null, bd = Infinity;
+  for (const t of list) { const d = t.obj.position.distanceTo(p); if (d < bd) { bd = d; best = t; } }
+  return best;
+}
+// Where to aim so a bullet at `speed` meets target t (simple two-step lead).
+function leadPoint(from, t, speed, out) {
+  const tp = t.obj.position, sp = t.speed || 0;
+  let time = from.distanceTo(tp) / speed;
+  for (let k = 0; k < 2; k++) {
+    out.copy(tp).addScaledVector(t.fwd, sp * time);
+    time = from.distanceTo(out) / speed;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- enemies
+// Every enemy belongs to a GROUP that shares a target and a timed plan, and has a ROLE:
+//   pincer - a pair that swings out to opposite sides of the target, then attacks together
+//   flank  - circles round to come at the target from the side / behind, attacks, swings out again
+//   sniper - holds long range (Squadron: hides behind a star, steps out to shoot), accurate lead shots
+//   heavy  - slow cruiser that holds medium range and fires 3-shot spreads
+//   bait   - (Squadron) flies in close to draw fire, then runs back to its hidden ambush group
+//   ambush - (Squadron) waits behind a star until the squadron comes near or the bait gets home
+// Everyone leads their shots and pulls back for a moment when damaged. In Squadron the attack
+// groups focus fire on the most exposed bot, and enemies fall back to cover when outnumbered.
+const enemies = [];
+const groups = [];
+const ROLE_STATS = {
+  pincer: { hp: 2, speed: 1.2, turn: 1.9, fire: 2.2, range: 4.0, acc: 0.2 },
+  flank: { hp: 2, speed: 1.3, turn: 2.0, fire: 2.0, range: 4.0, acc: 0.2 },
+  sniper: { hp: 2, speed: 0.95, turn: 1.8, fire: 2.6, range: 7.0, acc: 0.06 },
+  heavy: { hp: 5, speed: 0.7, turn: 0.9, fire: 3.0, range: 5.5, acc: 0.15 },
+  bait: { hp: 2, speed: 1.4, turn: 2.2, fire: 2.6, range: 3.5, acc: 0.3 },
+  ambush: { hp: 2, speed: 1.3, turn: 2.0, fire: 1.8, range: 4.0, acc: 0.15 },
+};
+function liveTargets() {
+  if (gameMode === 'squadron') return bots.filter((b) => b.alive);
+  return player.alive ? [player] : [];
+}
+function spawnGroup(role, n, wave) {
+  const g = { role, members: [], t: rand(0, 1.5), focus: null, focusT: 0, ambushPt: null, sprung: false, lureDone: false };
+  // The group enters together through one face, well away from you.
+  const ref = player.obj.position;
+  let best = null, bestD = -1;
+  for (let k = 0; k < 8; k++) {
+    const p = new THREE.Vector3(rand(-0.7, 0.7), rand(-0.7, 0.7), rand(-0.7, 0.7)).multiplyScalar(BOX_B);
+    const ax = ['x', 'y', 'z'][k % 3];
+    p[ax] = (Math.random() < 0.5 ? -1 : 1) * BOX_B * 0.95;
+    if (obstInside(p, 0.4 * S)) continue;
+    const d = p.distanceTo(ref) + rand(0, BOX_B * 0.6);
+    if (d > bestD) { bestD = d; best = p; }
+  }
+  if (!best) best = new THREE.Vector3(0, 0, -BOX_B * 0.95);
+  if (role === 'bait') g.ambushPt = coverPoint(ref, best, new THREE.Vector3()) || best.clone().multiplyScalar(0.8);
+  for (let i = 0; i < n; i++) {
+    const pos = best.clone().add(_v1.randomDirection().multiplyScalar(0.4 * S));
+    clampIn(pos, 0.98);
+    obstPushOut(pos, 0.3 * S);
+    const e = spawnEnemy(role === 'bait' && i > 0 ? 'ambush' : role, wave, pos, g);
+    e.side = i % 2 ? 1 : -1;
+    g.members.push(e);
+  }
+  groups.push(g);
+  return g;
+}
+function spawnEnemy(role, wave, pos, group) {
+  const heavy = role === 'heavy';
+  const st = ROLE_STATS[role];
+  const obj = shrink(heavy ? buildCruiser(ENEMY_COLOR.getHex()) : buildFighter(ENEMY_COLOR.getHex()));
   obj.position.copy(pos);
   const e = {
-    type, obj, hp: cruiser ? 4 : 1, radius: (cruiser ? 0.34 : 0.2) * S,
+    type: heavy ? 'cruiser' : 'fighter', role, group, obj, hp: st.hp, maxHp: st.hp, radius: (heavy ? 0.34 : 0.2) * S,
     fwd: _v1.copy(ARENA_C).sub(pos).normalize().clone(), bank: 0,
-    turn: cruiser ? 0.9 : 1.7 + wave * 0.08,
-    speed: (cruiser ? 0.7 : 1.15) * S * (1 + wave * 0.06),
-    fireInterval: Math.max(cruiser ? 1.6 : 0.9, (cruiser ? 3.2 : 2.6) - wave * 0.15),
-    fireCd: rand(1.5, 3.5), retarget: 0, waypoint: new THREE.Vector3(), flash: 0,
-    points: cruiser ? 300 : 100, spawnFade: 0,
+    turn: st.turn + wave * 0.06, speed: st.speed * S * (1 + wave * 0.05),
+    fireInterval: Math.max(st.fire * 0.45, st.fire - wave * 0.12), range: st.range * S,
+    acc: st.acc * S * Math.max(0.4, 1 - wave * 0.06),
+    fireCd: rand(1.5, 3.0), flash: 0, points: heavy ? 300 : role === 'sniper' ? 150 : 100, spawnFade: 0,
+    retreatT: 0, retreatCd: 0, outnumT: rand(0, 0.5), breakT: 0, side: 1, target: null, mode: 'move',
+    goal: randomArenaPoint(0.6),
   };
   quatFromDir(e.fwd, obj.quaternion);
   tintShip(obj, _c.setRGB(0, 0, 0)); // fades in
@@ -360,63 +563,177 @@ function spawnEnemy(type, wave) {
   enemies.push(e);
   return e;
 }
-function pickWaypoint(e) {
-  if (player.alive && Math.random() < 0.65) {
-    // Attack run: aim for a point near the player's ship.
-    e.waypoint.copy(player.obj.position).add(_v1.randomDirection().multiplyScalar(rand(0.8, 2.5) * S));
-  } else {
-    e.waypoint.copy(randomArenaPoint(0.85));
-  }
-  e.retarget = rand(2, 4.5);
+function centroid(list, out) {
+  out.set(0, 0, 0);
+  for (const e of list) out.add(e.obj.position);
+  return list.length ? out.divideScalar(list.length) : out;
 }
+function updateGroups(dt, tg) {
+  // Squadron: the most exposed bot (furthest from its wingmen, then weakest) is the shared focus target.
+  let exposed = tg[0] || null;
+  if (gameMode === 'squadron' && tg.length > 1) {
+    let bestS = -Infinity;
+    for (const b of tg) {
+      let near = Infinity;
+      for (const o of tg) if (o !== b) near = Math.min(near, b.obj.position.distanceTo(o.obj.position));
+      const s = near - b.hp * 0.3 * S;
+      if (s > bestS) { bestS = s; exposed = b; }
+    }
+  }
+  for (let i = groups.length - 1; i >= 0; i--) {
+    const g = groups[i];
+    g.members = g.members.filter((e) => e.hp > 0);
+    if (!g.members.length) { groups.splice(i, 1); continue; }
+    g.t += dt;
+    g.focusT -= dt;
+    if (g.focusT <= 0 || !g.focus || !g.focus.alive) {
+      g.focusT = 3;
+      if (g.role === 'sniper' || g.role === 'heavy' || g.role === 'bait') g.focus = nearestTo(centroid(g.members, _v3), tg);
+      else g.focus = exposed;                       // focus fire
+    }
+    if (g.role === 'bait' && !g.sprung) {
+      const bait = g.members.find((e) => e.role === 'bait');
+      let near = false;
+      for (const b of tg) if (b.obj.position.distanceTo(g.ambushPt) < 2.8 * S) near = true;
+      if (near || !bait || g.t > 25 || (g.lureDone && bait.obj.position.distanceTo(g.ambushPt) < 0.8 * S)) g.sprung = true;
+    }
+  }
+}
+const _eg = new THREE.Vector3(), _es = new THREE.Vector3(), _ed = new THREE.Vector3(), _ea = new THREE.Vector3();
 function updateEnemies(dt) {
+  const sq = gameMode === 'squadron';
+  const tg = liveTargets();
+  updateGroups(dt, tg);
   for (const e of enemies) {
-    e.retarget -= dt;
-    if (e.retarget <= 0 || e.obj.position.distanceTo(e.waypoint) < 0.6 * S) pickWaypoint(e);
-    const desired = _v2.subVectors(e.waypoint, e.obj.position).normalize();
+    const g = e.group, p = e.obj.position, goal = e.goal;
+    const T = g.focus && g.focus.alive ? g.focus : nearestTo(p, tg);
+    e.target = T;
+    e.retreatT -= dt; e.retreatCd -= dt; e.breakT -= dt;
+    // Squadron: fall back to cover when locally outnumbered.
+    if (sq && (e.outnumT -= dt) <= 0) {
+      e.outnumT = 0.5;
+      let nb = 0, na = 0;
+      for (const b of tg) if (b.obj.position.distanceTo(p) < 2.4 * S) nb++;
+      for (const o of enemies) if (o.obj.position.distanceTo(p) < 2.4 * S) na++;
+      if (nb >= na + 2 && e.retreatT <= 0 && e.retreatCd <= 0) { e.retreatT = 2.5; e.retreatCd = 5; }
+    }
+    let mode = 'move';                               // move | attack | aim
+    if (!T) {
+      if (p.distanceTo(goal) < 0.5 * S) goal.copy(randomArenaPoint(0.7));
+    } else if (e.retreatT > 0) {
+      // Retreat: behind the nearest star (Squadron), or straight away from the threat.
+      if (!coverPoint(T.obj.position, p, goal)) {
+        goal.copy(p).addScaledVector(_es.subVectors(p, T.obj.position).normalize(), 2.5 * S);
+        clampIn(goal);
+      }
+    } else {
+      const Tp = T.obj.position, Tf = T.fwd;
+      const dist = p.distanceTo(Tp);
+      switch (e.role) {
+        case 'pincer': {
+          // Swing wide to opposite sides of the target, then both attack at once.
+          if (g.t % 7 < 4) {
+            sideOf(Tf, _es);
+            goal.copy(Tp).addScaledVector(_es, e.side * 2.0 * S).addScaledVector(Tf, 0.8 * S);
+            clampIn(goal);
+          } else mode = 'attack';
+          break;
+        }
+        case 'flank': {
+          // Circle round to the side / rear, then attack; members are staggered.
+          if ((g.t + (e.side > 0 ? 0 : 1.2)) % 7.5 < 4.5 && dist > 0.9 * S) {
+            sideOf(Tf, _es);
+            goal.copy(Tp).addScaledVector(Tf, -1.6 * S).addScaledVector(_es, e.side * 1.3 * S);
+            clampIn(goal);
+          } else mode = 'attack';
+          break;
+        }
+        case 'sniper':
+        case 'heavy': {
+          const peek = Math.floor((g.t + (e.side > 0 ? 0 : 1.5)) / 3) % 2 === 1;
+          if (e.role === 'sniper' && coverPoint(Tp, p, goal)) {
+            // Behind cover; every few seconds step out to the side to take a shot.
+            if (peek) { _ed.subVectors(goal, Tp).normalize(); sideOf(_ed, _es); goal.addScaledVector(_es, e.side * 0.7 * S); }
+          } else {
+            // Hold range, drifting round the target.
+            const hold = (e.role === 'sniper' ? 4.2 : 3.0) * S;
+            _ed.subVectors(p, Tp);
+            if (_ed.lengthSq() < 1e-6) _ed.set(0, 0, 1);
+            _ed.normalize();
+            sideOf(_ed, _es);
+            goal.copy(Tp).addScaledVector(_ed, hold).addScaledVector(_es, e.side * 1.0 * S);
+            clampIn(goal);
+          }
+          if (p.distanceTo(goal) < 0.6 * S) mode = 'aim';
+          break;
+        }
+        case 'bait': {
+          if (g.sprung) mode = 'attack';
+          else if (!g.lureDone) { if (dist > 2.0 * S) mode = 'attack'; else g.lureDone = true; }
+          else goal.copy(g.ambushPt);                // run home, drawing them toward the ambush
+          break;
+        }
+        case 'ambush': {
+          if (g.sprung) mode = 'attack';
+          else { goal.copy(g.ambushPt); if (p.distanceTo(goal) < 0.6 * S) mode = 'aim'; }
+          break;
+        }
+      }
+    }
+    const bulletSpeed = (e.role === 'sniper' ? 4.4 : 3.0 + wave * 0.12) * S;
+    const desired = _v2;
+    if (mode !== 'move' && T) {
+      leadPoint(p, T, bulletSpeed, _ea);
+      desired.subVectors(_ea, p).normalize();
+      if (mode === 'attack' && p.distanceTo(T.obj.position) < 0.8 * S) e.breakT = 1.0;
+      if (e.breakT > 0) { sideOf(e.fwd, _es); desired.copy(e.fwd).addScaledVector(_es, e.side * 1.5).normalize(); }
+    } else {
+      desired.subVectors(goal, p);
+      if (desired.lengthSq() < 1e-6) desired.copy(e.fwd);
+      desired.normalize();
+    }
     // Keep a little space from other enemies.
     for (const o of enemies) {
       if (o === e) continue;
-      const d = e.obj.position.distanceTo(o.obj.position);
-      if (d < 0.6 * S && d > 1e-4) desired.addScaledVector(_v1.subVectors(e.obj.position, o.obj.position).normalize(), (0.6 * S - d) * 4);
+      const d = p.distanceTo(o.obj.position);
+      if (d < 0.6 * S && d > 1e-4) desired.addScaledVector(_v1.subVectors(p, o.obj.position).normalize(), (0.6 * S - d) * 4);
     }
+    obstAvoid(p, e.fwd, e.speed, desired);
     desired.normalize();
     steer(e, desired.clone(), dt);
-    e.obj.position.addScaledVector(e.fwd, e.speed * dt);
-    wrapBox(e.obj.position);
+    const spd = e.speed * (mode === 'aim' ? 0.35 : 1) * (e.retreatT > 0 ? 1.25 : 1);
+    p.addScaledVector(e.fwd, spd * dt);
+    wrapBox(p);
+    obstPushOut(p, e.radius);
+    e.mode = mode;
 
     // Fade in on spawn, flash white when hit.
     e.spawnFade = Math.min(1, e.spawnFade + dt * 1.5);
     if (e.flash > 0) { e.flash -= dt; tintShip(e.obj, WHITE); }
     else tintShip(e.obj, _c.copy(ENEMY_COLOR).multiplyScalar(e.spawnFade));
 
-    // Fire at the player when roughly facing them.
+    // Fire (with lead) when the target is in range, roughly ahead, and not behind a star.
     e.fireCd -= dt;
-    if (player.alive && state === 'playing' && e.fireCd <= 0 && e.spawnFade >= 1) {
-      const to = _v1.subVectors(player.obj.position, e.obj.position);
+    if (T && state === 'playing' && e.fireCd <= 0 && e.spawnFade >= 1 && e.retreatT <= 0) {
+      leadPoint(p, T, bulletSpeed, _ea).add(_v3.randomDirection().multiplyScalar(e.acc));
+      const to = _es.subVectors(_ea, p);
       const dist = to.length();
-      if (dist < 5.5 * S && e.fwd.angleTo(to) < 0.6) {
-        const bulletSpeed = (3.0 + wave * 0.12) * S;
-        const t = dist / bulletSpeed;
-        const aim = _v2.copy(player.obj.position).addScaledVector(player.fwd, player.speed * t * 0.7)
-          .add(_v3.randomDirection().multiplyScalar(0.25 * S)).sub(e.obj.position).normalize();
+      if (dist < e.range && e.fwd.angleTo(to) < (e.role === 'sniper' ? 0.35 : 0.6) && !obstBlocks(p, T.obj.position)) {
+        to.normalize();
         const shots = e.type === 'cruiser' ? [-0.12, 0, 0.12] : [0];
         for (const s of shots) {
-          const d = aim.clone();
+          const d = to.clone();
           if (s) d.applyAxisAngle(UP, s);
-          enemyBullets.spawn(_v3.copy(e.obj.position).addScaledVector(e.fwd, e.radius), d.multiplyScalar(bulletSpeed), 4);
+          enemyBullets.spawn(_v3.copy(p).addScaledVector(e.fwd, e.radius), d.multiplyScalar(bulletSpeed), 4);
         }
-        sfx.enemyLaser(e.obj.position);
+        sfx.enemyLaser(p);
         e.fireCd = e.fireInterval * rand(0.8, 1.3);
-      } else {
-        e.fireCd = 0.2;
-      }
+      } else e.fireCd = 0.2;
     }
 
-    // Ramming the player hurts both.
-    if (player.alive && e.obj.position.distanceTo(player.obj.position) < e.radius + 0.1 * S) {
-      damagePlayer();
-      damageEnemy(e, 2);
+    // Ramming hurts both.
+    for (const t of tg) {
+      if (t.alive && p.distanceTo(t.obj.position) < e.radius + 0.1 * S) { damageTarget(t); damageEnemy(e, 2); }
     }
   }
   for (let i = enemies.length - 1; i >= 0; i--) {
@@ -434,9 +751,194 @@ function damageEnemy(e, amount) {
     kills++;
     haptic('right', 0.6, 60);
   } else {
+    // Damaged: pull back for a moment before coming in again.
+    if (e.retreatCd <= 0) { e.retreatT = 2.0; e.retreatCd = 4; }
     sfx.ping(e.obj.position);
-    haptic('right', 0.3, 25);
+    if (gameMode !== 'squadron') haptic('right', 0.3, 25);
   }
+}
+function damageTarget(t) { if (t === player) damagePlayer(); else damageBot(t); }
+
+// ---------------------------------------------------------------- Squadron: 4 friendly bot fighters
+// You don't fly them: the (invisible) player ship is the squadron's COMMAND point. Its heading is
+// what the right controller sets, and the bots fly their own ships around it.
+const BOT_N = 4, BOT_HP = 3, BOT_SPACING = 0.6 * S, LEASH = 2.2 * S, BOT_RANGE = 4.5 * S;
+const bots = [];
+for (let i = 0; i < BOT_N; i++) {
+  const obj = shrink(buildPlayerShip(FRIEND_COLOR.getHex()));
+  obj.visible = false;
+  board.add(obj);
+  bots.push({ i, obj, fwd: new THREE.Vector3(0, 0, -1), bank: 0, turn: 3.4, speed: CRUISE, hp: BOT_HP, alive: false, flash: 0, invuln: 0, fireCd: rand(0, 0.3), target: null, side: i % 2 ? 1 : -1 });
+}
+const _bR = new THREE.Vector3(), _bS = new THREE.Vector3(), _bD = new THREE.Vector3(), _bT = new THREE.Vector3(), _bQ = new THREE.Quaternion();
+function cmdRight(out) {
+  // Formation "right" from the command orientation (quaternion in Mirror mode, so it never flips).
+  if (activeSteer() === 'mirror') return out.set(1, 0, 0).applyQuaternion(player.mq);
+  return out.set(1, 0, 0).applyQuaternion(quatFromDir(player.fwd, _bQ));
+}
+function placeBot(b, k, m) {
+  cmdRight(_bR);
+  b.obj.position.copy(player.obj.position).addScaledVector(_bR, (k - (m - 1) / 2) * BOT_SPACING);
+  b.fwd.copy(player.fwd);
+  quatFromDir(b.fwd, b.obj.quaternion);
+  wrapBox(b.obj.position);
+}
+function resetBots() {
+  bots.forEach((b, k) => {
+    b.alive = gameMode === 'squadron'; b.hp = BOT_HP; b.flash = 0; b.invuln = 0; b.speed = CRUISE; b.bank = 0;
+    b.obj.visible = b.alive;
+    placeBot(b, k, BOT_N);
+  });
+}
+function reviveBot() {
+  const b = bots.find((x) => !x.alive);
+  if (!b) return false;
+  b.alive = true; b.hp = BOT_HP; b.invuln = 1.5; b.obj.visible = true; b.speed = CRUISE;
+  placeBot(b, 0, 1);
+  b.obj.position.addScaledVector(player.fwd, -0.6 * S);
+  blink(b.obj.position, FRIEND_COLOR);
+  return true;
+}
+function friendsInLine(b, aim) {
+  for (const o of bots) {
+    if (o === b || !o.alive) continue;
+    if (segPointDist(b.obj.position, aim, o.obj.position) < 0.25 * S) return true;
+  }
+  return false;
+}
+let squadEngaged = false;
+function updateBots(dt) {
+  const engaged = squadEngaged = input.fire && state === 'playing';
+  const anchor = player.obj.position, cmd = player.fwd;
+  cmdRight(_bR);
+  const alive = bots.filter((b) => b.alive);
+  const m = alive.length;
+  alive.forEach((b, k) => {
+    const p = b.obj.position;
+    const desired = _bD.set(0, 0, 0);
+    let spdT, homing = false;
+    b.target = null;
+    if (engaged) {
+      // ENGAGE: each bot takes the nearest enemy within reach of the group...
+      let best = null, bd = Infinity;
+      for (const e of enemies) {
+        if (e.hp <= 0 || e.spawnFade < 0.5) continue;
+        const d = e.obj.position.distanceTo(p);
+        if (e.obj.position.distanceTo(anchor) < LEASH + BOT_RANGE && d < bd) { bd = d; best = e; }
+      }
+      b.target = best;
+      if (best) {
+        leadPoint(p, best, 7 * S, _bT);
+        desired.subVectors(_bT, p).normalize();
+        if (bd < 0.7 * S) { sideOf(b.fwd, _bS); desired.addScaledVector(_bS, b.side * 1.5); }   // don't ram it
+      } else desired.copy(cmd);
+      // ...but stays on a leash around the group centre.
+      wrapDelta(p, anchor, _bS);
+      const off = _bS.length();
+      spdT = CRUISE * 1.25;
+      if (off > LEASH * 0.7) { desired.copy(_bS).normalize(); spdT = CRUISE * 0.9; homing = true; }   // at the leash: tight turn straight back
+      else if (off > LEASH * 0.4) desired.addScaledVector(_bS, (((off - LEASH * 0.4) / LEASH) * 4) / off);
+    } else {
+      // FORMATION: line abreast across the commanded heading, catching up / easing off to hold the slot.
+      _bT.copy(anchor).addScaledVector(_bR, (k - (m - 1) / 2) * BOT_SPACING);
+      wrapDelta(p, _bT, _bS);
+      const along = _bS.dot(cmd);
+      // Close the sideways gap by steering, the front/back gap mostly by speed (never turn back).
+      desired.copy(_bS).addScaledVector(cmd, -along + Math.max(0.8 * S, along + 0.8 * S)).normalize();
+      spdT = clamp(player.speed + along * 2.5, 0.3 * CRUISE, BOOST * 1.3);
+    }
+    // Separation: never run into a wingman.
+    for (const o of alive) {
+      if (o === b) continue;
+      wrapDelta(o.obj.position, p, _bS);
+      const d = _bS.length();
+      if (d < 0.55 * S && d > 1e-4) desired.addScaledVector(_bS, (((0.55 * S - d) / (0.55 * S)) * 3) / d);
+    }
+    // Dodge incoming enemy bullets: side-step away from each bullet's path.
+    for (const eb of enemyBullets.list) {
+      _bS.subVectors(p, eb.pos);
+      const tca = _bS.dot(eb.vel) / Math.max(eb.vel.lengthSq(), 1e-6);
+      if (tca < 0 || tca > 0.8) continue;
+      _bS.addScaledVector(eb.vel, -tca);
+      const miss = _bS.length();
+      if (miss > 0.35 * S) continue;
+      if (miss < 1e-4) sideOf(_v1.copy(eb.vel).normalize(), _bS);
+      desired.addScaledVector(_bS.normalize(), 1.6 * (1 - miss / (0.35 * S)));
+    }
+    if (homing) {
+      // The leash wins over dodging / spacing nudges (only stars can still push the path aside).
+      wrapDelta(p, anchor, _bS);
+      desired.multiplyScalar(0.25).addScaledVector(_bS.normalize(), 3);
+    }
+    obstAvoid(p, b.fwd, b.speed, desired);
+    if (desired.lengthSq() < 1e-6) desired.copy(b.fwd);
+    desired.normalize();
+    b.turn = engaged ? 4.6 : 3.4;                 // dogfighting = tighter turns
+    steer(b, desired.clone(), dt);
+    b.speed += (spdT - b.speed) * Math.min(1, dt * (b.speed > spdT ? 4 : 2.5));
+    p.addScaledVector(b.fwd, b.speed * dt);
+    wrapBox(p);
+    obstPushOut(p, 0.12 * S);
+    // Shoot only with a clear line: never through a wingman or a star.
+    b.fireCd -= dt;
+    if (engaged && b.target && b.fireCd <= 0) {
+      _bS.subVectors(_bT, p);
+      if (_bS.length() < BOT_RANGE && b.fwd.angleTo(_bS) < 0.22 && !friendsInLine(b, _bT) && !obstBlocks(p, b.target.obj.position)) {
+        playerBullets.spawn(_v3.copy(p).addScaledVector(b.fwd, 0.2 * S), _v1.copy(_bS).normalize().multiplyScalar(7 * S), 1.2);
+        if (Math.random() < 0.5) sfx.laser(p);
+        b.fireCd = 0.3;
+      } else b.fireCd = 0.05;
+    }
+    b.invuln = Math.max(0, b.invuln - dt);
+    b.flash = Math.max(0, b.flash - dt);
+    if (b.flash > 0) tintShip(b.obj, WHITE);
+    else tintShip(b.obj, _c.copy(FRIEND_COLOR).multiplyScalar(b.invuln > 0 && Math.floor(b.invuln * 12) % 2 ? 0.35 : 1));
+  });
+  // Hard minimum gap, in case steering alone wasn't enough.
+  for (let i = 0; i < m; i++) for (let j = i + 1; j < m; j++) {
+    const a = alive[i].obj.position, c = alive[j].obj.position;
+    wrapDelta(c, a, _bS);
+    const d = _bS.length(), min = 0.22 * S;
+    if (d < min && d > 1e-5) { _bS.multiplyScalar((min - d) / (2 * d)); a.add(_bS); c.sub(_bS); }
+  }
+}
+function damageBot(b) {
+  if (!b.alive || b.invuln > 0 || state !== 'playing') return;
+  b.hp--;
+  b.invuln = 0.6;
+  b.flash = 0.2;
+  sfx.ping(b.obj.position);
+  haptic('left', 0.4, 40);
+  if (b.hp > 0) return;
+  b.alive = false;
+  b.obj.visible = false;
+  explode(b.obj, FRIEND_COLOR, _v1.copy(b.fwd).multiplyScalar(b.speed), true);
+  sfx.boom(b.obj.position, true);
+  haptic('right', 1.0, 160);
+  screenFlash = 0.25;
+  const left = bots.filter((x) => x.alive).length;
+  if (left > 0) { showMessage('WINGMAN DOWN', `${left} ship${left > 1 ? 's' : ''} left`, 1.6); return; }
+  player.alive = false;
+  player.obj.visible = false;
+  sfx.chime(false);
+  state = 'gameover';
+  stateTimer = 0;
+  best = Math.max(best, score);
+  try { localStorage.setItem('battleRoomBest', String(best)); } catch (e) { /* ignore */ }
+  showMessage('SQUADRON LOST', `Score ${score}   Wave ${wave}   Best ${best}\n${restartHint()}`, 9999);
+}
+
+// ---------------------------------------------------------------- mode switching
+function applyMode() {
+  gameMode = settings.mode;
+  const sq = gameMode === 'squadron';
+  setBoxB(MODE_BOX[gameMode]);
+  obstacleGroup.visible = sq;
+  // In Squadron the player "ship" is just the command point: hide the hull, keep the aim line.
+  player.obj.userData.lines.visible = !sq;
+  player.obj.children[1].visible = !sq;
+  trail.visible = !sq && player.alive;
+  resetBots();
 }
 function damagePlayer() {
   if (!player.alive || player.invuln > 0 || state !== 'playing') return;
@@ -469,17 +971,25 @@ let wave = 0, score = 0, kills = 0, intermission = 0, screenFlash = 0;
 let best = 0;
 try { best = Number(localStorage.getItem('battleRoomBest')) || 0; } catch (e) { /* ignore */ }
 
-function waveComposition(n) {
-  const list = [];
-  const fighters = 2 + n;
-  const cruisers = Math.floor((n - 1) / 2);
-  for (let i = 0; i < fighters; i++) list.push('fighter');
-  for (let i = 0; i < cruisers; i++) list.push('cruiser');
-  return list;
-}
 function startWave(n) {
   wave = n;
-  for (const t of waveComposition(n)) spawnEnemy(t, n);
+  const heavies = Math.floor((n - 1) / 2);
+  if (gameMode === 'squadron') {
+    // Coordinated groups; more of them, and more varied, as the waves go on.
+    spawnGroup('pincer', 2, n);
+    spawnGroup('flank', 2 + Math.floor(n / 2), n);
+    spawnGroup('sniper', 1 + Math.floor(n / 2), n);
+    if (n >= 2) spawnGroup('bait', 3, n);        // 1 bait + 2 hidden ambushers
+    if (n >= 4) spawnGroup('pincer', 2, n);
+    if (n >= 5) spawnGroup('bait', 3, n);
+    if (heavies) spawnGroup('heavy', heavies, n);
+  } else {
+    spawnGroup('pincer', 2, n);
+    spawnGroup('flank', 1 + Math.floor(n / 2), n);
+    if (n >= 2) spawnGroup('sniper', Math.min(3, 1 + Math.floor((n - 2) / 2)), n);
+    if (n >= 4) spawnGroup('pincer', 2, n);
+    if (heavies) spawnGroup('heavy', heavies, n);
+  }
   showMessage(`WAVE ${n}`, `${enemies.length} hostiles inbound`, 2.2);
   sfx.chime(true);
   log(`wave ${n} started with ${enemies.length} enemies`);
@@ -488,10 +998,13 @@ function startGame() {
   sfx.init();
   for (const e of enemies) board.remove(e.obj);
   enemies.length = 0;
+  groups.length = 0;
   playerBullets.clear();
   enemyBullets.clear();
   score = 0; kills = 0;
+  applyMode();
   resetPlayer();
+  resetBots();
   state = 'playing';
   needNeutral = true;
   stateTimer = 0;
@@ -500,8 +1013,9 @@ function startGame() {
   startWave(START_WAVE);
 }
 function showIdlePrompt() {
-  if (state === 'title') { if (renderer.xr.isPresenting) showMessage('BATTLE ROOM', 'Pull the RIGHT TRIGGER to start\n' + steerHelp(activeSteer()), 9999); }
-  else if (state === 'gameover') showMessage('SHIP DESTROYED', `Score ${score}   Wave ${wave}   Best ${best}\n${restartHint()}`, 9999);
+  if (state === 'title') {
+    if (renderer.xr.isPresenting) showMessage('BATTLE ROOM: ' + gameMode.toUpperCase(), 'RIGHT TRIGGER starts - B switches mode (Fighter / Squadron)\n' + steerHelp(activeSteer()), 9999);
+  } else if (state === 'gameover') showMessage(gameMode === 'squadron' ? 'SQUADRON LOST' : 'SHIP DESTROYED', `Score ${score}   Wave ${wave}   Best ${best}\n${restartHint()}`, 9999);
 }
 function restartHint() {
   return renderer.xr.isPresenting ? 'Pull TRIGGER or press A to restart' : 'Click or press R to restart';
@@ -569,20 +1083,37 @@ function drawHud() {
   hctx.font = '24px monospace';
   hctx.fillText(`WAVE  ${wave}`, 20, 84);
   hctx.fillText(`HOSTILES ${enemies.length}`, 20, 118);
-  hctx.fillText('HULL', 20, 160);
-  for (let i = 0; i < MAX_HP; i++) {
-    hctx.strokeStyle = '#7fe9ff';
-    hctx.strokeRect(92 + i * 34, 140, 26, 24);
-    if (i < player.hp) {
-      hctx.fillStyle = player.hp <= 2 ? '#ff5566' : '#33ddff';
-      hctx.fillRect(95 + i * 34, 143, 20, 18);
+  if (gameMode === 'squadron') {
+    // Squadron status: one box per ship, filled by its hull; lost ships are crossed out.
+    hctx.fillText('SQUAD', 20, 160);
+    bots.forEach((b, i) => {
+      const x = 104 + i * 40;
+      hctx.strokeStyle = b.alive ? '#7fe9ff' : '#ff5566';
+      hctx.strokeRect(x, 140, 32, 24);
+      if (b.alive) {
+        hctx.fillStyle = b.hp <= 1 ? '#ff5566' : '#33ddff';
+        hctx.fillRect(x + 3, 143, (26 * b.hp) / BOT_HP, 18);
+      } else {
+        hctx.beginPath(); hctx.moveTo(x + 4, 144); hctx.lineTo(x + 28, 160); hctx.moveTo(x + 28, 144); hctx.lineTo(x + 4, 160); hctx.stroke();
+      }
+    });
+  } else {
+    hctx.fillText('HULL', 20, 160);
+    for (let i = 0; i < MAX_HP; i++) {
+      hctx.strokeStyle = '#7fe9ff';
+      hctx.strokeRect(92 + i * 34, 140, 26, 24);
+      if (i < player.hp) {
+        hctx.fillStyle = player.hp <= 2 ? '#ff5566' : '#33ddff';
+        hctx.fillRect(95 + i * 34, 143, 20, 18);
+      }
     }
   }
   hctx.fillStyle = '#5fa9bf';
   hctx.font = '18px monospace';
   hctx.fillText(`BEST ${best}`, 20, 200);
   const sm = activeSteer();
-  hctx.fillText(state === 'playing' && intermission > 0 ? 'NEXT WAVE...' : `STEER ${STEER_NAMES[sm]}${sm === 'stick' && invertY ? ' INV' : ''}`, 20, 232);
+  hctx.fillText(state === 'playing' && intermission > 0 ? 'NEXT WAVE...'
+    : `${gameMode === 'squadron' ? (squadEngaged ? 'ENGAGING' : 'FORMATION') : 'FIGHTER'} - ${STEER_NAMES[sm]}${sm === 'stick' && invertY ? ' INV' : ''}`, 20, 232);
 
   // Radar: top-down view of the box (far side up).
   const cx = W - 128, cy = H / 2, R = 108, range = BOX_B * 1.15;
@@ -600,8 +1131,19 @@ function drawHud() {
     else hctx.arc(cx + sx, cy + sy, size, 0, Math.PI * 2);
     hctx.fill();
   };
-  for (const e of enemies) plot(e.obj.position, '#ff4455', e.type === 'cruiser' ? 8 : 6);
-  if (player.alive) plot(player.obj.position, '#33ddff', 6);
+  if (gameMode === 'squadron') {
+    hctx.strokeStyle = 'rgba(160,185,220,0.7)';
+    for (const o of obstacles) {
+      const r = (o.r / range) * R;
+      const sx = cx + (o.c.x / range) * R, sy = cy + (o.c.z / range) * R;
+      hctx.beginPath();
+      if (o.type === 'cube') hctx.rect(sx - r, sy - r, 2 * r, 2 * r); else hctx.arc(sx, sy, r, 0, Math.PI * 2);
+      hctx.stroke();
+    }
+  }
+  for (const e of enemies) plot(e.obj.position, '#ff4455', e.type === 'cruiser' ? 7 : 5);
+  if (gameMode === 'squadron') { for (const b of bots) if (b.alive) plot(b.obj.position, '#33ddff', 5); }
+  else if (player.alive) plot(player.obj.position, '#33ddff', 6);
   hctx.fillStyle = '#ffffff';
   hctx.fillRect(cx - 2, cy - 2, 4, 4);
   hudTex.needsUpdate = true;
@@ -634,6 +1176,10 @@ try { invertY = localStorage.getItem('battleRoomInvert') === '1'; } catch (e) { 
 function activeSteer() { return DEMO ? 'point' : settings.steer; }
 function steerHelp(mode) {
   const xr = renderer.xr.isPresenting;
+  if (gameMode === 'squadron') {
+    return xr ? 'Right controller sets the squadron heading - hold trigger: engage, grip: boost, stick click = re-center'
+      : 'Mouse sets the squadron heading - hold click: engage, Shift: boost';
+  }
   if (mode === 'mirror') return xr ? 'Ship points where the right controller points (x gain) - trigger shoots, grip boosts, stick click = re-center' : 'The ship points where the mouse points - M to switch';
   if (mode === 'relative') return xr ? 'Tilt the right controller like a flight stick - stick click re-centers' : 'Mouse offset from screen centre steers - M to switch';
   if (mode === 'stick') return xr ? 'Right thumbstick flies the ship' : 'I/K nose up/down, J/L turn - M to switch';
@@ -719,7 +1265,7 @@ quatFromDir(new THREE.Vector3(0, 0, -1), SHIP_NEUTRAL_Q);
 const mirrorQ = SHIP_NEUTRAL_Q.clone();                    // target ship orientation (before cosmetic bank)
 const _mq = new THREE.Quaternion(), _mt = new THREE.Quaternion(), _ma = new THREE.Vector3();
 function setMirrorTarget(ctrlQ) {
-  const g = Number(settings.steerGain) || 2;
+  const g = Number(gameMode === 'squadron' ? settings.steerGainSq : settings.steerGain) || 2;
   _mq.copy(mNeutralQ).invert().multiply(ctrlQ);
   // Swing-twist decomposition about local Z (the controller points down -Z): rel = swing * twist.
   const tl = Math.hypot(_mq.z, _mq.w);
@@ -812,6 +1358,11 @@ renderer.xr.addEventListener('sessionend', () => {
 function applySettings(changed) {
   player.turn = 2.8 * TURN_MULS[settings.turnSpeed];
   if (changed === 'boxSize') { box.size = BOX_SIZES[settings.boxSize]; applyBoard(); saveBox(); }
+  if (changed === 'mode' && settings.mode !== gameMode) {
+    // Switching mode: restart in the new mode (or just rebuild the title scene).
+    if (state === 'title') { applyMode(); showIdlePrompt(); } else startGame();
+    needNeutral = true;
+  }
 }
 
 // ---------------------------------------------------------------- settings menu (VR panel + desktop overlay)
@@ -937,6 +1488,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Tab') { e.preventDefault(); if (!e.repeat) toggleSettings(); }
   if (e.code === 'Escape' && menuOpen) toggleSettings(false);
   if (e.code === 'KeyM' && !e.repeat) toggleSteer();
+  if (e.code === 'KeyN' && !e.repeat) setSetting('mode', settings.mode === 'squadron' ? 'fighter' : 'squadron');
   if (e.code === 'KeyV' && !e.repeat) toggleInvert();
   if (e.code === 'Space') e.preventDefault();
 });
@@ -965,7 +1517,8 @@ window.addEventListener('pointerup', (e) => {
   if (e.button === 2) lookDrag = false;
   if (e.button === 0) mouseDown = false;
 });
-document.getElementById('startbtn').addEventListener('click', (e) => { e.stopPropagation(); startGame(); });
+document.getElementById('startbtn').addEventListener('click', (e) => { e.stopPropagation(); settings.mode = 'fighter'; saveSettings(); syncDesktopSettings(); startGame(); });
+document.getElementById('startsq').addEventListener('click', (e) => { e.stopPropagation(); settings.mode = 'squadron'; saveSettings(); syncDesktopSettings(); startGame(); });
 function hideTitle() { document.getElementById('title').classList.add('hidden'); }
 
 window.addEventListener('resize', () => {
@@ -980,9 +1533,7 @@ const input = {
   fire: false, boost: false, brake: false, restart: false, move: new THREE.Vector3(),
   stickX: 0, stickY: 0, relX: 0, relY: 0, leftFire: false,
 };
-let prevRestartBtn = false, prevB = false, prevStickBtn = false, prevLStick = false, prevXY = false, prevTrigMenu = false, prevLTrig = false, yHold = 0;
-const dragLast = new THREE.Vector3();
-let dragging = false, boxDirty = false;
+let prevRestartBtn = false, prevB = false, prevStickBtn = false, prevLStick = false, prevXY = false, prevTrigMenu = false, prevLTrig = false;
 
 function gatherInputVR(dt) {
   input.hasSteer = false; input.fire = false; input.boost = false; input.brake = false; input.restart = false;
@@ -1008,7 +1559,10 @@ function gatherInputVR(dt) {
       if (sy > 0.5) input.brake = true;
       if (sy < -0.5) input.boost = true;
     }
-    if (settings.steer === 'stick' && btn(5) && !prevB) toggleInvert();   // B = invert (thumbstick mode)
+    if (btn(5) && !prevB && !menuOpen) {
+      if (state === 'title') { setSetting('mode', settings.mode === 'squadron' ? 'fighter' : 'squadron'); sfx.ping(null); }   // B on the title = switch mode
+      else if (settings.steer === 'stick') toggleInvert();                // B = invert (thumbstick mode)
+    }
     input.relX = 0; input.relY = 0;
     if (rel) {
       // Stick click = re-center.
@@ -1056,17 +1610,6 @@ function gatherInputVR(dt) {
     // Stick click = put the box back in its default spot.
     if (btn(3) && !prevLStick) { resetBox(); showMessage('BOX RESET', 'Back in front of you', 1.0); }
     prevLStick = btn(3);
-    // Hold Y (alone) for 0.3 s = adjust the box: move your hand to drag it, stick up/down resizes.
-    if (btn(5) && !btn(4)) yHold += dt; else yHold = 0;
-    const adjusting = yHold > 0.3 && !menuOpen;
-    if (adjusting) {
-      L.getWorldPosition(_v3);
-      if (dragging) { box.x += _v3.x - dragLast.x; box.y += _v3.y - dragLast.y; box.z += _v3.z - dragLast.z; applyBoard(); boxDirty = true; }
-      else haptic('left', 0.3, 30);
-      dragLast.copy(_v3);
-      dragging = true;
-      if (Math.abs(sy) > 0.15) { box.size *= Math.exp(-sy * 0.8 * dt); applyBoard(); boxDirty = true; }
-    } else dragging = false;
     // LEFT TRIGGER = shoot (and start / restart).
     const lt = btn(0);
     if (!menuOpen) {
@@ -1076,11 +1619,8 @@ function gatherInputVR(dt) {
     prevLTrig = lt;
     // LEFT GRIP = boost; stick forward = boost, back = brake.
     if (btn(1)) input.boost = true;
-    if (!adjusting) {
-      if (sy < -0.5) input.boost = true;
-      if (sy > 0.5) input.brake = true;
-    }
-    if (boxDirty && !adjusting) { saveBox(); boxDirty = false; }
+    if (sy < -0.5) input.boost = true;
+    if (sy > 0.5) input.brake = true;
   }
 }
 
@@ -1135,7 +1675,7 @@ function gatherInputDesktop() {
     if (near) {
       input.origin.copy(player.obj.position);
       input.dir.subVectors(near.obj.position, player.obj.position).normalize();
-      input.fire = player.fwd.angleTo(input.dir) < 0.3 && nd < 6 * S;
+      input.fire = gameMode === 'squadron' ? nd < 3.5 * S : player.fwd.angleTo(input.dir) < 0.3 && nd < 6 * S;
       input.boost = nd > 3 * S;
     }
   }
@@ -1231,6 +1771,16 @@ function updatePlayer(dt) {
     reticle.visible = false;
     flyByStick(dt);
   }
+  if (gameMode === 'squadron') {
+    // The command point: boost only while NOT engaging (the bots all boost with it); slow while engaged.
+    const targetSpeed = input.fire ? CRUISE * 0.55 : input.boost ? BOOST : input.brake ? BRAKE : CRUISE;
+    player.speed += (targetSpeed - player.speed) * Math.min(1, dt * 3);
+    player.vel.copy(player.fwd).multiplyScalar(player.speed);
+    p.addScaledVector(player.vel, dt);
+    wrapBox(p);
+    obstPushOut(p, 0.15 * S);
+    return;
+  }
   const targetSpeed = input.boost ? BOOST : input.brake ? BRAKE : CRUISE;
   player.speed += (targetSpeed - player.speed) * Math.min(1, dt * 3);
   player.vel.copy(player.fwd).multiplyScalar(player.speed);
@@ -1275,7 +1825,20 @@ function updatePlayer(dt) {
 }
 
 function updateCollisions() {
+  const sq = gameMode === 'squadron';
+  if (sq) {
+    // Stars block bullets from both sides.
+    for (const b of playerBullets.list) if (obstInside(b.pos)) b.dead = true;
+    for (const b of enemyBullets.list) if (obstInside(b.pos)) b.dead = true;
+    for (const b of enemyBullets.list) {
+      if (b.dead) continue;
+      for (const t of bots) {
+        if (t.alive && segPointDist(b.prev, b.pos, t.obj.position) < 0.14 * S) { b.dead = true; damageBot(t); break; }
+      }
+    }
+  }
   for (const b of playerBullets.list) {
+    if (b.dead) continue;
     for (const e of enemies) {
       if (e.hp > 0 && segPointDist(b.prev, b.pos, e.obj.position) < e.radius) {
         b.dead = true;
@@ -1284,7 +1847,7 @@ function updateCollisions() {
       }
     }
   }
-  if (player.alive) {
+  if (player.alive && !sq) {
     for (const b of enemyBullets.list) {
       if (segPointDist(b.prev, b.pos, player.obj.position) < 0.14 * S) {
         b.dead = true;
@@ -1323,10 +1886,13 @@ function loop() {
     player.obj.position.set(Math.sin(t) * BOX_B * 0.6, Math.sin(t * 2) * BOX_B * 0.25, Math.cos(t) * BOX_B * 0.5);
     player.fwd.set(Math.cos(t), Math.cos(t * 2) * 0.33, -Math.sin(t) * 0.5).normalize();
     quatFromDir(player.fwd, player.obj.quaternion);
+    player.mq.copy(player.obj.quaternion);
+    if (gameMode === 'squadron') updateBots(dt);   // the squadron flies formation behind the demo path
     reticle.visible = false;
     if (xr && input.restart) startGame();
   } else if (!menuOpen) {
     updatePlayer(dt);
+    if (gameMode === 'squadron') updateBots(dt);
     updateEnemies(dt);
     playerBullets.update(dt);
     enemyBullets.update(dt);
@@ -1335,9 +1901,16 @@ function loop() {
       if (enemies.length === 0) {
         if (intermission <= 0) {
           intermission = 3;
-          const healed = player.hp < MAX_HP;
-          player.hp = Math.min(MAX_HP, player.hp + 1);
-          showMessage(`WAVE ${wave} CLEARED`, healed ? '+1 hull repaired' : 'Hull at full strength', 2.6);
+          if (gameMode === 'squadron') {
+            // +1 hull for every surviving bot; every 3rd wave a lost wingman is replaced.
+            for (const b of bots) if (b.alive) b.hp = Math.min(BOT_HP, b.hp + 1);
+            const back = wave % 3 === 0 && reviveBot();
+            showMessage(`WAVE ${wave} CLEARED`, back ? 'Reinforcement: a new wingman joins' : 'Squadron hulls +1', 2.6);
+          } else {
+            const healed = player.hp < MAX_HP;
+            player.hp = Math.min(MAX_HP, player.hp + 1);
+            showMessage(`WAVE ${wave} CLEARED`, healed ? '+1 hull repaired' : 'Hull at full strength', 2.6);
+          }
         } else {
           intermission -= dt;
           if (intermission <= 0) startWave(wave + 1);
@@ -1375,13 +1948,14 @@ function loop() {
     statusTimer -= dt;
     if (statusTimer <= 0) {
       statusTimer = 3;
-      log(`status state=${state} wave=${wave} score=${score} kills=${kills} hp=${player.hp} enemies=${enemies.length} fps~${Math.round(frames / 3)} xr=${xr}`);
+      log(`status mode=${gameMode} state=${state} wave=${wave} score=${score} kills=${kills} hp=${player.hp} bots=${bots.filter((b) => b.alive).map((b) => b.hp).join('')} enemies=${enemies.length} fps~${Math.round(frames / 3)} xr=${xr}`);
       frames = 0;
     }
   }
   renderer.render(scene, camera);
 }
 
+applyMode();
 applySettings();
 buildDesktopSettings();
 drawMenu();
@@ -1395,5 +1969,7 @@ window.__game = {
   get hp() { return player.hp; }, get enemies() { return enemies.length; },
   player, enemiesList: enemies, startGame, rig, camera, renderer, scene, shipArrow, pointer, reticle,
   get steerMode() { return activeSteer(); }, get invertY() { return invertY; },
-  settings, setSetting, neutralQ, input, gimbal, board, box, mirrorQ, get bullets() { return playerBullets.list.length; }, toggleSettings, get menuOpen() { return menuOpen; }, get menuHover() { return menuHover; }, menuPanel,
+  settings, setSetting, neutralQ, input, gimbal, board, box, mirrorQ, bots, obstacles, groups,
+  get mode() { return gameMode; }, get boxB() { return BOX_B; }, get squadEngaged() { return squadEngaged; },
+  get enemyBullets() { return enemyBullets.list.length; }, get bullets() { return playerBullets.list.length; }, toggleSettings, get menuOpen() { return menuOpen; }, get menuHover() { return menuHover; }, menuPanel,
 };

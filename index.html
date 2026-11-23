@@ -36,8 +36,8 @@
   #title p { color: #bfefff; line-height: 1.45; margin: 8px 0; font-size: 14px; }
   #title td { padding: 2px 10px 2px 0; font-size: 14px; color: #bfefff; vertical-align: top; }
   #title td:first-child { color: #ffcc66; white-space: nowrap; }
-  #startbtn { margin-top: 14px; font: bold 18px monospace; padding: 10px 24px; background: #022; color: #9ff; border: 1px solid #3cf; cursor: pointer; }
-  #startbtn:hover { background: #044; }
+  #startbtn, #startsq { margin-top: 14px; font: bold 18px monospace; padding: 10px 24px; background: #022; color: #9ff; border: 1px solid #3cf; cursor: pointer; }
+  #startbtn:hover, #startsq:hover { background: #044; }
   #crosshint { position: fixed; right: 12px; top: 10px; font-size: 12px; color: #4a8fa3; pointer-events: none; text-align: right; }
   body.in-vr #crosshint { display: none; }
   #gear { position: fixed; left: 12px; top: 10px; font: bold 14px monospace; padding: 6px 12px; background: #022; color: #9ff; border: 1px solid #3cf; cursor: pointer; z-index: 5; }
@@ -55,7 +55,7 @@
 <canvas id="hud" width="512" height="256"></canvas>
 <div id="message"><div class="t"></div><div class="s"></div></div>
 <div id="flash"></div>
-<div id="crosshint">mouse steers &middot; click shoots &middot; Shift boost &middot; +/- box size &middot; Tab settings &middot; R restart</div>
+<div id="crosshint">mouse steers &middot; click shoots (Squadron: hold = engage) &middot; Shift boost &middot; N mode &middot; +/- box size &middot; Tab settings &middot; R restart</div>
 <button id="gear">&#9881; Settings (Tab)</button>
 <div id="settings" class="hidden">
   <h2>SETTINGS</h2>
@@ -65,16 +65,18 @@
 <div id="title">
   <div class="box">
     <h1>BATTLE ROOM</h1>
-    <p>A miniature battle in a box in front of you. Fly the cyan ship, destroy the red waves. Fly out of one side of the box and you come back in the opposite side.</p>
+    <p>A miniature battle in a box in front of you. Fly out of one side of the box and you come back in the opposite side. Two modes:</p>
+    <p><b>FIGHTER</b>: fly the cyan ship yourself and destroy the red waves. Enemies fight in groups: pincer pairs, flankers, snipers that hold range, heavies.<br>
+    <b>SQUADRON</b>: a much bigger, zoomed-out battlefield with big floating "stars" (cover). You command 4 bot fighters: your right controller sets the direction they head in, and they fly themselves.</p>
     <table>
-      <tr><td>VR right hand</td><td><b>Mirror steering (default)</b>: the ship turns with your right controller, with 2x gain (turn your wrist 45&deg; and the ship turns 90&deg;), in any direction, including straight up, straight down and loops. Wrist roll is ignored. <b>Trigger: shoot</b> (and start/restart) &middot; <b>grip: boost</b> &middot; A brake &middot; <b>click the stick</b> to re-center (controller = straight into the box).</td></tr>
-      <tr><td>VR left hand</td><td>Extras: trigger shoots &middot; grip boosts &middot; stick forward boost / back brake &middot; <b>hold Y</b> and move your hand to drag the box (stick up/down resizes while holding) &middot; stick click resets the box &middot; <b>X+Y: settings</b> (steering, mirror gain, turn speed, box size) &middot; wrist shows score + radar</td></tr>
-      <tr><td>Desktop</td><td>The ship points where the mouse points &middot; M cycles steering (mirror / relative / point / thumbstick) &middot; Left click / Space shoot &middot; Shift boost &middot; F brake &middot; +/- box size &middot; C reset box &middot; right-drag or arrow keys look &middot; Tab settings &middot; R restart</td></tr>
+      <tr><td>VR right hand</td><td><b>Mirror steering (default)</b>: the ship (or, in Squadron, the squadron's heading) turns with your right controller, with gain (Fighter 2x, Squadron 3x), in any direction, including loops. <b>Trigger: shoot</b> (Squadron: <b>hold = engage</b>: the bots spread out a little and attack; release = regroup) &middot; <b>grip: boost</b> (Squadron: only while not engaging) &middot; A brake &middot; <b>click the stick</b> to re-center &middot; on the title: <b>B switches mode</b>, trigger starts</td></tr>
+      <tr><td>VR left hand</td><td>Extras: trigger shoots &middot; grip boosts &middot; stick forward boost / back brake &middot; stick click resets the box &middot; <b>X+Y: settings</b> (mode, steering, gains, turn speed, box size) &middot; wrist shows score, hull / squadron status and radar</td></tr>
+      <tr><td>Desktop</td><td>The ship / squadron heading follows the mouse &middot; Left click / Space shoot (Squadron: hold to engage) &middot; Shift boost &middot; F brake &middot; N switch mode &middot; M cycles steering &middot; +/- box size &middot; C reset box &middot; right-drag or arrow keys look &middot; Tab settings &middot; R restart</td></tr>
     </table>
-    <button id="startbtn">START (desktop)</button>
-    <p style="font-size:12px;color:#5fa9bf">On a Quest: press ENTER VR at the bottom of the page.</p>
+    <button id="startbtn">START FIGHTER</button> <button id="startsq" class="startb">START SQUADRON</button>
+    <p style="font-size:12px;color:#5fa9bf">On a Quest: press ENTER VR at the bottom of the page, then B picks the mode and the right trigger starts.</p>
   </div>
 </div>
-<script type="module" src="js/main.js?v=8"></script>
+<script type="module" src="js/main.js?v=9"></script>
 </body>
 </html>
