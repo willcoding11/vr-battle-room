@@ -11,10 +11,10 @@ browser with mouse and keyboard.
 
 ![diorama](screenshots/09-diorama.png)
 
-## Two modes
+## Three modes
 
-Pick the mode on the title screen (Quest: **B** switches, the right trigger starts; desktop:
-the two START buttons, or **N**) or in Settings.
+Pick the mode on the title screen (Quest: **B** cycles Fighter / Squadron / Fleet, the right trigger starts; desktop:
+the three START buttons, or **N**) or in Settings.
 
 ### Fighter
 
@@ -59,10 +59,51 @@ the commanded heading, dodge incoming bullets, and never run into each other.
 
 ![squadron](screenshots/11-squadron.png)
 
-**Wrap-around (both modes):** fly out through one face of the box and you come back in
+### Fleet
+
+The biggest, most zoomed-out battlefield (the room still changes shape and has sphere stars).
+You command a whole fleet:
+- **3 squadrons** of 4 bot fighters: **Blue**, **Green** and **Gold**. Each one flies and
+  fights exactly like the Squadron-mode squadron.
+- **2 friendly capital ships** (big cyan cruisers). Their turrets fire automatically at the
+  nearest enemy in range. They are slow but tough (60 hull), and you can command them like a squadron.
+
+The enemy brings a **flagship** (two from wave 3), each guarded by an **escort** group, plus
+squadrons using all the Squadron tactics (pincers, flankers, snipers, bait and ambush).
+**Destroy every enemy flagship to win the wave.** Any remaining enemy fighters then jump out.
+**Game over when both of your capital ships are destroyed.** Bots can all be lost and you
+fight on with the capitals alone. Between waves the capitals repair 15%, every bot gains
+1 hull, and each squadron gets one replacement fighter (a wiped-out squadron returns
+behind a surviving capital). Waves get harder: more and smarter enemies, tougher flagships
+and faster flagship guns.
+
+**Selecting (left hand).** The left controller casts a pointing ray, and the wrist shows what it points at.
+- **Left trigger** selects the unit you point at (a squadron or a capital ship).
+- **Left stick click** selects everything.
+- Selected units get a highlight ring and are marked `>` on the wrist panel.
+
+**Commanding (right hand).** It works just like Squadron, for whatever is selected: Mirror
+steering (3x) sets their heading, **hold the right trigger** to engage, and the **right grip** boosts (only when not engaging).
+Units you have not selected keep their last order. They also defend themselves if an enemy comes close.
+
+**Quick orders (left grip)** go to the selected units, depending on what you point at:
+- Empty space: **HOLD** at that spot.
+- A star: **GUARD** the star (hold beside it).
+- One of your units: **FOLLOW** it.
+- An enemy group or flagship: **ATTACK** it.
+
+Units that receive an order are deselected so they carry it out. Select them again to take
+back direct control. Each order is confirmed on the wrist message panel. A faint line shows
+where each unit is heading.
+
+There is no friendly fire, and friendly ships, including the capitals, never collide.
+
+![fleet](screenshots/13-fleet.png)
+
+**Wrap-around (all modes):** fly out through one face of the box and you come back in
 through the opposite face. Enemies wrap too. Your view never moves and the game never turns you.
 
-**The room changes shape (both modes):** width, height and depth vary independently, so the
+**The room changes shape (all modes):** width, height and depth vary independently, so the
 room may be a long tunnel, a flat slab, a tall tower or a cube. A new shape is picked for
 every game, and between waves the room smoothly reshapes itself, keeping every ship inside.
 The volume stays about the same, so the difficulty stays fair, and the size is capped (at
@@ -78,20 +119,21 @@ the title-screen prompt in VR floats in front of you.
 
 ### Quest (VR, seated)
 
-| Hand | Input | Fighter | Squadron |
+| Hand | Input | Fighter | Squadron (Fleet: for the selected units) |
 |---|---|---|---|
 | Right | **Turn the controller** (Mirror steering, default) | The ship turns the way your controller turns, in any direction, including straight up, straight down, loops and upside down, without flipping. Turns are multiplied by the gain (default **2x**), so a 45° wrist turn turns the ship 90°. Turns past 180° stop at 180°. Wrist roll is ignored. | Same, but it turns the squadron's commanded heading (default gain **3x**) |
 | Right | **Trigger** | Shoot (gentle aim assist). Also starts and restarts the game | **Hold = engage**, release = regroup. Also starts and restarts the game |
 | Right | **Hold the grip** | Boost | Boost the squadron (only while not engaging) |
 | Right | **A** | Brake | Slow the squadron |
 | Right | **Click the thumbstick** | Re-center: the controller's current orientation becomes "straight into the box" (also done automatically at the start of a game) | Same |
-| Right | **B** (on the title) | Switch mode | Switch mode |
+| Right | **B** (on the title) | Cycle mode: Fighter / Squadron / Fleet | Same |
 | Left | **Trigger / grip / stick forward-back** | Extras: shoot (engage) / boost / boost-brake | Same |
-| Left | **Click the thumbstick** | Put the box back in its default spot | Same |
+| Left | **Click the thumbstick** | Put the box back in its default spot (Fleet: select all; use Settings > Box position) | Same |
 | Left | **X + Y together** | Settings (point with the right controller and pull the right trigger to change; the game pauses) | Same |
+| Left | **Fleet only** | | Point the ray; **trigger** = select the unit you point at, **stick click** = select all, **grip** = quick order (hold / guard / follow / attack) |
 | Left | **Look at your wrist** | Score, wave, hull, a top-down radar, and the message panel | Score, wave, squadron status, a radar with the stars, and the message panel |
 
-Other steering modes (in Settings) also work in both modes:
+Other steering modes (in Settings) also work in all modes:
 - **Relative (hand stick):** tilt the controller away from a captured neutral. Click the right stick to re-center.
 - **Point:** the ship (or squadron heading) follows where you point.
 - **Thumbstick:** the right stick steers. B inverts up/down.
@@ -100,12 +142,13 @@ Other steering modes (in Settings) also work in both modes:
 
 | Setting | Options | Default |
 |---|---|---|
-| Game mode | Fighter / Squadron | Fighter |
+| Game mode | Fighter / Squadron / Fleet | Fighter |
 | Steering | Mirror / Relative / Point / Thumbstick | Mirror |
 | Mirror gain (Fighter) | 1x / 1.5x / 2x / 2.5x / 3x / 3.5x | 2x |
-| Mirror gain (Squadron) | 1x / 1.5x / 2x / 2.5x / 3x / 3.5x | 3x |
+| Mirror gain (Squadron and Fleet) | 1x / 1.5x / 2x / 2.5x / 3x / 3.5x | 3x |
 | Ship turn speed (Relative, Point and Thumbstick) | Normal / Fast / Very fast | Fast |
 | Box size | Small 0.7 m / Medium 1.0 m / Large 1.3 m | Medium |
+| Box position | RESET puts the box back in its default spot | |
 
 Changing the mode during a game restarts in the new mode.
 
@@ -116,7 +159,8 @@ Changing the mode during a game restarts in the new mode.
 | Mouse | Mirror steering: the ship (or squadron heading) points where the mouse points |
 | Left click / Space | Shoot (Squadron: hold to engage) |
 | Shift / F | Boost / brake |
-| N | Switch mode (Fighter / Squadron) |
+| N | Cycle mode (Fighter / Squadron / Fleet) |
+| 1-5 / 0 or ` / G | Fleet: select Blue, Green, Gold, Capital 1, Capital 2 / select all / quick order at what the mouse points at |
 | M | Cycle steering: mirror / relative (cursor offset from the centre) / point / thumbstick (I/K + J/L, V inverts) |
 | + / - | Box size |
 | C | Reset the box |
@@ -152,7 +196,7 @@ the left stick to put the box back in its default spot.
 ## Files
 
 - `index.html` - page, desktop HUD and title screen
-- `js/main.js` - game: scene, input (VR + desktop), player, enemy AI, squadron bots, stars, waves, HUD, effects
+- `js/main.js` - game: scene, input (VR + desktop), player, enemy AI, squadron bots, fleet (selection, orders, capital ships), stars, waves, HUD, effects
 - `js/models.js` - wireframe ship models (points joined by lines)
 - `js/audio.js` - synthesized 3D sound effects (WebAudio, no audio files)
 - `vendor/` - three.js r187 (`three.module.js`, `three.core.js`, `VRButton.js`), MIT licence
@@ -160,7 +204,7 @@ the left stick to put the box back in its default spot.
 
 ## Not done yet / ideas
 
-- Squadron: give orders to individual bots or split the squadron into groups
+- Fleet: drag-box selection and waypoint chains
 - A louder warning when an enemy attacks from behind (positional sound only, so far)
 - More comfort options (seated height, volume)
 - So far it has only been tested in an emulator (IWER) and in desktop Firefox, not yet on a real Quest
