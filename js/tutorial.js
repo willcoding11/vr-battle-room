@@ -1,16 +1,14 @@
 // First-run tutorial: one idea per step, on one card that always looks the same:
 //   section + progress bar / which hand / short title / one line / big animated icon / status.
 // The button to use also glows on the controller you hold. Each step waits for you to do it, shows a
-// short "NICE!" beat, then fades calmly into the next. Info steps use the NEXT button on the card.
-// The Fleet part ends with ship types and deployment (the card moves to the left of the room while the
-// deployment panel is on the right). G is the game API from main.js.
-import { Panel, drawIcon, HAND_COLOR, HI, UI } from './ui.js?v=16';
+// short "NICE!" beat, then fades calmly into the next. Info steps go on with the NEXT button on the card.
+// Three parts: ROOM, FLY, SQUADRON; then the lobby. G is the game API from main.js.
+import { Panel, drawIcon, HAND_COLOR, HI, UI } from './ui.js?v=17';
 
 const READ = 1.2;          // seconds before an action counts (time to read the card)
 const NICE = 1.5;          // the "NICE!" beat
-const NICE_FLEET = 2.0;    // a little longer in the Fleet part
 const FADE = 0.45;         // fade out / in between steps
-const SECTIONS = ['ROOM', 'FLY', 'SQUADRON', 'FLEET'];
+const SECTIONS = ['ROOM', 'FLY', 'SQUADRON'];
 
 export function createTutorial(G) {
   const card = new Panel(0.5, 760, 800);
@@ -28,13 +26,6 @@ export function createTutorial(G) {
   const steerHi = () => (steerName() === 'stick' ? ['stick'] : ['body']);
   const moved = () => (box0 ? Math.hypot(G.box.x - box0.x, G.box.y - box0.y, G.box.z - box0.z) : 0);
   const kills = (n) => () => [Math.max(0, n - G.enemyCount()), n];
-  const selHint = () => (G.selected.size ? '' : 'Select first: click the left stick');
-  // Order steps: if a different order went out (or the units got deselected), say how to fix it.
-  const orderHint = (ok, where) => () => {
-    if (ok()) return '';
-    if (!G.selected.size) return 'Select all: click the left stick';
-    return G.lastOrder ? 'Not quite: point at ' + where : '';
-  };
   const steps = [
     // ROOM
     { id: 'welcome', sect: 'ROOM', stage: 'box', title: 'YOUR BATTLE ROOM', line: 'Your battles happen in this box', icon: 'room', info: true },
@@ -64,44 +55,12 @@ export function createTutorial(G) {
       check: (dt) => held(dt, !G.input.fire) > 1.5, meter: () => [Math.min(1.5, acc), 1.5] },
     { id: 'sqClear', sect: 'SQUADRON', hand: 'right', title: 'FINISH THEM', line: 'Hold trigger until all are gone', icon: 'engage', hi: { right: ['trigger'] },
       enter: () => { if (!G.enemyCount()) G.spawnTut('squad', 2); n0 = G.enemyCount(); }, check: () => G.enemyCount() === 0, meter: () => [n0 - G.enemyCount(), n0] },
-    // FLEET
-    { id: 'fleet', sect: 'FLEET', stage: 'fleet', title: 'YOUR FLEET', line: '3 squadrons + 2 capital ships', icon: 'fleet', info: true },
-    { id: 'select', sect: 'FLEET', hand: 'left', title: 'SELECT A SQUADRON', line: 'Point left + trigger: select one', icon: 'selectRay', hi: { left: ['trigger'] },
-      check: () => G.selected.size >= 1, hint: () => (G.selectMissed() ? 'Missed: point right at the ships' : '') },
-    { id: 'all', sect: 'FLEET', hand: 'left', title: 'SELECT EVERYTHING', line: 'Click left stick: select all', icon: 'selectAll', hi: { left: ['stickClick'] },
-      check: () => G.selected.size >= G.unitsAlive() },
-    { id: 'command', sect: 'FLEET', hand: 'right', title: 'STEER THE FLEET', line: steerLine('steer them'), icon: steerIcon, hi: () => ({ right: steerHi() }),
-      check: () => G.selected.size > 0 && turned > 1.2, meter: () => [Math.min(1, turned / 1.2), 1], hint: selHint },
-    { id: 'orders', sect: 'FLEET', hand: 'left', title: 'GIVING ORDERS', line: 'Point left + grip: give an order', icon: 'orders', info: true },
-    { id: 'hold', sect: 'FLEET', hand: 'left', title: 'ORDER: HOLD', line: 'Grip at empty space: hold there', icon: 'orderHold', hi: { left: ['grip'] },
-      enter: () => G.selectAll(), check: () => G.lastOrder === 'HOLD POSITION', hint: orderHint(() => G.lastOrder === 'HOLD POSITION', 'empty space') },
-    { id: 'guard', sect: 'FLEET', hand: 'left', title: 'ORDER: GUARD', line: 'Grip at a star: guard it', icon: 'orderGuard', hi: { left: ['grip'] },
-      enter: () => G.selectAll(), check: () => G.lastOrder === 'GUARD STAR', hint: orderHint(() => G.lastOrder === 'GUARD STAR', 'a star') },
-    { id: 'follow', sect: 'FLEET', hand: 'left', title: 'ORDER: FOLLOW', line: 'Grip at a capital: follow it', icon: 'orderFollow', hi: { left: ['grip'] },
-      enter: () => G.selectSquads(), check: () => G.lastOrder.startsWith('FOLLOW'),
-      hint: () => (G.selected.size < 2 && !G.lastOrder.startsWith('FOLLOW') ? 'Select all first: click the left stick' : orderHint(() => G.lastOrder.startsWith('FOLLOW'), 'a capital ship')()) },
-    { id: 'attack', sect: 'FLEET', hand: 'left', title: 'ORDER: ATTACK', line: 'Grip at an enemy: attack it', icon: 'orderAttack', hi: { left: ['grip'] },
-      enter: () => { G.selectAll(); G.spawnTut('weak', 3); n0 = 3; }, check: () => G.lastOrder.startsWith('ATTACK'), hint: orderHint(() => G.lastOrder.startsWith('ATTACK'), 'a red enemy') },
-    { id: 'watch', sect: 'FLEET', title: 'WATCH THEM GO', line: 'Your fleet fights on its own', icon: 'watch', hand: null,
-      check: () => G.enemyCount() === 0, meter: () => [n0 - G.enemyCount(), n0] },
-    { id: 'flagship', sect: 'FLEET', hand: 'left', title: 'SINK THE FLAGSHIP', line: 'Grip at the flagship: attack it', icon: 'flagship', hi: { left: ['grip'] },
-      enter: () => { G.selectAll(); G.spawnTut('flagship', 1); }, check: () => G.enemyCount() === 0, meter: () => [G.flagshipDamage(), 1],
-      hint: orderHint(() => G.lastOrder.startsWith('ATTACK'), 'the red flagship') },
-    // v16: ship classes and deployment (before every Fleet battle).
-    { id: 'types', sect: 'FLEET', title: 'SHIP TYPES', line: 'Each type has its own job', icon: 'types', info: true },
-    { id: 'pick', sect: 'FLEET', stage: 'deploy', hand: 'right', title: 'DEPLOY: PICK A TYPE', line: 'Point at a type + trigger: pick', icon: 'pickType', hi: { right: ['trigger'] },
-      check: () => G.deployPicked },
-    { id: 'place', sect: 'FLEET', hand: 'left', title: 'DEPLOY: PLACE SHIPS', line: 'Point left + trigger: place 2', icon: 'place', hi: { left: ['trigger'] },
-      check: () => G.deployCount >= 2, meter: () => [Math.min(2, G.deployCount), 2] },
-    { id: 'begin', sect: 'FLEET', hand: 'right', title: 'START THE BATTLE', line: 'Press START BATTLE: fight!', icon: 'startBattle', hi: { right: ['trigger'] },
-      check: () => !G.deploying },
-    { id: 'done', sect: 'FLEET', title: 'TRAINING COMPLETE', line: 'Press NEXT to go to the lobby', icon: 'check', info: true, last: true },
+    { id: 'done', sect: 'SQUADRON', title: 'TRAINING COMPLETE', line: 'Press TO LOBBY to pick a mode', icon: 'check', info: true, last: true },
   ];
   const val = (v) => (typeof v === 'function' ? v() : v);
 
   function go(i) {
     idx = i; t = 0; pt = 0; phase = 'in'; acc = 0; turned = 0; lastFwd = null;
-    G.lastOrder = '';
     const st = steps[i];
     if (!st) { finish(); return; }
     if (st.stage) G.stage(st.stage);
@@ -144,11 +103,9 @@ export function createTutorial(G) {
     g.fillStyle = 'rgba(80,220,255,0.15)'; g.fillRect(x0, 64, w, 8);
     g.fillStyle = 'rgba(80,220,255,0.85)'; g.fillRect(x0, 64, w * ((idx + (phase === 'done' || phase === 'out' ? 1 : 0)) / steps.length), 8);
     // Section ticks.
-    let k = 0;
     for (const s of SECTIONS) {
       const first = steps.findIndex((x) => x.sect === s);
       if (first > 0) { g.fillStyle = 'rgba(0,10,22,1)'; g.fillRect(x0 + (w * first) / steps.length - 2, 62, 4, 12); }
-      k++;
     }
   }
   function draw() {
@@ -217,7 +174,7 @@ export function createTutorial(G) {
       // Actions only count once you've had a moment to read the card.
       if (!st.info && st.check) { const ok = st.check(dt); if (ok && t > READ + FADE) complete(); }
     } else if (phase === 'done') {
-      if (pt > (st.sect === 'FLEET' ? NICE_FLEET : NICE)) { phase = 'out'; pt = 0; }
+      if (pt > NICE) { phase = 'out'; pt = 0; }
     } else if (phase === 'out') {
       op = Math.max(0, 1 - pt / FADE);
       if (pt > FADE + 0.25) { go(idx + 1); return; }

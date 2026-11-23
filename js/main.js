@@ -2,14 +2,12 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { buildPlayerShip, buildFighter, buildCruiser, buildInterceptor, buildBomber, buildShieldShip, tintShip } from './models.js?v=16';
-import { CLASSES, SQUAD_CLASSES, DEPLOY_CLASSES, clsOf, shotDamage, shotDrain, drawClassGlyph } from './ships.js?v=16';
-import * as CAMP from './campaign.js?v=16';
-import { createTouchController } from './controller.js?v=16';
-import { Sfx } from './audio.js?v=16';
-import { Panel, faceYaw, UI } from './ui.js?v=16';
-import { stats, saveStats, recordGame, fmtTime } from './stats.js?v=16';
-import { createTutorial } from './tutorial.js?v=16';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip } from './models.js?v=17';
+import { createTouchController } from './controller.js?v=17';
+import { Sfx } from './audio.js?v=17';
+import { Panel, faceYaw, UI } from './ui.js?v=17';
+import { stats, saveStats, recordGame, fmtTime } from './stats.js?v=17';
+import { createTutorial } from './tutorial.js?v=17';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
@@ -28,8 +26,7 @@ const HEAD_H = 1.2;                               // seated eye height (desktop)
 const ARENA_C = new THREE.Vector3(0, 0, 0);       // battle centre = centre of the box (game units)
 // Battle box half-size in game units. The box keeps its physical size in front of you, so a bigger
 // BOX_B = more room relative to the ships. Fighter: 2.8 (was 1.75). Squadron: zoomed out much further.
-// v16: the Fleet room is much bigger (11, was 7.5): groups start far apart, with more stars between them.
-const MODE_BOX = { fighter: 2.8, squadron: 5.0, fleet: 11 };
+const MODE_BOX = { fighter: 2.8, squadron: 5.0 };
 let BOX_B = MODE_BOX.fighter;                     // base half-size: sets the scale (ship size) for the mode
 // The room's actual half-extents per axis. Width, height and depth vary independently (long, flat,
 // tall or cube) with roughly the same volume as a BOX_B cube; they change each game and each wave.
@@ -48,7 +45,7 @@ const FOLLOW_H = 0.3;                             // follow view height = distan
 // ---------------------------------------------------------------- settings (saved in localStorage)
 const GAIN_OPTS = [['1', '1x'], ['1.5', '1.5x'], ['2', '2x'], ['2.5', '2.5x'], ['3', '3x'], ['3.5', '3.5x']];
 const SETTINGS_DEF = [
-  { key: 'mode', label: 'Game mode', opts: [['fighter', 'Fighter'], ['squadron', 'Squadron'], ['fleet', 'Fleet']] },
+  { key: 'mode', label: 'Game mode', opts: [['fighter', 'Fighter'], ['squadron', 'Squadron']] },
   { key: 'steer', label: 'Steering', opts: [['mirror', 'Mirror (ship = controller)'], ['relative', 'Relative (hand stick)'], ['point', 'Point'], ['stick', 'Thumbstick']] },
   { key: 'steerGain', label: 'Mirror gain (Fighter)', opts: GAIN_OPTS },
   { key: 'steerGainSq', label: 'Mirror gain (Squadron)', opts: GAIN_OPTS },
@@ -294,10 +291,9 @@ class Bullets {
     this.mesh.frustumCulled = false;
     board.add(this.mesh);
   }
-  // src: who fired (test stats); cls: the shooter's ship class (sets the damage it does, see ships.js).
-  spawn(pos, vel, life, src, cls = 'fighter') {
+  spawn(pos, vel, life, src) {
     if (this.list.length >= this.max) return;
-    this.list.push({ pos: pos.clone(), prev: pos.clone(), vel: vel.clone(), life, dead: false, src, cls });
+    this.list.push({ pos: pos.clone(), prev: pos.clone(), vel: vel.clone(), life, dead: false, src });
   }
   update(dt) {
     for (const b of this.list) {
@@ -320,8 +316,8 @@ class Bullets {
   }
   clear() { this.list.length = 0; }
 }
-const playerBullets = new Bullets(0x88f4ff, 400, 0.16 * S);
-const enemyBullets = new Bullets(0xff6655, 400, 0.10 * S);
+const playerBullets = new Bullets(0x88f4ff, 200, 0.16 * S);
+const enemyBullets = new Bullets(0xff6655, 300, 0.10 * S);
 
 // ---------------------------------------------------------------- effects
 const effects = [];
@@ -444,9 +440,7 @@ let gameMode = settings.mode;
 
 // ---------------------------------------------------------------- "stars": big fixed obstacles (Squadron)
 // Ships can't pass through them and bullets are blocked, so both sides use them as cover.
-const obstacles = [];                             // the stars in play (8; v16 Fleet: 15 in the bigger room)
-const OBST_ALL = [];
-const STAR_COUNT = { fighter: 8, squadron: 8, fleet: 15 };
+const obstacles = [];
 const obstacleGroup = new THREE.Group();
 board.add(obstacleGroup);
 const obstacleMat = new THREE.LineBasicMaterial({ color: 0x9fb8dd, transparent: true, opacity: 0 });
@@ -461,47 +455,29 @@ function starsActive() { return teamMode() && starsOn; }
     [-0.44, 0.16, -0.3, 0.6], [0.48, -0.2, -0.44, 0.7], [0.04, 0.4, 0.12, 0.55],
     [-0.32, -0.38, 0.26, 0.6], [0.42, 0.28, 0.4, 0.55], [0.24, -0.18, -0.68, 0.6],
     [-0.62, 0.44, 0.52, 0.5], [-0.6, -0.24, -0.64, 0.55],
-    // v16: extra stars for the big Fleet room.
-    [0.7, 0.1, 0.1, 0.6], [-0.7, 0.05, -0.05, 0.55], [0.1, -0.5, -0.2, 0.65], [0.3, 0.55, -0.3, 0.5],
-    [-0.2, 0.1, 0.62, 0.55], [0.55, -0.45, 0.65, 0.5], [-0.45, 0.55, -0.7, 0.6],
   ];
   const mat = obstacleMat;
   for (const [x, y, z, r] of layout) {
     const g = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(r, 1)), mat);
     obstacleGroup.add(g);
-    OBST_ALL.push({ type: 'sphere', n: new THREE.Vector3(x, y, z), c: new THREE.Vector3(), r, R: r, r0: r, g });
+    obstacles.push({ type: 'sphere', n: new THREE.Vector3(x, y, z), c: new THREE.Vector3(), r, R: r, r0: r, g });
   }
-  obstacles.push(...OBST_ALL.slice(0, 8));
   obstacleGroup.visible = false;
 }
-function setStarCount(n) {
-  obstacles.length = 0;
-  obstacles.push(...OBST_ALL.slice(0, n));
-  OBST_ALL.forEach((o, i) => { o.g.visible = i < n; });
-}
 function layoutObstacles() {
-  const rs = gameMode === 'fleet' ? 1.5 : 1;        // bigger stars in the bigger Fleet room (cover for capital ships)
-  for (const o of obstacles) { o.r = o.R = o.r0 * rs; o.g.scale.setScalar(rs); o.c.copy(o.n).multiply(HB); o.g.position.copy(o.c); }
+  for (const o of obstacles) { o.r = o.R = o.r0; o.c.copy(o.n).multiply(HB); o.g.position.copy(o.c); }
 }
 OBST_READY = true;
 layoutObstacles();
-// Where the two sides start this round: stars are kept well clear of these spots.
-function starAvoidPoints() {
-  const pts = [];
-  if (gameMode === 'fleet') {
-    for (const it of defaultFleetPlan()) pts.push(it.pos);
-    pts.push(new THREE.Vector3(-0.5 * HB.x, 0, -HB.z * 0.75), new THREE.Vector3(0.5 * HB.x, 0, -HB.z * 0.75));
-  } else pts.push(new THREE.Vector3(0, 0, HB.z * 0.4));
-  return pts;
-}
+// Where your side starts this round: stars are kept well clear of this spot.
+function starAvoidPoints() { return [new THREE.Vector3(0, 0, HB.z * 0.4)]; }
 // New random star positions for the current room shape: inside the walls, apart from each other,
 // and clear of both sides' start areas (best of many random tries for each star).
 function randomizeStars() {
-  const rs = gameMode === 'fleet' ? 1.5 : 1;
   const avoid = starAvoidPoints(), placed = [];
   const n = new THREE.Vector3(), c = new THREE.Vector3(), bestN = new THREE.Vector3();
   for (const o of obstacles) {
-    const r = o.r0 * rs;
+    const r = o.r0;
     let bestScore = -Infinity;
     for (let k = 0; k < 80; k++) {
       n.set(rand(-0.75, 0.75), rand(-0.7, 0.7), rand(-0.75, 0.75));
@@ -528,8 +504,6 @@ function updateStars(dt) {
 function pushAllOutOfStars() {
   obstPushOut(player.obj.position, 0.1 * S);
   for (const b of bots) obstPushOut(b.obj.position, 0.15 * S);
-  for (const sq of FLEET_SQUADS) { obstPushOut(sq.anchor, 0.3 * S); for (const b of sq.bots) obstPushOut(b.obj.position, 0.15 * S); }
-  for (const c of [...FLEET_CAPS, ...enemyCaps]) obstPushOut(c.obj.position, c.radius);
   for (const e of enemies) obstPushOut(e.obj.position, e.radius);
 }
 function freshStars() { randomizeStars(); starsOn = true; starAlpha = 0; starTarget = 1; pushAllOutOfStars(); }
@@ -652,22 +626,20 @@ function leadPoint(from, t, speed, out) {
 const enemies = [];
 const groups = [];
 // v12: the enemy gets smarter every round. Tactics unlock as the rounds go up (see AI_UNLOCKS).
-const AI = { lead: 0.5, focus: false, cover: false, regroup: false, capHunt: false, sync: false, dodge: false, hunters: false, launch: false };
+const AI = { lead: 0.5, focus: false, cover: false, regroup: false, sync: false, dodge: false, hunters: false };
 const AI_UNLOCKS = [
-  { n: 2, key: 'focus', txt: 'focus fire on your most exposed ship', modes: 'sf' },
-  { n: 2, key: null, txt: 'bait & ambush', modes: 'sf' },
-  { n: 3, key: 'cover', txt: 'hiding behind stars', modes: 'sf' },
-  { n: 3, key: 'regroup', txt: 'retreat & regroup', modes: 'Fsf' },
-  { n: 4, key: 'capHunt', txt: 'pincers on your capital ships', modes: 'f' },
-  { n: 5, key: 'sync', txt: 'synchronized strikes', modes: 'Fsf' },
-  { n: 5, key: 'dodge', txt: 'dodging your shots', modes: 'Fsf' },
-  { n: 6, key: 'hunters', txt: 'hunter-killers chase damaged ships', modes: 'Fsf' },
-  { n: 7, key: 'launch', txt: 'flagships launch fighters', modes: 'f' },
+  { n: 2, key: 'focus', txt: 'focus fire on your most exposed ship', modes: 's' },
+  { n: 2, key: null, txt: 'bait & ambush', modes: 's' },
+  { n: 3, key: 'cover', txt: 'hiding behind stars', modes: 's' },
+  { n: 3, key: 'regroup', txt: 'retreat & regroup', modes: 'Fs' },
+  { n: 5, key: 'sync', txt: 'synchronized strikes', modes: 'Fs' },
+  { n: 5, key: 'dodge', txt: 'dodging your shots', modes: 'Fs' },
+  { n: 6, key: 'hunters', txt: 'hunter-killers chase damaged ships', modes: 'Fs' },
 ];
 function setAI(n) {
   AI.lead = Math.min(1, 0.45 + 0.11 * n);          // how well they lead their shots: 56% in round 1, perfect from round 5
   for (const u of AI_UNLOCKS) if (u.key) AI[u.key] = n >= u.n;
-  const m = { fighter: 'F', squadron: 's', fleet: 'f' }[gameMode];
+  const m = { fighter: 'F', squadron: 's' }[gameMode];
   return AI_UNLOCKS.filter((u) => u.n === n && u.modes.includes(m)).map((u) => u.txt);
 }
 let strikeClock = 0;                                 // shared attack timer for synchronized strikes
@@ -684,14 +656,12 @@ function liveTargets() {
   if (teamMode()) return friends;
   return player.alive ? [player] : [];
 }
-// heavyN: the last heavyN members are cruisers (fire support inside a bigger group).
-// cls: the group's ship class (Fleet; see ships.js). at: where it starts (Fleet: a spot in the enemy half).
-function spawnGroup(role, n, wave, cap = null, heavyN = 0, cls = 'fighter', at = null) {
-  const g = { role, cls, members: [], t: rand(0, 1.5), focus: null, focusT: 0, ambushPt: null, sprung: false, lureDone: false, cap };
+function spawnGroup(role, n, wave) {
+  const g = { role, members: [], t: rand(0, 1.5), focus: null, focusT: 0, ambushPt: null, sprung: false, lureDone: false };
   // The group enters together through one face, well away from you.
   const ref = player.obj.position;
   let best = null, bestD = -1;
-  for (let k = 0; k < 8 && !at; k++) {
+  for (let k = 0; k < 8; k++) {
     const p = new THREE.Vector3(rand(-0.7, 0.7), rand(-0.7, 0.7), rand(-0.7, 0.7)).multiply(HB);
     const ax = ['x', 'y', 'z'][k % 3];
     p[ax] = (Math.random() < 0.5 ? -1 : 1) * HB[ax] * 0.95;
@@ -699,60 +669,35 @@ function spawnGroup(role, n, wave, cap = null, heavyN = 0, cls = 'fighter', at =
     const d = p.distanceTo(ref) + rand(0, BOX_B * 0.6);
     if (d > bestD) { bestD = d; best = p; }
   }
-  if (at) best = at.clone();
   if (!best) best = new THREE.Vector3(0, 0, -HB.z * 0.95);
-  if (cap) best = cap.obj.position.clone();         // launched from a flagship
   if (role === 'bait') g.ambushPt = coverPoint(ref, best, new THREE.Vector3()) || best.clone().multiplyScalar(0.8);
   for (let i = 0; i < n; i++) {
     const pos = best.clone().add(_v1.randomDirection().multiplyScalar(0.4 * S * Math.sqrt(Math.max(1, n / 3))));
     clampIn(pos, 0.98);
     obstPushOut(pos, 0.3 * S);
-    const e = spawnEnemy(i >= n - heavyN ? 'heavy' : role === 'bait' && i > 0 ? 'ambush' : role, wave, pos, g, cls);
+    const e = spawnEnemy(role === 'bait' && i > 0 ? 'ambush' : role, wave, pos, g);
     e.side = i % 2 ? 1 : -1;
     g.members.push(e);
   }
   groups.push(g);
   return g;
 }
-// A ship model for a class, in a colour (fighters: yours = the classic player ship, theirs = the red raider).
-function buildClassShip(cls, color, enemy) {
-  if (cls === 'interceptor') return buildInterceptor(color);
-  if (cls === 'bomber') return buildBomber(color);
-  if (cls === 'shield') return buildShieldShip(color);
-  return enemy ? buildFighter(color) : buildPlayerShip(color);
-}
-// A shield ship's bubble: a faint wire sphere that lights up when it soaks a shot (child of the ship).
-const BUBBLE_GEO = new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(1, 1));
-function addBubble(ship, color) {
-  const sh = CLASSES.shield.shield;
-  const m = new THREE.LineSegments(BUBBLE_GEO, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.1, blending: THREE.AdditiveBlending, depthWrite: false }));
-  m.scale.setScalar(sh.r);                               // the ship is scaled by S, so this is sh.r * S in the room
-  ship.obj.add(m);
-  ship.bubble = m; ship.sh = sh.max; ship.shFlash = 0;
-}
-function spawnEnemy(role, wave, pos, group, cls = 'fighter') {
+function spawnEnemy(role, wave, pos, group) {
   const heavy = role === 'heavy';
   const st = ROLE_STATS[role];
-  const C = heavy ? null : clsOf(cls);
-  if (heavy) cls = 'cruiser';
-  const vet = gameMode === 'fleet' ? Math.floor((wave - 1) / 3) : 0;   // Fleet: tougher pilots in later rounds
-  const obj = shrink(heavy ? buildCruiser(ENEMY_COLOR.getHex()) : buildClassShip(cls, ENEMY_COLOR.getHex(), true));
+  const obj = shrink(heavy ? buildCruiser(ENEMY_COLOR.getHex()) : buildFighter(ENEMY_COLOR.getHex()));
   obj.position.copy(pos);
-  // Class multipliers relative to the fighter: hull, speed, turn rate, rate of fire.
-  const hpK = C ? C.hp / 3 : 1, spK = C ? C.speed : 1, tuK = C ? C.turn : 1, fiK = C ? C.fire / 0.3 : 1;
-  const hp = Math.round((st.hp + vet) * hpK * 2) / 2;
   const e = {
-    type: heavy ? 'cruiser' : 'fighter', cls, role, group, obj, hp, maxHp: hp, radius: (heavy ? 0.34 : cls === 'bomber' || cls === 'shield' ? 0.24 : 0.2) * S,
+    type: heavy ? 'cruiser' : 'fighter', role, group, obj, hp: st.hp, maxHp: st.hp, radius: (heavy ? 0.34 : 0.2) * S,
     fwd: _v1.copy(ARENA_C).sub(pos).normalize().clone(), bank: 0,
-    turn: (st.turn + wave * 0.06) * tuK, speed: st.speed * S * (1 + wave * 0.05) * spK,
-    fireInterval: Math.max(st.fire * 0.45, st.fire - wave * 0.12) * fiK, range: st.range * S,
+    turn: st.turn + wave * 0.06, speed: st.speed * S * (1 + wave * 0.05),
+    fireInterval: Math.max(st.fire * 0.45, st.fire - wave * 0.12), range: st.range * S,
     acc: st.acc * S * Math.max(0.25, 1 - (wave - 1) * 0.08),
     dodger: Math.random() < 0.6,
-    fireCd: rand(1.5, 3.0), flash: 0, points: heavy ? 300 : role === 'sniper' ? 150 : cls === 'bomber' || cls === 'shield' ? 150 : 100, spawnFade: 0,
+    fireCd: rand(1.5, 3.0), flash: 0, points: heavy ? 300 : role === 'sniper' ? 150 : 100, spawnFade: 0,
     retreatT: 0, retreatCd: 0, outnumT: rand(0, 0.5), breakT: 0, side: 1, target: null, mode: 'move',
     goal: randomArenaPoint(0.6),
   };
-  if (cls === 'shield') addBubble(e, 0xff5566);
   quatFromDir(e.fwd, obj.quaternion);
   tintShip(obj, _c.setRGB(0, 0, 0)); // fades in
   board.add(obj);
@@ -777,13 +722,12 @@ function updateGroups(dt, tg) {
     }
   }
   strikeClock += dt;
-  // Hunter-killers go for the most damaged ship you have (capital ships only if nothing else is left).
+  // Hunter-killers go for the most damaged ship you have.
   let weakest = null, wv = Infinity;
   for (const b of tg) {
-    const v = (b.kind === 'capital' ? 10 : 0) + (b.hp || 1) / (b.maxHp || (b === player ? MAX_HP : BOT_HP));
+    const v = (b.hp || 1) / (b === player ? MAX_HP : BOT_HP);
     if (v < wv) { wv = v; weakest = b; }
   }
-  const liveCaps = gameMode === 'fleet' ? FLEET_CAPS.filter((c) => c.alive) : [];
   for (let i = groups.length - 1; i >= 0; i--) {
     const g = groups[i];
     g.members = g.members.filter((e) => e.hp > 0);
@@ -792,15 +736,7 @@ function updateGroups(dt, tg) {
     g.focusT -= dt;
     if (g.focusT <= 0 || !g.focus || !g.focus.alive) {
       g.focusT = 3;
-      // v16 classes: bombers go for your capital ships; interceptors hunt your small ships (bombers first).
-      const smalls = g.cls === 'interceptor' ? tg.filter((b) => b.kind !== 'capital') : null;
-      if (g.cls === 'bomber' && liveCaps.length) g.focus = nearestTo(centroid(g.members, _v3), liveCaps);
-      else if (smalls && smalls.length) {
-        const bmb = smalls.filter((b) => b.unit && b.unit.cls === 'bomber');
-        g.focus = nearestTo(centroid(g.members, _v3), bmb.length ? bmb : smalls);
-      } else if (g.role === 'hunter') g.focus = weakest;
-      else if (AI.capHunt && liveCaps.length && (g.role === 'pincer' || g.role === 'heavy'))
-        g.focus = liveCaps.reduce((a, c) => (c.hp < a.hp ? c : a));   // gang up on your weaker capital ship
+      if (g.role === 'hunter') g.focus = weakest;
       else if (g.role === 'sniper' || g.role === 'heavy' || g.role === 'bait' || !AI.focus) g.focus = nearestTo(centroid(g.members, _v3), tg);
       else g.focus = exposed;                       // focus fire
     }
@@ -812,7 +748,7 @@ function updateGroups(dt, tg) {
     }
   }
 }
-const _eg = new THREE.Vector3(), _es = new THREE.Vector3(), _ed = new THREE.Vector3(), _ea = new THREE.Vector3();
+const _es = new THREE.Vector3(), _ed = new THREE.Vector3(), _ea = new THREE.Vector3();
 function updateEnemies(dt) {
   const sq = teamMode();
   const tg = liveTargets();
@@ -919,14 +855,6 @@ function updateEnemies(dt) {
       const d = p.distanceTo(o.obj.position);
       if (d < 0.6 * S && d > 1e-4) desired.addScaledVector(_v1.subVectors(p, o.obj.position).normalize(), (0.6 * S - d) * 4);
     }
-    // Fleet: steer clear of capital ships (both sides) instead of flying through them.
-    if (gameMode === 'fleet') {
-      for (const c of [...FLEET_CAPS, ...enemyCaps]) {
-        if (!c.alive) continue;
-        const d = p.distanceTo(c.obj.position), min = c.radius + 0.4 * S;
-        if (d < min && d > 1e-4) desired.addScaledVector(_v1.subVectors(p, c.obj.position).normalize(), ((min - d) / min) * 4);
-      }
-    }
     // Round 5+: dodge your shots (side-step bullets that would hit).
     if (AI.dodge && e.dodger && e.spawnFade >= 1) {
       for (const pb of playerBullets.list) {
@@ -943,11 +871,8 @@ function updateEnemies(dt) {
     obstAvoid(p, e.fwd, e.speed, desired);
     desired.normalize();
     steer(e, desired.clone(), dt);
-    // Fleet: far from the fight they cruise fast (like your squadrons' auto-boost), then slow to fight.
-    const far = gameMode === 'fleet' && mode === 'move' && T && e.retreatT <= 0 && p.distanceTo(T.obj.position) > 6 * S;
-    const spd = e.speed * (mode === 'aim' ? 0.35 : 1) * (e.retreatT > 0 ? 1.25 : 1) * (far ? 1.8 : 1);
+    const spd = e.speed * (mode === 'aim' ? 0.35 : 1) * (e.retreatT > 0 ? 1.25 : 1);
     p.addScaledVector(e.fwd, spd * dt);
-    if (e.bubble) shieldTick(e, dt);
     wrapBox(p);
     obstPushOut(p, e.radius);
     e.mode = mode;
@@ -969,7 +894,7 @@ function updateEnemies(dt) {
         for (const s of shots) {
           const d = to.clone();
           if (s) d.applyAxisAngle(UP, s);
-          enemyBullets.spawn(_v3.copy(p).addScaledVector(e.fwd, e.radius), d.multiplyScalar(bulletSpeed), 4, 'fighter', e.cls);
+          enemyBullets.spawn(_v3.copy(p).addScaledVector(e.fwd, e.radius), d.multiplyScalar(bulletSpeed), 4);
         }
         sfx.enemyLaser(p);
         e.fireCd = e.fireInterval * rand(0.8, 1.3);
@@ -985,29 +910,9 @@ function updateEnemies(dt) {
     if (enemies[i].hp <= 0) { board.remove(enemies[i].obj); enemies.splice(i, 1); }
   }
 }
-// Shield energy comes back slowly; the bubble glows briefly when it soaks a shot.
-function shieldTick(s, dt) {
-  const sh = CLASSES.shield.shield;
-  s.sh = Math.min(sh.max, s.sh + sh.regen * dt);
-  s.shFlash = Math.max(0, s.shFlash - dt);
-  s.bubble.visible = s.sh >= 0.5;
-  s.bubble.material.opacity = 0.06 + 0.08 * (s.sh / sh.max) + s.shFlash * 2;
-}
-// A shot about to hit `t`: a friendly shield ship close to t soaks it instead (returns true).
-function shieldSoak(shields, t, b, dmg) {
-  const r = CLASSES.shield.shield.r * S;
-  for (const s of shields) {
-    if (s.sh < 0.5 || s.obj.position.distanceTo(t.obj.position) > r) continue;
-    s.sh = Math.max(0, s.sh - dmg * shotDrain(b.cls));
-    s.shFlash = 0.15;
-    return true;
-  }
-  return false;
-}
 function damageEnemy(e, amount) {
   if (e.hp <= 0) return;
   e.hp -= amount;
-  if (e.hp < 1e-6) e.hp = 0;
   e.flash = 0.08;
   if (e.hp <= 0) {
     explode(e.obj, ENEMY_COLOR, _v1.copy(e.fwd).multiplyScalar(e.speed), e.type === 'cruiser');
@@ -1021,120 +926,37 @@ function damageEnemy(e, amount) {
     if (gameMode === 'fighter' && state !== 'lobby') haptic('right', 0.3, 25);
   }
 }
-function damageTarget(t, amount = 1) { if (t === player) damagePlayer(); else if (t.kind === 'capital') damageCapital(t, amount); else damageBot(t, amount); }
-// Campaign scoring: what you lost this battle (ships, and Fleet points).
-let lossCount = 0, lossPts = 0, fleetPts = 0;
+function damageTarget(t) { if (t === player) damagePlayer(); else damageBot(t); }
 
-// ---------------------------------------------------------------- friendly squadrons (Squadron + Fleet)
+// ---------------------------------------------------------------- friendly squadron (Squadron mode)
 // A squad = 4 bot fighters that fly around an invisible ANCHOR (the squad's command point). The
 // anchor's heading is the order; the bots fly their own ships: formation, engage, dodge, separation.
-// Squadron mode has one squad whose anchor is the (invisible) player ship. Fleet mode has three
-// colour-coded squads plus two friendly capital ships, all commandable.
-const DRIFT = 0.3 * CRUISE;                        // Fleet round start: everything drifts forward this slowly
+// The anchor is the (invisible) player ship.
 const BOT_N = 4, BOT_HP = 3, BOT_SPACING = 0.6 * S, LEASH = 2.2 * S, BOT_RANGE = 4.5 * S;
-const CAP_SCALE = 2.4, CAP_HP = 60, CAP_SPEED = 0.4 * S, CAP_BOOST = 0.7 * S, CAP_RADIUS = 0.75 * S;
-// v16 Fleet: squadrons cruise and fight a little slower; on the way to a far order point they boost.
-const FCRUISE = 0.85 * CRUISE, AUTO_BOOST_DIST = 3.5 * S;
-function teamMode() { return gameMode === 'squadron' || gameMode === 'fleet'; }
+function teamMode() { return gameMode === 'squadron'; }
 function makeSquad(name, color) {
   const sq = {
-    name, kind: 'squad', cls: 'fighter', color: new THREE.Color(color), bots: [], anchor: new THREE.Vector3(), fwd: new THREE.Vector3(0, 0, -1),
-    q: new THREE.Quaternion(), right: new THREE.Vector3(1, 0, 0), speed: CRUISE, engaged: false, prefTarget: null,
-    order: { type: 'move', point: new THREE.Vector3(), target: null }, radius: 0.9 * S,
+    name, kind: 'squad', color: new THREE.Color(color), bots: [], anchor: new THREE.Vector3(), fwd: new THREE.Vector3(0, 0, -1),
+    q: new THREE.Quaternion(), right: new THREE.Vector3(1, 0, 0), speed: CRUISE, engaged: false,
   };
   for (let i = 0; i < BOT_N; i++) {
     const obj = shrink(buildPlayerShip(sq.color.getHex()));
     obj.visible = false;
     board.add(obj);
-    sq.bots.push({ i, unit: sq, obj, fwd: new THREE.Vector3(0, 0, -1), bank: 0, turn: 3.4, speed: CRUISE, hp: BOT_HP, maxHp: BOT_HP, alive: false, flash: 0, invuln: 0, fireCd: rand(0, 0.3), target: null, side: i % 2 ? 1 : -1, radius: 0 });
+    sq.bots.push({ i, unit: sq, obj, fwd: new THREE.Vector3(0, 0, -1), bank: 0, turn: 3.4, speed: CRUISE, hp: BOT_HP, alive: false, flash: 0, invuln: 0, fireCd: rand(0, 0.3), target: null, side: i % 2 ? 1 : -1, radius: 0 });
   }
   return sq;
 }
-// Give a squadron a ship class: new models for its 4 ships (and a shield bubble for shield ships).
-function setSquadClass(sq, cls) {
-  if (sq.cls === cls) return;
-  sq.cls = cls;
-  for (const b of sq.bots) {
-    const vis = b.obj.visible;
-    board.remove(b.obj);
-    b.obj = shrink(buildClassShip(cls, sq.color.getHex(), false));
-    b.obj.visible = vis;
-    b.bubble = null;
-    if (cls === 'shield') addBubble(b, sq.color.getHex());
-    b.hitR = cls === 'bomber' || cls === 'shield' ? 0.17 * S : 0;
-    board.add(b.obj);
-  }
-}
 const SQUAD = makeSquad('SQUAD', 0x33ddff);          // Squadron mode
 const bots = SQUAD.bots;
-// Fleet: a pool of colour-coded squadrons and capital ships; the ones in this battle are listed in
-// FLEET_SQUADS / FLEET_CAPS / UNITS (filled by fieldFleet, from your deployment).
-const SQUAD_POOL = [['BLUE', 0x3d8bff], ['GREEN', 0x44ff88], ['GOLD', 0xffcc33], ['VIOLET', 0xc58cff], ['ORANGE', 0xff9a4d], ['WHITE', 0xe6f2ff]].map(([n, c]) => makeSquad(n, c));
-const FLEET_SQUADS = [];
-const FRIEND_CAP_COLOR = new THREE.Color(0xa8f0ff);
-
-// ---------------------------------------------------------------- capital ships (both sides, Fleet)
-// Big, slow, tough; turrets fire automatically at the nearest foe in range (clear line only).
-function makeHealthBar(color) {
-  const g = new THREE.Group();
-  const bg = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.1), new THREE.MeshBasicMaterial({ color: 0x223344, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }));
-  const fill = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.1), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, depthWrite: false }));
-  fill.position.z = 0.001;
-  g.add(bg, fill);
-  g.userData.fill = fill;
-  g.visible = false;
-  board.add(g);
-  return g;
-}
-function makeCapital(name, side) {
-  const color = side === 'friend' ? FRIEND_CAP_COLOR : ENEMY_COLOR;
-  const obj = shrink(buildCruiser(color.getHex()));
-  obj.scale.setScalar(S * CAP_SCALE);
-  obj.userData.ptBase *= CAP_SCALE;
-  obj.userData.mats[1].size *= CAP_SCALE;
-  obj.visible = false;
-  board.add(obj);
-  return {
-    name, kind: 'capital', side, color: color.clone(), obj, fwd: new THREE.Vector3(0, 0, -1), q: new THREE.Quaternion(), bank: 0, turn: 0.55,
-    speed: CAP_SPEED, hp: CAP_HP, maxHp: CAP_HP, radius: CAP_RADIUS, alive: false, flash: 0, spawnFade: 1, engaged: false, prefTarget: null,
-    turrets: [{ off: new THREE.Vector3(0.12, 0.1, 0.1), cd: 1 }, { off: new THREE.Vector3(-0.12, 0.1, -0.1), cd: 1.4 }, { off: new THREE.Vector3(0, 0.12, -0.3), cd: 1.8 }],
-    order: { type: 'move', point: new THREE.Vector3(), target: null }, bar: makeHealthBar(side === 'friend' ? 0x66ddff : 0xff4455), t: rand(0, 5),
-  };
-}
-const CAP_POOL = [makeCapital('CAPITAL 1', 'friend'), makeCapital('CAPITAL 2', 'friend'), makeCapital('CAPITAL 3', 'friend')];
-for (const c of CAP_POOL) c.cls = 'capital';
-const FLEET_CAPS = [];
-const UNITS = [];
-const enemyCaps = [makeCapital('FLAGSHIP', 'enemy'), makeCapital('FLAGSHIP 2', 'enemy')];
-for (const c of enemyCaps) c.cls = 'capital';
-function unitAlive(u) { return u.kind === 'capital' ? u.alive : u.bots.some((b) => b.alive); }
-function unitCenter(u) { return u.kind === 'capital' ? u.obj.position : u.anchor; }
-function unitSpeed(u) { return u.speed; }
-function unitCls(u) { return u.kind === 'capital' ? 'capital' : u.cls; }
-function cruiseOf(u) { return u.kind === 'capital' ? CAP_SPEED : FCRUISE * clsOf(u.cls).speed; }
-function boostOf(u) { return u.kind === 'capital' ? CAP_BOOST : BOOST * clsOf(u.cls).speed; }
-// What a hit target counts as for damage: small ships, heavy ships (bombers, shields, cruisers) or capitals.
-function hitCat(t) {
-  if (t.kind === 'capital') return 'cap';
-  const c = t.unit ? t.unit.cls : t.cls;
-  return c === 'bomber' || c === 'shield' || c === 'cruiser' ? 'heavy' : 'small';
-}
 
 // Everything on our side that is alive this frame (for targeting, friendly-fire and collision checks).
 let friends = [];
 function refreshFriends() {
   friends = [];
   if (gameMode === 'squadron') { for (const b of bots) if (b.alive) friends.push(b); }
-  else if (gameMode === 'fleet') {
-    for (const sq of FLEET_SQUADS) for (const b of sq.bots) if (b.alive) friends.push(b);
-    for (const c of FLEET_CAPS) if (c.alive) friends.push(c);
-  }
 }
-function foesList() {
-  const l = enemies.filter((e) => e.hp > 0);
-  for (const c of enemyCaps) if (c.alive) l.push(c);
-  return l;
-}
+function foesList() { return enemies.filter((e) => e.hp > 0); }
 function friendsInLine(self, aim) {
   for (const o of friends) {
     if (o === self) continue;
@@ -1143,7 +965,7 @@ function friendsInLine(self, aim) {
   return false;
 }
 
-const _bR = new THREE.Vector3(), _bS = new THREE.Vector3(), _bD = new THREE.Vector3(), _bT = new THREE.Vector3(), _bQ = new THREE.Quaternion();
+const _bS = new THREE.Vector3(), _bD = new THREE.Vector3(), _bT = new THREE.Vector3(), _bQ = new THREE.Quaternion();
 function cmdRight(out) {
   // Formation "right" from the command orientation (quaternion in Mirror mode, so it never flips).
   if (activeSteer() === 'mirror') return out.set(1, 0, 0).applyQuaternion(player.mq);
@@ -1162,10 +984,8 @@ function syncSquadToPlayer() {
   SQUAD.speed = player.speed;
 }
 function resetSquad(sq, on) {
-  const hp = clsOf(sq.cls).hp || BOT_HP;
   sq.bots.forEach((b, k) => {
-    b.alive = on; b.hp = b.maxHp = hp; b.flash = 0; b.invuln = 0; b.speed = CRUISE; b.bank = 0;
-    if (b.bubble) { b.sh = CLASSES.shield.shield.max; b.shFlash = 0; }
+    b.alive = on; b.hp = BOT_HP; b.flash = 0; b.invuln = 0; b.speed = CRUISE; b.bank = 0;
     b.obj.visible = on;
     placeBot(sq, b, k, BOT_N);
   });
@@ -1174,22 +994,6 @@ function resetBots() {
   syncSquadToPlayer();
   resetSquad(SQUAD, gameMode === 'squadron');
 }
-function reviveBot(sq = SQUAD) {
-  const b = sq.bots.find((x) => !x.alive);
-  if (!b) return false;
-  b.alive = true; b.hp = b.maxHp; b.invuln = 1.5; b.obj.visible = true; b.speed = CRUISE;
-  placeBot(sq, b, 0, 1);
-  b.obj.position.addScaledVector(sq.fwd, -0.6 * S);
-  blink(b.obj.position, sq.color);
-  return true;
-}
-// Resolve a squad's preferred target (an enemy ship, an enemy capital, or an enemy group) to a ship.
-function resolveTarget(t, near) {
-  if (!t) return null;
-  if (t.members) { const alive = t.members.filter((e) => e.hp > 0); return alive.length ? nearestTo(near, alive) : null; }
-  if (t.kind === 'capital') return t.alive ? t : null;
-  return t.hp > 0 ? t : null;
-}
 let squadEngaged = false;
 function updateSquad(sq, dt) {
   const engaged = sq.engaged;
@@ -1197,43 +1001,30 @@ function updateSquad(sq, dt) {
   const alive = sq.bots.filter((b) => b.alive);
   const m = alive.length;
   const foes = foesList();
-  const C = clsOf(sq.cls), fleet = gameMode === 'fleet';
   alive.forEach((b, k) => {
     const p = b.obj.position;
     const desired = _bD.set(0, 0, 0);
     let spdT, homing = false;
-    b.breakT = Math.max(0, (b.breakT || 0) - dt);
     b.target = null;
     if (engaged) {
-      // ENGAGE: the ordered target if it's within reach, otherwise the nearest enemy near the group...
-      let best = resolveTarget(sq.prefTarget, p), bd = best ? best.obj.position.distanceTo(p) : Infinity;
-      if (best && best.obj.position.distanceTo(anchor) > LEASH + BOT_RANGE) { best = null; bd = Infinity; }
-      if (!best) {
-        for (const e of foes) {
-          if (e.spawnFade < 0.5) continue;
-          // v16: bombers would rather hit capital ships; interceptors leave capital ships alone.
-          let d = e.obj.position.distanceTo(p);
-          if (C.capHunter && e.kind === 'capital') d -= 3 * S;
-          if (C.hunter && e.kind === 'capital') d += 6 * S;
-          if (e.obj.position.distanceTo(anchor) < LEASH + BOT_RANGE && d < bd) { bd = d; best = e; }
-        }
-        if (best) bd = best.obj.position.distanceTo(p);
+      // ENGAGE: the nearest enemy near the group...
+      let best = null, bd = Infinity;
+      for (const e of foes) {
+        if (e.spawnFade < 0.5) continue;
+        const d = e.obj.position.distanceTo(p);
+        if (e.obj.position.distanceTo(anchor) < LEASH + BOT_RANGE && d < bd) { bd = d; best = e; }
       }
       b.target = best;
       if (best) {
         leadPoint(p, best, 7 * S, _bT);
         desired.subVectors(_bT, p).normalize();
-        if (best.kind === 'capital') {
-          // Strafing runs on a capital ship: fly in shooting, break away past it, then come round again.
-          if (bd < best.radius + 0.5 * S) b.breakT = 0.9;
-          if (b.breakT > 0) { _bS.subVectors(p, best.obj.position).normalize(); sideOf(_bS, _bR); desired.copy(_bS).addScaledVector(_bR, b.side * 0.6); }
-        } else if (bd < 0.7 * S) { sideOf(b.fwd, _bS); desired.addScaledVector(_bS, b.side * 1.5); }   // don't ram it
+        if (bd < 0.7 * S) { sideOf(b.fwd, _bS); desired.addScaledVector(_bS, b.side * 1.5); }   // don't ram it
       } else desired.copy(cmd);
       // ...but stays on a leash around the group centre.
       wrapDelta(p, anchor, _bS);
       const off = _bS.length();
-      spdT = fleet ? CRUISE * 1.1 * C.speed : CRUISE * 1.25;      // v16 Fleet: dogfights a little slower
-      if (off > LEASH * 0.7) { desired.copy(_bS).normalize(); spdT = CRUISE * 0.9 * C.speed; homing = true; }   // at the leash: tight turn straight back
+      spdT = CRUISE * 1.25;
+      if (off > LEASH * 0.7) { desired.copy(_bS).normalize(); spdT = CRUISE * 0.9; homing = true; }   // at the leash: tight turn straight back
       else if (off > LEASH * 0.4) desired.addScaledVector(_bS, (((off - LEASH * 0.4) / LEASH) * 4) / off);
     } else {
       // FORMATION: line abreast across the commanded heading, catching up / easing off to hold the slot.
@@ -1242,9 +1033,9 @@ function updateSquad(sq, dt) {
       const along = _bS.dot(cmd);
       // Close the sideways gap by steering, the front/back gap mostly by speed (never turn back).
       desired.copy(_bS).addScaledVector(cmd, -along + Math.max(0.8 * S, along + 0.8 * S)).normalize();
-      spdT = clamp(sq.speed + along * 2.5, 0.3 * CRUISE, BOOST * 1.3 * C.speed);
+      spdT = clamp(sq.speed + along * 2.5, 0.3 * CRUISE, BOOST * 1.3);
     }
-    // Separation: never run into a friendly ship (wingmen, other squads, capital ships).
+    // Separation: never run into a wingman.
     for (const o of friends) {
       if (o === b) continue;
       wrapDelta(o.obj.position, p, _bS);
@@ -1270,30 +1061,22 @@ function updateSquad(sq, dt) {
     obstAvoid(p, b.fwd, b.speed, desired);
     if (desired.lengthSq() < 1e-6) desired.copy(b.fwd);
     desired.normalize();
-    b.turn = (engaged ? 4.6 : 3.4) * C.turn;      // dogfighting = tighter turns
+    b.turn = engaged ? 4.6 : 3.4;                 // dogfighting = tighter turns
     steer(b, desired.clone(), dt);
     b.speed += (spdT - b.speed) * Math.min(1, dt * (b.speed > spdT ? 4 : 2.5));
     p.addScaledVector(b.fwd, b.speed * dt);
     wrapBox(p);
     obstPushOut(p, 0.12 * S);
-    // Never fly through an enemy capital ship's hull.
-    if (gameMode === 'fleet') for (const c of enemyCaps) {
-      if (!c.alive) continue;
-      _bS.subVectors(p, c.obj.position);
-      const d = _bS.length(), m = c.radius + 0.1 * S;
-      if (d < m && d > 1e-5) p.addScaledVector(_bS, (m - d) / d);
-    }
     // Shoot only with a clear line: never through a friendly ship or a star.
     b.fireCd -= dt;
     if (engaged && b.target && b.fireCd <= 0 && combat()) {
       _bS.subVectors(_bT, p);
       if (_bS.length() < BOT_RANGE && b.fwd.angleTo(_bS) < 0.22 && !friendsInLine(b, _bT) && !obstBlocks(p, b.target.obj.position)) {
-        playerBullets.spawn(_v3.copy(p).addScaledVector(b.fwd, 0.2 * S), _v1.copy(_bS).normalize().multiplyScalar(7 * S), 1.2, 'bot', sq.cls);
+        playerBullets.spawn(_v3.copy(p).addScaledVector(b.fwd, 0.2 * S), _v1.copy(_bS).normalize().multiplyScalar(7 * S), 1.2);
         if (Math.random() < 0.4) sfx.laser(p);
-        b.fireCd = C.fire * rand(0.9, 1.1);
+        b.fireCd = 0.3;
       } else b.fireCd = 0.05;
     }
-    if (b.bubble) shieldTick(b, dt);
     b.invuln = Math.max(0, b.invuln - dt);
     b.flash = Math.max(0, b.flash - dt);
     if (b.flash > 0) tintShip(b.obj, WHITE);
@@ -1307,8 +1090,7 @@ function updateSquad(sq, dt) {
       wrapDelta(c, a, _bS);
       const d = _bS.length(), min = 0.22 * S + (o.radius || 0);
       if (d >= min || d < 1e-5) continue;
-      if (o.kind === 'capital') a.addScaledVector(_bS, (min - d) / d);           // capital ships don't get shoved
-      else { _bS.multiplyScalar((min - d) / (2 * d)); a.add(_bS); c.sub(_bS); }
+      _bS.multiplyScalar((min - d) / (2 * d)); a.add(_bS); c.sub(_bS);
     }
   }
 }
@@ -1318,13 +1100,11 @@ function updateBots(dt) {
   SQUAD.engaged = squadEngaged = input.fire && combat();
   updateSquad(SQUAD, dt);
 }
-function damageBot(b, amount = 1) {
+function damageBot(b) {
   if (!b.alive || b.invuln > 0 || !combat()) return;
   const sq = b.unit;
-  sq.hurt = (sq.hurt || 0) + Math.min(1.5, amount);   // squadron leaders notice when their pilots take hits
-  if (state === 'tutorial') { b.hp = Math.max(1, b.hp - amount); b.invuln = 0.6; b.flash = 0.2; return; }   // nobody dies in training
-  b.hp -= amount;
-  if (b.hp < 1e-6) b.hp = 0;
+  if (state === 'tutorial') { b.hp = Math.max(1, b.hp - 1); b.invuln = 0.6; b.flash = 0.2; return; }   // nobody dies in training
+  b.hp--;
   b.invuln = 0.6;
   b.flash = 0.2;
   if (state === 'lobby') {
@@ -1336,18 +1116,11 @@ function damageBot(b, amount = 1) {
   if (b.hp > 0) return;
   b.alive = false;
   b.obj.visible = false;
-  lossCount++; lossPts += clsOf(sq.cls).cost / BOT_N;
   explode(b.obj, sq.color, _v1.copy(b.fwd).multiplyScalar(b.speed), true);
   sfx.boom(b.obj.position, true);
   haptic('right', 1.0, 160);
   screenFlash = 0.25;
   const left = sq.bots.filter((x) => x.alive).length;
-  if (gameMode === 'fleet') {
-    showMessage(left ? `${sq.name} SHIP DOWN` : `${sq.name} LOST`, left ? `${left} left in ${sq.name}` : 'Squadron destroyed', 1.6);
-    if (!left) selected.delete(sq);
-    if (FLEET_CAPS.every((x) => !x.alive) && !FLEET_SQUADS.some(unitAlive)) gameOver('FLEET LOST');
-    return;
-  }
   if (left > 0) { showMessage('WINGMAN DOWN', `${left} ship${left > 1 ? 's' : ''} left`, 1.6); return; }
   gameOver('SQUADRON LOST');
 }
@@ -1357,1102 +1130,30 @@ function gameOver(title) {
   sfx.chime(false);
   state = 'gameover';
   stateTimer = 0;
-  if (campaignB) { endCampaign(false, title); return; }
   saveBest();
   recordGame(gameMode, wave, score, kills);
   showMessage(title, endLine(), 9999);
   log(`gameover mode=${gameMode} round=${wave} score=${score} kills=${kills}`);
 }
 // Everything that fights: real games, the ambient lobby skirmish and the tutorial.
-// (Not while you deploy your fleet: then everything is frozen.)
-function combat() { return (state === 'playing' || state === 'lobby' || state === 'tutorial') && !deploying; }
-var deploying = false;                               // var: read by combat() before the deployment section runs
+function combat() { return state === 'playing' || state === 'lobby' || state === 'tutorial'; }
 
-// ---------------------------------------------------------------- Fleet: units, selection, orders
-const selected = new Set();
+// The battle box's forward orientation (Mirror steering re-centres to it).
 const BOX_FWD_Q = new THREE.Quaternion();
 quatFromDir(new THREE.Vector3(0, 0, -1), BOX_FWD_Q);
-// Unit markers: a selection / hover ring (faces you) and a faint order line.
-for (const u of [...SQUAD_POOL, ...CAP_POOL]) {
-  const pts = [];
-  for (let i = 0; i < 40; i++) { const a = (i / 40) * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a), Math.sin(a), 0)); }
-  u.ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: u.color, transparent: true, opacity: 0.9, depthWrite: false }));
-  u.ring.scale.setScalar(u.kind === 'capital' ? 1.15 * S : 0.95 * S);
-  u.ring.visible = false;
-  u.line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
-    new THREE.LineBasicMaterial({ color: u.color, transparent: true, opacity: 0.35, depthWrite: false }));
-  u.line.frustumCulled = false;
-  u.line.visible = false;
-  board.add(u.ring, u.line);
-}
-// Take command of a unit: the controller's current pose now means "the unit's current heading",
-// so nothing jumps when you switch between units.
-function adoptCommand(u) {
-  const q = u.kind === 'capital' ? quatFromDir(u.fwd, _bQ) : u.q;
-  player.mq.copy(q); player.obj.quaternion.copy(q);
-  player.fwd.set(0, 0, 1).applyQuaternion(q);
-  SHIP_NEUTRAL_Q.copy(q); mirrorQ.copy(q);
-  needNeutral = true;                                // the next VR frame captures the controller pose
-}
-function selectUnits(list, quiet) {
-  selected.clear();
-  for (const u of list) if (unitAlive(u)) { selected.add(u); u.order.type = 'move'; u.prefTarget = null; }
-  const first = [...selected][0];
-  if (first) adoptCommand(first);
-  if (!quiet) showMessage('SELECTED', selected.size === UNITS.filter(unitAlive).length ? 'Whole fleet' : [...selected].map((u) => u.name).join(', '), 1.2);
-  haptic('left', 0.3, 30);
-}
-// The classic fleet: 3 fighter squadrons + 2 capital ships (tutorial, and the first deployment).
-function defaultFleetPlan() {
-  const p = [];
-  for (let i = 0; i < 3; i++) p.push({ cls: 'fighter', pos: new THREE.Vector3((i - 1) * 2.4 * S, (i - 1) * 0.3 * S, HB.z * 0.5) });
-  for (const i of [0, 1]) p.push({ cls: 'capital', pos: new THREE.Vector3((i ? 1 : -1) * 1.8 * S, -0.6 * S, HB.z * 0.68) });
-  return p;
-}
-// Take every unit out of play.
-function clearFleet() {
-  for (const sq of SQUAD_POOL) { resetSquad(sq, false); sq.order.type = 'idle'; sq.ring.visible = false; sq.line.visible = false; sq.tag && (sq.tag.visible = false); }
-  for (const c of CAP_POOL) { resetCapital(c, false); c.ring.visible = false; c.line.visible = false; c.tag && (c.tag.visible = false); }
-  FLEET_SQUADS.length = 0; FLEET_CAPS.length = 0; UNITS.length = 0;
-  selected.clear();
-}
-// Put a unit of class `cls` into play at `pos` (heading into the room). Returns it (null: none free).
-function fieldUnit(cls, pos) {
-  if (cls === 'capital') {
-    const c = CAP_POOL.find((x) => !FLEET_CAPS.includes(x));
-    if (!c) return null;
-    const p = pos.clone();
-    obstPushOut(p, c.radius);
-    resetCapital(c, true, p, new THREE.Vector3(0, 0, -1));
-    c.order.type = 'idle';
-    setTagLook(c.tag, '#' + c.color.getHexString(), 'C');
-    FLEET_CAPS.push(c);
-    UNITS.splice(UNITS.length, 0, c);
-    return c;
-  }
-  const sq = SQUAD_POOL.find((x) => !FLEET_SQUADS.includes(x));
-  if (!sq) return null;
-  setSquadClass(sq, cls);
-  sq.anchor.copy(pos);
-  obstPushOut(sq.anchor, 0.3 * S);
-  sq.fwd.set(0, 0, -1); sq.q.copy(BOX_FWD_Q); sq.right.set(1, 0, 0).applyQuaternion(sq.q);
-  sq.speed = DRIFT; sq.engaged = false; sq.prefTarget = null; sq.order.type = 'idle'; sq.tac = null; sq.smart = false; sq.hurt = 0; sq.auto = null;
-  resetSquad(sq, true);
-  setTagLook(sq.tag, '#' + sq.color.getHexString(), clsOf(cls).glyph);
-  FLEET_SQUADS.push(sq);
-  UNITS.splice(FLEET_SQUADS.length - 1, 0, sq);        // squadrons first, then capital ships
-  return sq;
-}
-// A fresh fleet from a plan ([{cls, pos}]): everything idle - it drifts forward slowly so you can organise.
-function fieldFleet(plan) {
-  clearFleet();
-  for (const it of plan) fieldUnit(it.cls, it.pos);
-  fleetPts = plan.reduce((a, it) => a + clsOf(it.cls).cost, 0);
-}
-function resetFleet() {
-  for (const c of enemyCaps) resetCapital(c, false);
-  if (gameMode === 'fleet') fieldFleet(defaultFleetPlan()); else clearFleet();
-}
-function resetCapital(c, on, pos, fwd) {
-  c.alive = on; c.obj.visible = on; c.bar.visible = on; c.hp = c.maxHp; c.flash = 0; c.engaged = false; c.prefTarget = null; c.hideT = 0;
-  c.order.type = 'move'; c.speed = c.side === 'friend' ? DRIFT : CAP_SPEED;
-  if (pos) c.obj.position.copy(pos);
-  if (fwd) c.fwd.copy(fwd);
-  quatFromDir(c.fwd, c.obj.quaternion);
-  tintShip(c.obj, c.color);
-}
-function damageCapital(c, amount = 1) {
-  if (!c.alive || !combat()) return;
-  if (state === 'tutorial' && c.side === 'friend') { c.hp = Math.max(1, c.hp - amount); c.flash = 0.06; return; }
-  c.hp -= amount;
-  if (c.hp < 1e-6) c.hp = 0;
-  c.flash = 0.06;
-  if (c.hp > 0) { if (c.side === 'friend') haptic('left', 0.2, 20); return; }
-  c.alive = false; c.obj.visible = false; c.bar.visible = false;
-  explode(c.obj, c.color, _v1.copy(c.fwd).multiplyScalar(c.speed), true);
-  blink(c.obj.position, c.color);
-  sfx.boom(c.obj.position, true);
-  if (c.side === 'enemy') {
-    if (state === 'playing') { score += 1000 * wave; kills++; }
-    haptic('right', 1.0, 200);
-    if (enemyCaps.every((x) => !x.alive)) {
-      // Flagship(s) down: the rest of the enemy fleet jumps out. Wave won.
-      for (const e of enemies) { blink(e.obj.position, ENEMY_COLOR); e.hp = 0; }
-      showMessage('ENEMY FLAGSHIP DOWN', `Round ${wave} won  +${1000 * wave}`, 2.4);
-    } else showMessage('FLAGSHIP DOWN', 'One more to go', 1.6);
-    return;
-  }
-  selected.delete(c);
-  lossCount++; lossPts += CLASSES.capital.cost;
-  screenFlash = 0.3;
-  haptic('right', 1.0, 250);
-  const capsLeft = FLEET_CAPS.filter((x) => x.alive).length;
-  if (!capsLeft && !FLEET_SQUADS.some(unitAlive)) gameOver('FLEET LOST');
-  else if (!capsLeft) showMessage('CAPITALS LOST', 'Squadrons only - keep fighting!', 3.0);
-  else showMessage(`${c.name} LOST`, `${capsLeft} capital ship${capsLeft > 1 ? 's' : ''} left`, 2.0);
-}
-// Turrets: each fires at the nearest foe in range with a clear line (never through friends or stars).
-function capitalGuns(c, dt, foes, interval, range) {
-  for (const t of c.turrets) {
-    t.cd -= dt;
-    if (t.cd > 0 || !combat()) continue;
-    _bS.copy(t.off).applyQuaternion(c.obj.quaternion).multiplyScalar(S * CAP_SCALE).add(c.obj.position);
-    let best = null, bd = range;
-    for (const f of foes) {
-      const d = f.obj.position.distanceTo(_bS);
-      if (d < bd && !obstBlocks(_bS, f.obj.position)) { bd = d; best = f; }
-    }
-    if (!best) { t.cd = 0.25; continue; }
-    const speed = 5 * S;
-    leadPoint(_bS, best, speed, _bT);
-    if (c.side === 'friend' && friendsInLine(c, _bT)) { t.cd = 0.15; continue; }
-    _bD.subVectors(_bT, _bS).normalize();
-    if (c.side === 'friend') playerBullets.spawn(_bS, _bD.clone().multiplyScalar(speed), 1.6, 'cap', 'capital');
-    else enemyBullets.spawn(_bS, _bD.clone().multiplyScalar(speed), 2.2, 'cap', 'capital');
-    if (Math.random() < 0.3) (c.side === 'friend' ? sfx.laser(_bS) : sfx.enemyLaser(_bS));
-    t.cd = interval * rand(0.8, 1.25);
-  }
-}
-function updateBar(c) {
-  if (!c.alive) { c.bar.visible = false; return; }
-  c.bar.visible = true;
-  c.bar.position.copy(c.obj.position); c.bar.position.y += 0.75 * S;
-  c.bar.scale.setScalar(1.3 * S);
-  const f = Math.max(0, c.hp / c.maxHp), fill = c.bar.userData.fill;
-  fill.scale.x = Math.max(0.001, f); fill.position.x = -(1 - f) / 2;
-  c.bar.lookAt(camPos);
-}
-const _fu = new THREE.Vector3(), _fd = new THREE.Vector3();
-function orderTargetPos(u, out) {
-  const o = u.order;
-  if (o.type === 'hold') return out.copy(o.point);
-  if (o.type === 'follow') {
-    const t = o.target;
-    if (!unitAlive(t)) return null;
-    const tf = t.kind === 'capital' ? t.fwd : t.fwd;
-    sideOf(tf, _fd);
-    return out.copy(unitCenter(t)).addScaledVector(tf, -1.4 * S).addScaledVector(_fd, 1.0 * S);
-  }
-  if (o.type === 'attack') {
-    const t = o.target;
-    if (t.members) { const a = t.members.filter((e) => e.hp > 0); if (!a.length) return null; return centroid(a, out); }
-    if (t.kind === 'capital') return t.alive ? out.copy(t.obj.position) : null;
-    return t.hp > 0 ? out.copy(t.obj.position) : null;
-  }
-  return null;
-}
-function nearestFoeDist(p, foes) {
-  let d = Infinity;
-  for (const f of foes) d = Math.min(d, f.obj.position.distanceTo(p));
-  return d;
-}
-function updateFleet(dt) {
-  const playing = combat();
-  const foes = foesList();
-  for (const u of UNITS) {
-    if (!unitAlive(u)) { u.ring.visible = false; u.line.visible = false; if (u.tag) u.tag.visible = false; continue; }
-    const sel = selected.has(u);
-    const cap = u.kind === 'capital';
-    const pos = unitCenter(u);
-    // Orders that point somewhere. v16: when the target is gone, the unit decides for itself what to do next.
-    if (u.order.type !== 'move' && u.order.type !== 'idle' && !orderTargetPos(u, _fu)) {
-      const was = u.order.type;
-      u.order.type = 'move'; u.prefTarget = null;
-      if (!(playing && decideNext(u, was))) showMessage(`${u.name}`, was === 'attack' ? 'Target destroyed - holding course' : 'Escort lost - holding course', 1.4);
-    }
-    if (u.auto && (u.autoT -= dt) <= 0) u.auto = null;
-    const near = nearestFoeDist(pos, foes);
-    let desired = null, spd = cruiseOf(u);
-    u.autoBoost = false;
-    u.smart = !cap && SMART_LEADERS && playing && smartLeader(u, dt, sel, near);
-    if (u.smart) { desired = _fd; spd = u.tac.spd; u.autoBoost = spd > cruiseOf(u) * 1.5; }   // the leader set _fd, engaged and prefTarget
-    else if (u.order.type === 'idle') {
-      // No orders yet: drift forward slowly in formation; only defend yourself if an enemy gets really close.
-      desired = _fd.copy(u.fwd); spd = DRIFT;
-      u.engaged = playing && near < 1.3 * S; u.prefTarget = null;
-    } else if (u.order.type === 'move') {
-      if (sel) {
-        desired = _fd.copy(player.fwd);
-        u.engaged = playing && input.fire;
-        if (!u.engaged) spd = cap ? (input.boost ? CAP_BOOST : input.brake ? CAP_SPEED * 0.4 : CAP_SPEED) : (input.boost ? boostOf(u) : input.brake ? BRAKE : cruiseOf(u));
-      } else { desired = _fd.copy(u.fwd); u.engaged = playing && near < 2.6 * S; }   // keep course, defend yourself
-      if (u.engaged) spd *= 0.55;
-    } else {
-      wrapDelta(pos, _fu, _fd);
-      const dist = _fd.length();
-      const close = u.order.type === 'attack' ? (cap ? 3.5 : 2.2) * S : (u.order.type === 'hold' ? 0.6 : 0.4) * S;
-      u.engaged = playing && (u.order.type === 'attack' ? dist < LEASH + BOT_RANGE : near < 3 * S) || (sel && playing && input.fire);
-      u.prefTarget = u.order.type === 'attack' ? u.order.target : null;
-      if (dist > close) {
-        _fd.normalize();
-        if (u.order.type === 'follow') spd = clamp(unitSpeed(u.order.target) + dist * 1.5, 0.3 * spd, boostOf(u));
-        // v16: a far order point = boost there automatically; stop boosting once fighting.
-        else if (dist > AUTO_BOOST_DIST && !u.engaged) { spd = boostOf(u); u.autoBoost = true; }
-      } else {
-        // At the spot: circle it (bots can't hover; capital ships just slow right down).
-        _fd.crossVectors(_fd.lengthSq() > 1e-6 ? _fd.normalize() : u.fwd, UP);
-        if (_fd.lengthSq() < 1e-4) _fd.set(1, 0, 0);
-        _fd.normalize();
-        spd *= u.order.type === 'follow' ? 1 : cap ? 0.3 : 0.6;
-        if (u.order.type === 'follow') spd = unitSpeed(u.order.target);
-      }
-      desired = _fd;
-    }
-    if (cap) {
-      // Capital ship: turn slowly toward the wanted heading; avoid stars and other big ships.
-      const d2 = _fu.copy(desired);
-      obstAvoid(pos, u.fwd, u.speed, d2);
-      for (const o of [...FLEET_CAPS, ...enemyCaps]) {
-        if (o === u || !o.alive) continue;
-        wrapDelta(o.obj.position, pos, _bS);
-        const d = _bS.length(), min = u.radius + o.radius + 0.6 * S;
-        if (d < min && d > 1e-4) d2.addScaledVector(_bS, (2 * (min - d)) / (min * d));
-      }
-      d2.normalize();
-      steer(u, d2.clone(), dt);
-      u.speed += (spd - u.speed) * Math.min(1, dt * 1.2);
-      pos.addScaledVector(u.fwd, u.speed * dt);
-      wrapBox(pos);
-      obstPushOut(pos, u.radius);
-      for (const o of [...FLEET_CAPS, ...enemyCaps]) {
-        if (o === u || !o.alive) continue;
-        wrapDelta(o.obj.position, pos, _bS);
-        const d = _bS.length(), min = u.radius + o.radius;
-        if (d < min && d > 1e-5) pos.addScaledVector(_bS, (min - d) / d);
-      }
-      capitalGuns(u, dt, foes, u.engaged ? 0.3 : 0.6, (u.engaged ? 6.0 : u.order.type === 'idle' ? 2.5 : 4.5) * S);
-      u.flash = Math.max(0, u.flash - dt);
-      tintShip(u.obj, u.flash > 0 ? WHITE : u.color);
-      updateBar(u);
-    } else {
-      // Squad anchor: selected + move follows the command orientation exactly; otherwise turn toward the order.
-      if (sel && u.order.type === 'move' && !u.smart) {
-        if (activeSteer() === 'mirror') u.q.copy(player.mq); else quatFromDir(player.fwd, u.q);
-        u.fwd.copy(player.fwd);
-      } else {
-        const d2 = _fu.copy(desired);
-        obstAvoid(pos, u.fwd, u.speed, d2);
-        d2.normalize();
-        const a = u.fwd.angleTo(d2);
-        if (a > 1e-4) turnToward(u.fwd, d2, Math.min(a, 2.2 * dt));
-        quatFromDir(u.fwd, u.q);
-      }
-      u.right.set(1, 0, 0).applyQuaternion(u.q);
-      u.speed += (spd - u.speed) * Math.min(1, dt * 3);
-      pos.addScaledVector(u.fwd, u.speed * dt);
-      wrapBox(pos);
-      obstPushOut(pos, 0.15 * S);
-      updateSquad(u, dt);
-    }
-    placeTag(u.tag, pos, cap ? 0.95 : 0.55);
-    // Markers: ring (selected = bright, hovered = dim) and order line (or heading line when selected).
-    const hov = fleetHover && fleetHover.unit === u;
-    u.ring.visible = sel || hov;
-    u.ring.material.opacity = sel ? 0.9 : 0.4;
-    u.ring.position.copy(pos);
-    u.ring.lookAt(camPos);
-    const lp = u.line.geometry.attributes.position;
-    if (u.order.type !== 'move' && orderTargetPos(u, _fu)) {
-      lp.setXYZ(0, pos.x, pos.y, pos.z); lp.setXYZ(1, _fu.x, _fu.y, _fu.z);
-      u.line.material.opacity = 0.35; u.line.visible = true;
-    } else if (sel) {
-      _fu.copy(pos).addScaledVector(u.fwd, 1.6 * S);
-      lp.setXYZ(0, pos.x, pos.y, pos.z); lp.setXYZ(1, _fu.x, _fu.y, _fu.z);
-      u.line.material.opacity = 0.6; u.line.visible = true;
-    } else u.line.visible = false;
-    lp.needsUpdate = true;
-  }
-  squadEngaged = [...selected].some((u) => u.engaged);
-}
-// Enemy capital ships ("flagships"): hold range from your fleet, drift round it, fall back to cover
-// when badly damaged, and fire their turrets at the nearest of your ships.
-function updateEnemyCaps(dt) {
-  const tg = friends;
-  for (const c of enemyCaps) {
-    if (!c.alive) continue;
-    const pos = c.obj.position;
-    c.t += dt;
-    const T = nearestTo(pos, FLEET_CAPS.filter((x) => x.alive)) || nearestTo(pos, tg);
-    const goal = _fu;
-    if (!T) goal.copy(pos).addScaledVector(c.fwd, 1);
-    // Hide behind a star when badly damaged, but only for a while (12 s in all), so a round can't stall
-    // with a lone capital ship and a hidden flagship that never meet.
-    else if (AI.cover && c.hp < c.maxHp * 0.35 && (c.hideT = (c.hideT || 0) + dt) < 12 && coverPoint(T.obj.position, pos, goal)) { /* hide */ }
-    else {
-      _bS.subVectors(pos, T.obj.position);
-      if (_bS.lengthSq() < 1e-6) _bS.set(0, 0, -1);
-      _bS.normalize();
-      sideOf(_bS, _bT);
-      goal.copy(T.obj.position).addScaledVector(_bS, 5 * S).addScaledVector(_bT, Math.sin(c.t * 0.2) * 2 * S);
-      clampIn(goal, 0.8);
-    }
-    const d2 = _fd.subVectors(goal, pos);
-    if (d2.lengthSq() < 0.09 * S) d2.copy(c.fwd); else d2.normalize();
-    obstAvoid(pos, c.fwd, c.speed, d2);
-    for (const o of [...FLEET_CAPS, ...enemyCaps]) {
-      if (o === c || !o.alive) continue;
-      _bS.subVectors(pos, o.obj.position);
-      const d = _bS.length(), min = c.radius + o.radius + 0.6 * S;
-      if (d < min && d > 1e-4) d2.addScaledVector(_bS, (2 * (min - d)) / (min * d));
-    }
-    d2.normalize();
-    steer(c, d2.clone(), dt);
-    c.speed = CAP_SPEED * 0.8;
-    pos.addScaledVector(c.fwd, c.speed * dt);
-    wrapBox(pos);
-    obstPushOut(pos, c.radius);
-    capitalGuns(c, dt, tg, Math.max(0.25, 0.8 - wave * 0.05), 5.2 * S);
-    // Round 7+: each flagship launches a pair of fighters every 20 s.
-    if (AI.launch && state === 'playing' && (c.launchT -= dt) <= 0 && enemies.length < 40) { c.launchT = 20; launchFighters(c, 2); }
-    c.flash = Math.max(0, c.flash - dt);
-    tintShip(c.obj, c.flash > 0 ? WHITE : c.color);
-    updateBar(c);
-  }
-}
-// Round 7+: a flagship launches fighters that join the smallest of the existing groups.
-function launchFighters(c, n) {
-  const g = groups.filter((x) => x.role !== 'bait').sort((a, b) => a.members.length - b.members.length)[0];
-  if (!g) { spawnGroup('flank', n, wave, c); return; }
-  for (let i = 0; i < n; i++) {
-    const pos = c.obj.position.clone().add(_v1.randomDirection().multiplyScalar(c.radius + 0.2 * S));
-    obstPushOut(pos, 0.3 * S);
-    const e = spawnEnemy(g.role === 'hunter' || g.role === 'sniper' ? g.role : 'flank', wave, pos, g);
-    e.side = i % 2 ? 1 : -1;
-    g.members.push(e);
-  }
-}
-// Fleet: where enemy group i of m starts - spread across the far half of the room.
-function enemySpot(i, m) {
-  const x = (((i + 0.5) / m) * 2 - 1) * 0.65 * HB.x + rand(-0.08, 0.08) * HB.x;
-  const p = new THREE.Vector3(x, rand(-0.4, 0.4) * HB.y, -rand(0.42, 0.8) * HB.z);
-  obstPushOut(p, 0.9 * S);
-  return p;
-}
-function spawnEnemyCaps(n, hp = 0) {
-  enemyCaps.forEach((c, i) => {
-    if (i >= (n >= 3 ? 2 : 1)) { resetCapital(c, false); return; }
-    c.maxHp = hp || Math.round((70 + 25 * (n - 1)) * (n >= 3 ? 0.8 : 1));
-    c.tut = false;
-    c.launchT = 12;
-    // Far side of the room from your fleet.
-    const p = new THREE.Vector3((i ? 0.5 : -0.5) * HB.x, rand(-0.3, 0.3) * HB.y, -HB.z * 0.75);
-    obstPushOut(p, c.radius + 0.2 * S);
-    resetCapital(c, true, p, new THREE.Vector3(0, 0, 1));
-    c.speed = CAP_SPEED * 0.8;
-  });
-}
-
-// ---------------------------------------------------------------- Fleet: smart squadron leaders (your side only)
-// The pilots fly exactly as before. The leader only moves the squadron's anchor (heading + speed) and
-// decides when the squadron engages. It takes over with an attack / hold / guard order, and while you
-// hold the trigger on a selected squadron. Tactics, picked by situation:
-//   approach - come in from a flank, never head-on; squadrons attacking the same target split the angles
-//   run      - engage on the way through ("boom"); a much weaker target is pressed without letting up
-//   zoom     - stop shooting and boost out of range, toward cover behind a star when one is near
-//              (then swing round and approach again, from a new angle)
-//   cover    - outnumbered or taking hits: break off, regroup behind a star, then go again
-//   defend   - a capital ship near the squadron is under attack: go and help it first
-let SMART_LEADERS = !(TEST && URLQ.get('ai') === 'old');
-const _sl = new THREE.Vector3(), _sl2 = new THREE.Vector3(), _sl3 = new THREE.Vector3(), _sl4 = new THREE.Vector3();
-function targetCenter(t, out) {
-  if (!t) return null;
-  if (t.members) { const a = t.members.filter((e) => e.hp > 0); return a.length ? centroid(a, out) : null; }
-  if (t.kind === 'capital') return t.alive ? out.copy(t.obj.position) : null;
-  return t.hp > 0 ? out.copy(t.obj.position) : null;
-}
-function targetStrength(t) {
-  if (t.members) return t.members.reduce((n, e) => n + (e.hp > 0 ? (e.type === 'cruiser' ? 2 : 1) : 0), 0);
-  return t.kind === 'capital' ? 6 : 1;
-}
-function targetFwd(t, out) {
-  out.set(0, 0, 0);
-  if (t.members) for (const e of t.members) { if (e.hp > 0) out.add(e.fwd); } else out.copy(t.fwd);
-  if (out.lengthSq() < 1e-6) out.set(0, 0, 1);
-  return out.normalize();
-}
-// The nearest enemy group (or flagship) within r of p.
-function nearestThreat(p, r) {
-  let best = null, bd = r;
-  for (const e of enemies) { if (e.hp <= 0) continue; const d = e.obj.position.distanceTo(p); if (d < bd) { bd = d; best = e.group; } }
-  for (const c of enemyCaps) { if (!c.alive) continue; const d = c.obj.position.distanceTo(p) - c.radius; if (d < bd) { bd = d; best = c; } }
-  return best;
-}
-// A group attacking one of your capital ships near this squadron (2+ enemies close to it).
-function capitalThreat(sq) {
-  for (const c of FLEET_CAPS) {
-    if (!c.alive || c.obj.position.distanceTo(sq.anchor) > 7 * S) continue;
-    let n = 0, nearE = null, nd = Infinity;
-    for (const e of enemies) {
-      if (e.hp <= 0) continue;
-      const d = e.obj.position.distanceTo(c.obj.position);
-      if (d < 2.6 * S) { n++; if (d < nd) { nd = d; nearE = e; } }
-    }
-    if (n >= 2 && nearE) return nearE.group;
-  }
-  return null;
-}
-// Where to start an attack run from: a flank point around the target. Squadrons going for the same
-// target take different angles; every new run comes from a new angle.
-// Run geometry for a target: where attack runs start (a flagship: just outside its gun range) and
-// how close a run goes before breaking away.
-const FLAG_GUN = 5.2 * S;
-function runStart(t) { return t.kind === 'capital' ? FLAG_GUN + 0.6 * S : 2.1 * S; }
-function attackMates(target) { return FLEET_SQUADS.filter((q) => q.smart && q.tac && q.tac.target === target && unitAlive(q)); }
-function approachPoint(sq, target, tpos, out) {
-  const mates = attackMates(target);
-  if (!mates.includes(sq)) mates.push(sq);
-  const m = mates.length, k = FLEET_SQUADS.filter((q) => mates.includes(q)).indexOf(sq);
-  const f = targetFwd(target, _sl3);
-  const side = sideOf(f, _sl4);
-  const up = _v3.crossVectors(side, f).normalize();
-  wrapDelta(tpos, sq.anchor, _v2);
-  const base = _v2.dot(side) >= 0 ? 0 : Math.PI;                 // start on the side you're already on
-  const a0 = base + (k * 2 * Math.PI) / m + sq.tac.bearing * 1.1;
-  // Of a few angles near our slot, take the one furthest from any other flagship's guns - and, when
-  // attacking a flagship, one where a star hides you from its turrets while you wait.
-  const capT = target.kind === 'capital';
-  let bestA = a0, bestS = -Infinity;
-  for (const da of capT ? [0, 0.45, -0.45, 0.9, -0.9, 1.35, -1.35] : [0, 0.6, -0.6, 1.2, -1.2]) {
-    const a = a0 + da;
-    _v2.copy(side).multiplyScalar(Math.cos(a)).addScaledVector(up, Math.sin(a) * 0.5).addScaledVector(f, -0.25).normalize().multiplyScalar(runStart(target)).add(tpos);
-    let sc = -Math.abs(da) * 0.5;
-    if (capT && obstBlocks(_v2, tpos)) sc += 2;
-    for (const c of enemyCaps) if (c.alive && c !== target) sc += Math.min(0, c.obj.position.distanceTo(_v2) - FLAG_GUN - 0.5 * S);
-    if (sc > bestS) { bestS = sc; bestA = a; }
-  }
-  out.copy(side).multiplyScalar(Math.cos(bestA)).addScaledVector(up, Math.sin(bestA) * 0.5).addScaledVector(f, -0.25).normalize();
-  return out.multiplyScalar(runStart(target)).add(tpos);
-}
-// Steer clear of enemy flagships' gun range (except the one you're attacking).
-function avoidFlagships(anchor, target, d, w) {
-  for (const c of enemyCaps) {
-    if (!c.alive || c === target) continue;
-    wrapDelta(c.obj.position, anchor, _v2);
-    const dd = _v2.length(), r = FLAG_GUN + 0.6 * S;
-    if (dd < r && dd > 1e-4) d.addScaledVector(_v2, (w * (r - dd)) / (r * dd));
-  }
-}
-function smartLeader(sq, dt, sel, near) {
-  const o = sq.order;
-  if (!sq.tac) sq.tac = { phase: null, t: 0, target: null, bearing: 0, spd: CRUISE, runDir: new THREE.Vector3(), defend: false, ready: false };
-  const tac = sq.tac;
-  const CR = cruiseOf(sq), BO = boostOf(sq);         // v16: class speeds; Fleet cruise is a little slower
-  sq.hurt = Math.max(0, (sq.hurt || 0) - dt * 0.4);
-  const alive = sq.bots.filter((b) => b.alive).length;
-  // Who to fight.
-  let target = null;
-  if (o.type === 'attack') target = o.target;
-  else if (o.type === 'hold') target = nearestThreat(o.point, 4 * S);
-  else if (sel && o.type === 'move' && input.fire) target = nearestThreat(sq.anchor, 6 * S);
-  else { tac.phase = null; return false; }
-  // Protect a capital ship under attack first (unless you sent them after a flagship).
-  tac.defend = false;
-  if (!(target && target.kind === 'capital')) { const th = capitalThreat(sq); if (th) { target = th; tac.defend = true; } }
-  const tpos = target && targetCenter(target, _sl);
-  if (!tpos) { tac.phase = null; return false; }                 // nothing to fight: the normal order applies
-  if (target !== tac.target || !tac.phase) { tac.target = target; tac.phase = 'approach'; tac.t = 0; tac.ready = false; }
-  tac.t += dt;
-  const anchor = sq.anchor, capT = target.kind === 'capital', R = runStart(target);
-  wrapDelta(anchor, tpos, _sl2);
-  const dist = _sl2.length();
-  let foesNear = 0;
-  for (const e of enemies) if (e.hp > 0 && e.obj.position.distanceTo(anchor) < 3 * S) foesNear++;
-  const outnumbered = foesNear >= alive + 3 || (alive <= 1 && foesNear >= 2);
-  const hurting = sq.hurt >= 3;
-  const weak = !capT && targetStrength(target) <= alive - 1;
-  if ((outnumbered || hurting) && tac.phase !== 'cover' && !tac.defend) { tac.phase = 'cover'; tac.t = 0; }
-  let engaged = near < 1.2 * S, spd = CR;
-  const d = _fd;
-  const next = (ph) => { tac.phase = ph; tac.t = 0; tac.ready = false; };
-  switch (tac.phase) {
-    case 'approach': {
-      approachPoint(sq, target, tpos, _sl3);
-      wrapDelta(anchor, _sl3, d);
-      const toP = d.length();
-      d.normalize();
-      // Don't cut across the target on the way to the flank: push round it.
-      if (dist < R * 1.3) d.addScaledVector(_v2.copy(_sl2).multiplyScalar(-1 / Math.max(dist, 1e-3)), 1.2 * (1 - dist / (R * 1.3)));
-      spd = dist > R + 4 * S ? BO : CR * 1.15;
-      if (!capT) engaged = engaged || dist < BOT_RANGE * 0.8;   // shots of opportunity on the way in
-      if (toP < 0.9 * S || (dist < R * 1.15 && tac.t > 1.5)) tac.ready = true;
-      if (tac.ready && capT) {
-        // At the start point: wait (circling) until every squadron going for this flagship is in place,
-        // then all go in together - its turrets can only shoot at one of you at a time.
-        d.crossVectors(_v2.copy(_sl2).normalize(), UP);
-        if (d.lengthSq() < 1e-4) d.set(1, 0, 0);
-        d.normalize().addScaledVector(_sl2, (dist - R) / Math.max(dist, 1e-3));
-        d.normalize();
-        spd = CR * 0.6;
-      }
-      const go = capT ? tac.ready && (attackMates(target).every((q) => q.tac.ready || q.tac.phase === 'run') || tac.t > 7) : tac.ready || tac.t > 10;
-      if (go || tac.defend || tac.t > 14) { next('run'); tac.runDir.copy(_sl2).normalize(); tac.hurt0 = sq.hurt; }
-      break;
-    }
-    case 'run': {
-      engaged = true; spd = CR;
-      if (capT) {
-        // Strafing run on a flagship: in to firing range, then curve round it (hard to hit), and break
-        // away before getting too close.
-        const want = target.radius + 2.3 * S;
-        d.copy(_sl2).normalize();
-        if (dist < want + 0.4 * S) { _v2.crossVectors(d, UP); if (_v2.lengthSq() < 1e-4) _v2.set(1, 0, 0); d.multiplyScalar((dist - want) / (0.4 * S)).addScaledVector(_v2.normalize(), 1).normalize(); }
-        // ...or as soon as its turrets start finding the range.
-        if (dist < target.radius + 1.6 * S || tac.t > 4 || sq.hurt - (tac.hurt0 || 0) > 1.5) { next('zoom'); tac.runDir.copy(_sl2).normalize().negate(); }
-        break;
-      }
-      // Through the group and out the other side.
-      d.copy(_sl2).addScaledVector(tac.runDir, 1.5 * S).normalize();
-      const passed = -_sl2.dot(tac.runDir) > 1.2 * S;
-      if (passed || tac.t > (weak ? 7 : 5)) {
-        if (weak || tac.defend) { next('approach'); tac.bearing++; }   // weak target: swing straight back in
-        else {
-          next('zoom');
-          const fl = nearestTo(anchor, enemyCaps.filter((c) => c.alive));
-          if (fl && fl.obj.position.distanceTo(anchor) < FLAG_GUN + 1.5 * S) { wrapDelta(fl.obj.position, anchor, tac.runDir); tac.runDir.normalize(); }
-        }
-      }
-      break;
-    }
-    case 'zoom': {
-      // Out of range, fast, toward cover if a star is close.
-      d.copy(tac.runDir);
-      const cp = coverPoint(tpos, anchor, _sl3);
-      if (cp && cp.distanceTo(anchor) < 4 * S) { wrapDelta(anchor, cp, _v2); d.multiplyScalar(0.4).addScaledVector(_v2.normalize(), 0.6); }
-      d.normalize();
-      spd = BO;
-      const out = capT ? dist > R : dist > LEASH + BOT_RANGE + 0.8 * S;
-      if ((out && tac.t > 1.2) || tac.t > 5) { next('approach'); tac.bearing++; }
-      break;
-    }
-    case 'cover': {
-      // Regroup behind a star (or just away from the fight), then go again.
-      const cp = coverPoint(tpos, anchor, _sl3);
-      if (cp && cp.distanceTo(anchor) < 7 * S) {
-        wrapDelta(anchor, cp, d);
-        const dd = d.length();
-        if (dd < 0.8 * S) { d.crossVectors(d.lengthSq() > 1e-6 ? d.normalize() : sq.fwd, UP); if (d.lengthSq() < 1e-4) d.set(1, 0, 0); spd = CR * 0.6; }
-        else spd = BO;
-      } else { d.copy(_sl2).multiplyScalar(-1); spd = BO; }
-      d.normalize();
-      if ((tac.t > 3 && !outnumbered && sq.hurt < 1) || tac.t > 7) { next('approach'); tac.bearing++; sq.hurt = 0; }
-      break;
-    }
-    default: next('approach');
-  }
-  if (tac.phase !== 'run') { avoidFlagships(anchor, target, d, 2.5); d.normalize(); }
-  sq.engaged = engaged;
-  sq.prefTarget = engaged ? target : null;
-  tac.spd = spd;
-  return true;
-}
-
-// ---------------------------------------------------------------- Fleet: autonomy (v16)
-// When a unit's target is destroyed (or its escort lost), it decides for itself what to do next, and the
-// wrist shows the decision ("BLUE -> ASSISTING GREEN"). In order of value:
-//   assist - a friendly unit nearby is losing its fight (more enemy strength near it than it has): help it
-//   hunt   - an enemy group that is already weak (or a badly damaged flagship): finish it off
-//   guard  - no fight worth joining: escort a capital ship that enemies could reach
-//   hold   - or take cover by the nearest star, on the side away from the enemy
-// The ship class matters: bombers prefer flagships, interceptors fighter and bomber groups, and none of
-// them goes far across the room for a small gain.
-function foeStrength(e) { return e.kind === 'capital' ? 6 * (e.hp / e.maxHp) : (e.hp / Math.max(1, e.maxHp)) * (e.cls === 'bomber' || e.cls === 'shield' || e.type === 'cruiser' ? 1.5 : 1); }
-function unitStrength(u) {
-  if (u.kind === 'capital') return 6 * (u.hp / u.maxHp);
-  const k = u.cls === 'bomber' || u.cls === 'shield' ? 1.3 : 1;
-  return u.bots.reduce((a, b) => a + (b.alive ? (b.hp / b.maxHp) * k : 0), 0);
-}
-// How well a unit's class does against a target (group or flagship).
-function suitability(cls, t) {
-  const tc = t.kind === 'capital' ? 'capital' : t.cls;
-  if (cls === 'bomber') return tc === 'capital' ? 2.2 : tc === 'shield' ? 1.2 : 0.5;
-  if (cls === 'interceptor') return tc === 'capital' ? 0.2 : tc === 'shield' ? 0.6 : 1.6;
-  if (cls === 'capital') return tc === 'capital' ? 1.2 : tc === 'interceptor' ? 1.3 : 1;
-  if (cls === 'shield') return tc === 'capital' ? 0.7 : 1;
-  return tc === 'capital' ? 0.9 : 1;
-}
-const _an = new THREE.Vector3(), _an2 = new THREE.Vector3();
-function decideNext(u, was) {
-  // Round over (the last enemies just went): nothing to decide.
-  if (!enemies.some((e) => e.hp > 0) && !enemyCaps.some((c) => c.alive)) return true;
-  const pos = unitCenter(u), cls = unitCls(u), mine = Math.max(0.5, unitStrength(u));
-  const reach = (d) => 1 / (1 + d / (9 * S));          // nearer is better
-  let best = null, bs = 0.35, what = '', sub = '';
-  // 1. A friend losing its fight.
-  for (const f of UNITS) {
-    if (f === u || !unitAlive(f)) continue;
-    const fp = unitCenter(f);
-    let foe = 0, grp = null, gd = Infinity;
-    for (const e of enemies) {
-      if (e.hp <= 0) continue;
-      const d = e.obj.position.distanceTo(fp);
-      if (d < 3.2 * S) { foe += foeStrength(e); if (d < gd) { gd = d; grp = e.group; } }
-    }
-    for (const c of enemyCaps) if (c.alive && c.obj.position.distanceTo(fp) < FLAG_GUN) { foe += foeStrength(c) * 0.5; if (!grp) grp = c; }
-    if (!grp) continue;
-    const need = foe / Math.max(0.5, unitStrength(f));
-    if (need < 0.9) continue;
-    const sc = Math.min(3, need) * suitability(cls, grp) * reach(pos.distanceTo(fp)) * 1.2;
-    if (sc > bs) { bs = sc; best = grp; what = `ASSISTING ${f.name}`; sub = `${f.name} is outnumbered`; }
-  }
-  // 2. A weakened enemy: a small group, or a badly damaged flagship.
-  for (const g of groups) {
-    const live = g.members.filter((e) => e.hp > 0);
-    if (!live.length) continue;
-    const st = live.reduce((a, e) => a + foeStrength(e), 0);
-    if (st > mine * 0.9) continue;
-    const sc = (1 + (mine - st) / mine) * 0.6 * suitability(cls, g) * reach(pos.distanceTo(centroid(live, _an)));
-    if (sc > bs) { bs = sc; best = g; what = 'ATTACKING WEAK GROUP'; sub = `${live.length} damaged ${clsOf(g.cls).name.toLowerCase()}s`; }
-  }
-  for (const c of enemyCaps) {
-    if (!c.alive) continue;
-    const dmg = 1 - c.hp / c.maxHp;
-    const sc = (0.3 + dmg * 1.4) * suitability(cls, c) * reach(pos.distanceTo(c.obj.position));
-    if (sc > bs) { bs = sc; best = c; what = 'ATTACKING FLAGSHIP'; sub = dmg > 0.4 ? 'The flagship is badly damaged' : 'Going for the flagship'; }
-  }
-  if (best) {
-    u.order.type = 'attack'; u.order.target = best;
-  } else {
-    // 3./4. Nothing worth joining: guard a capital ship, or hold cover by a star.
-    const foes = foesList();
-    const threat = foes.length ? centroid(foes, _an) : _an.set(0, 0, -HB.z);
-    const cap = u.kind === 'capital' ? null : nearestTo(pos, FLEET_CAPS.filter((c) => c.alive));
-    const capD = cap ? cap.obj.position.distanceTo(pos) : Infinity;
-    let star = null, sd = Infinity;
-    for (const o of (starsActive() ? obstacles : [])) { const d = o.c.distanceTo(pos); if (d < sd) { sd = d; star = o; } }
-    if (cap && (capD < sd || cls === 'shield' || cls === 'interceptor')) {
-      u.order.type = 'follow'; u.order.target = cap; what = `GUARDING ${cap.name}`; sub = 'Escorting it until the next fight';
-    } else if (star && sd < 8 * S) {
-      _an2.subVectors(star.c, threat);
-      if (_an2.lengthSq() < 1e-6) _an2.set(0, 0, 1);
-      u.order.type = 'hold'; u.order.point.copy(star.c).addScaledVector(_an2.normalize(), star.r + (u.kind === 'capital' ? 1.2 : 0.7) * S);
-      clampIn(u.order.point);
-      what = 'HOLDING AT STAR'; sub = 'In cover, away from the enemy';
-    } else {
-      u.order.type = 'hold'; u.order.point.copy(pos); what = 'HOLDING POSITION'; sub = 'Waiting for orders';
-    }
-  }
-  selected.delete(u);
-  u.auto = what; u.autoT = 6;
-  showMessage(`${u.name} → ${what}`, `${was === 'attack' ? 'Target destroyed' : 'Escort lost'}. ${sub}`, 2.2);
-  log(`autonomy ${u.name} (${cls}) -> ${what}`);
-  return true;
-}
-
-// ---------------------------------------------------------------- Fleet: unit tags (v16)
-// The big Fleet room makes ships small, so every unit carries a small bracket tag with its class letter,
-// in its colour (yours) or red (enemy groups). Sprites: they always face you and stay a readable size.
-const tagTex = new Map();
-function tagTexture(col, letter, enemy) {
-  const key = col + letter + (enemy ? 'e' : '');
-  if (tagTex.has(key)) return tagTex.get(key);
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const g = c.getContext('2d');
-  g.strokeStyle = col; g.lineWidth = 5;
-  const k = 16, a = 5, b = 59;
-  g.beginPath();
-  if (enemy) { g.moveTo(32, a); g.lineTo(b, 32); g.lineTo(32, b); g.lineTo(a, 32); g.closePath(); }   // enemy: a diamond
-  else {
-    g.moveTo(a, a + k); g.lineTo(a, a); g.lineTo(a + k, a); g.moveTo(b - k, a); g.lineTo(b, a); g.lineTo(b, a + k);
-    g.moveTo(b, b - k); g.lineTo(b, b); g.lineTo(b - k, b); g.moveTo(a + k, b); g.lineTo(a, b); g.lineTo(a, b - k);
-  }
-  g.stroke();
-  g.fillStyle = col; g.font = 'bold 30px monospace'; g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillText(letter, 32, 34);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  tagTex.set(key, t);
-  return t;
-}
-function makeTag() {
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false, depthTest: false, opacity: 0.85, fog: false }));
-  s.renderOrder = 6;
-  s.visible = false;
-  board.add(s);
-  return s;
-}
-// Keep a tag about the same physical size whatever the room size (about 3 cm on a 1 m room).
-function placeTag(tag, pos, up) {
-  if (!tag || gameMode !== 'fleet') { if (tag) tag.visible = false; return; }
-  tag.visible = true;
-  tag.position.copy(pos); tag.position.y += up * S;
-  tag.scale.setScalar(0.03 * 2 * BOX_B);
-}
-function setTagLook(tag, col, letter, enemy) {
-  const t = tagTexture(col, letter, enemy);
-  if (tag.material.map !== t) { tag.material.map = t; tag.material.needsUpdate = true; }
-}
-for (const u of [...SQUAD_POOL, ...CAP_POOL]) u.tag = makeTag();
-const groupTags = [];
-function updateGroupTags() {
-  let k = 0;
-  if (gameMode === 'fleet') {
-    for (const g of groups) {
-      const live = g.members.filter((e) => e.hp > 0);
-      if (!live.length) continue;
-      if (!groupTags[k]) groupTags[k] = makeTag();
-      const tag = groupTags[k++];
-      setTagLook(tag, '#ff5566', clsOf(g.cls).glyph, true);
-      placeTag(tag, centroid(live, _an), 0.75);
-      tag.material.opacity = 0.85 * Math.min(1, live[0].spawnFade * 2);
-    }
-  }
-  for (; k < groupTags.length; k++) groupTags[k].visible = false;
-}
-
-// ---------------------------------------------------------------- Fleet: pointing (left hand / mouse)
-// fleetHover = what the selection ray points at: { unit } (ours), { foe, group } (enemy), { star }, or { point }.
-let fleetHover = null;
-const _po = new THREE.Vector3(), _pd = new THREE.Vector3(), _pv = new THREE.Vector3();
-function pickAlongRay(originW, dirW) {
-  board.worldToLocal(_po.copy(originW));
-  _pd.copy(dirW).normalize();
-  let best = null, bestScore = 1, bestT = Infinity;
-  const consider = (p, rad, hit) => {
-    _pv.subVectors(p, _po);
-    const t = _pv.dot(_pd);
-    if (t <= 0) return;
-    const perp = _pv.addScaledVector(_pd, -t).length();
-    const score = perp / (rad + 0.05 * t);
-    if (score < bestScore) { bestScore = score; best = hit; bestT = t; }
-  };
-  for (const u of UNITS) if (unitAlive(u)) consider(unitCenter(u), u.kind === 'capital' ? 0.9 * S : 0.8 * S, { unit: u });
-  for (const c of enemyCaps) if (c.alive) consider(c.obj.position, 0.9 * S, { foe: c });
-  for (const e of enemies) if (e.hp > 0) consider(e.obj.position, 0.4 * S, { foe: e, group: e.group });
-  // Stars: a real ray / sphere hit; they win if they are in front of the ship candidate.
-  for (const o of (starsActive() ? obstacles : [])) {
-    _pv.subVectors(o.c, _po);
-    const t = _pv.dot(_pd);
-    if (t <= 0) continue;
-    const perp2 = _pv.lengthSq() - t * t;
-    if (perp2 > o.r * o.r) continue;
-    const tHit = t - Math.sqrt(o.r * o.r - perp2);
-    if (tHit < bestT) { bestT = tHit; best = { star: o }; }
-  }
-  if (!best) {
-    // Empty space: the point on the ray closest to the middle of the room.
-    const t = Math.max(0, -_po.dot(_pd));
-    best = { point: clampIn(_po.clone().addScaledVector(_pd, t), 0.85) };
-  }
-  return best;
-}
-function hoverLabel(h) {
-  if (!h) return '';
-  if (h.unit) return h.unit.name;
-  if (h.foe) return h.foe.kind === 'capital' ? 'ENEMY FLAGSHIP' : 'ENEMY GROUP';
-  if (h.star) return 'STAR';
-  return 'SPACE';
-}
-// Left trigger (or keys 1-5 on desktop): select. Left grip (or G): order the selection.
-let selectMissT = -99;                                 // when the left trigger last missed (tutorial hint)
-function fleetSelect() {
-  if (fleetHover && fleetHover.unit) selectUnits([fleetHover.unit]);
-  else { selectMissT = performance.now() / 1000; showMessage('SELECT', 'Point at a squadron or capital ship', 1.0); }
-}
-function fleetOrder() {
-  const h = fleetHover;
-  if (!h || !selected.size) return;
-  const sel = [...selected];
-  let what = '';
-  for (const u of sel) {
-    if (h.unit) {
-      if (h.unit === u) continue;
-      u.order.type = 'follow'; u.order.target = h.unit; what = 'FOLLOW ' + h.unit.name;
-    } else if (h.foe) {
-      u.order.type = 'attack'; u.order.target = h.foe.kind === 'capital' ? h.foe : h.group; what = 'ATTACK ' + hoverLabel(h);
-    } else if (h.star) {
-      const o = h.star;
-      _pv.subVectors(unitCenter(u), o.c);
-      if (_pv.lengthSq() < 1e-6) _pv.set(0, 0, 1);
-      u.order.type = 'hold'; u.order.point.copy(o.c).addScaledVector(_pv.normalize(), o.r + (u.kind === 'capital' ? 1.2 : 0.7) * S);
-      what = 'GUARD STAR';
-    } else {
-      u.order.type = 'hold'; u.order.point.copy(h.point); what = 'HOLD POSITION';
-    }
-  }
-  if (what) {
-    // Ordered units leave direct command; select them again to steer them yourself.
-    for (const u of sel) if (u.order.type !== 'move') selected.delete(u);
-    lastOrderWhat = what;
-    showMessage(what, sel.map((u) => u.name).join(', '), 1.4);
-    sfx.ping(null);
-    haptic('left', 0.4, 40);
-  }
-}
-// The selection ray drawn from the left controller in Fleet mode.
-const selRay = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]),
-  new THREE.LineBasicMaterial({ color: 0xffcc66, transparent: true, opacity: 0.35, fog: false }));
-selRay.visible = false;
-
-// ---------------------------------------------------------------- Fleet: deployment (v16)
-// Before every Fleet round: the enemy is already there (frozen) so you can see its layout. You get a
-// budget of points and place your ships in your half of the room (the near half) with the LEFT ray:
-//   trigger = place a squadron of the chosen class / pick a placed unit up / drop it again
-//   grip    = remove the unit you point at (refund)     stick up / down = place further / nearer
-// The panel on the right lists the ship classes (cost, role), the budget left, AUTO / CLEAR, and
-// START BATTLE. Your last fleet is placed again for the next round, so you can just press START.
-const dep = { budget: 0, squads: 3, caps: 2, types: [], cls: 'fighter', items: [], held: null, hover: null, depth: 0,
-  point: new THREE.Vector3(), ok: false, tutorial: false, picked: false, why: '' };
-let lastPlan = null;                                   // [{ cls, n }] - n = position as fractions of the room
-const deployPanel = new Panel(0.44, 880, 1040);
-rig.add(deployPanel.mesh);
-// Your half of the room, outlined while you deploy.
-const ZONE = { x: 0.88, y: 0.8, z0: 0.12, z1: 0.9 };
-const zoneBox = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(2, 2, 2)),
-  new THREE.LineBasicMaterial({ color: 0x55ff99, transparent: true, opacity: 0.35, depthWrite: false }));
-zoneBox.visible = false;
-board.add(zoneBox);
-const ghost = new THREE.Group();
-{
-  const pts = [];
-  for (let i = 0; i < 40; i++) { const a = (i / 40) * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a), Math.sin(a), 0)); }
-  ghost.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x55ff99, transparent: true, opacity: 0.9, depthWrite: false })));
-  ghost.visible = false;
-  board.add(ghost);
-}
-const ghostTag = makeTag();
-function depUsed() { return dep.items.reduce((a, it) => a + clsOf(it.cls).cost, 0); }
-function depCount(cap) { return dep.items.filter((it) => (it.cls === 'capital') === cap).length; }
-function clampZone(p) {
-  p.x = clamp(p.x, -HB.x * ZONE.x, HB.x * ZONE.x); p.y = clamp(p.y, -HB.y * ZONE.y, HB.y * ZONE.y); p.z = clamp(p.z, HB.z * ZONE.z0, HB.z * ZONE.z1);
-  return p;
-}
-// Why a unit of class cls can't be placed now ('' = it can).
-function cantPlace(cls) {
-  if (!dep.types.includes(cls)) { const r = CAMP.typeUnlockRank(cls); return r ? `Unlocks at rank ${r.name}` : 'Locked'; }
-  if (depUsed() + clsOf(cls).cost > dep.budget) return 'Not enough budget';
-  if (cls === 'capital' ? depCount(true) >= dep.caps : depCount(false) >= dep.squads) return cls === 'capital' ? 'No capital ship slot left' : 'No squadron slot left';
-  return '';
-}
-function moveUnitTo(u, p) {
-  if (u.kind === 'capital') { u.obj.position.copy(p); obstPushOut(u.obj.position, u.radius); updateBar(u); return; }
-  u.anchor.copy(p);
-  obstPushOut(u.anchor, 0.3 * S);
-  u.bots.forEach((b, k) => placeBot(u, b, k, BOT_N));
-}
-function tryPlace(cls, pos, quiet) {
-  const why = cantPlace(cls);
-  if (why) { if (!quiet) { showMessage('CAN\'T PLACE', why, 1.4); sfx.ping(null); } return null; }
-  const u = fieldUnit(cls, clampZone(pos.clone()));
-  if (!u) return null;
-  const it = { cls, unit: u };
-  dep.items.push(it);
-  if (!quiet) { sfx.ping(u.kind === 'capital' ? u.obj.position : u.anchor); haptic('left', 0.3, 30); }
-  drawDeploy();
-  return it;
-}
-function removeItem(it) {
-  const u = it.unit;
-  if (u.kind === 'capital') { resetCapital(u, false); FLEET_CAPS.splice(FLEET_CAPS.indexOf(u), 1); }
-  else { resetSquad(u, false); FLEET_SQUADS.splice(FLEET_SQUADS.indexOf(u), 1); }
-  u.ring.visible = false; u.tag.visible = false;
-  UNITS.splice(UNITS.indexOf(u), 1);
-  dep.items.splice(dep.items.indexOf(it), 1);
-  if (dep.held === it) dep.held = null;
-  haptic('left', 0.3, 30);
-  drawDeploy();
-}
-// Counter-picks for the enemy you can see: bombers for flagships and shields, interceptors for bombers,
-// shields (or fighters) for interceptors, then fighters. Capital ships at the back, squadrons in front.
-function autoDeploy() {
-  while (dep.items.length) removeItem(dep.items[0]);
-  const foe = {};
-  for (const g of groups) foe[g.cls] = (foe[g.cls] || 0) + g.members.length;
-  const flags = enemyCaps.filter((c) => c.alive).length;
-  const has = (c) => dep.types.includes(c);
-  const want = [];
-  if (flags && has('bomber')) want.push('bomber');
-  if (foe.bomber && has('interceptor')) want.push('interceptor');
-  if (foe.interceptor) want.push(has('shield') ? 'shield' : 'fighter');
-  if (foe.shield && has('bomber')) want.push('bomber');
-  if (flags > 1 && has('bomber')) want.push('bomber');
-  want.push('fighter', has('interceptor') ? 'interceptor' : 'fighter', 'fighter');
-  let caps = has('capital') ? Math.min(dep.caps, 2) : 0;
-  while (caps > 0 && dep.budget - caps * CLASSES.capital.cost < 8 + (caps > 1 ? 4 : 0)) caps--;
-  for (let i = 0; i < caps; i++) tryPlace('capital', new THREE.Vector3((caps > 1 ? (i ? 1 : -1) : 0) * 2.2 * S, -0.5 * S, HB.z * 0.72), true);
-  const sq = [];
-  for (let k = 0; sq.length < dep.squads && k < 12; k++) {
-    const c = want[k % want.length];
-    if (depUsed() + sq.reduce((a, x) => a + clsOf(x).cost, 0) + clsOf(c).cost <= dep.budget) sq.push(c);
-    else if (depUsed() + sq.reduce((a, x) => a + clsOf(x).cost, 0) + CLASSES.fighter.cost > dep.budget) break;
-  }
-  sq.forEach((c, i) => tryPlace(c, new THREE.Vector3((((i + 0.5) / sq.length) * 2 - 1) * Math.min(0.6 * HB.x, sq.length * 1.3 * S), ((i % 2) - 0.5) * 0.6 * S, HB.z * 0.48), true));
-  // Points left over and a free slot: one more capital ship, at the back.
-  if (has('capital') && !cantPlace('capital')) tryPlace('capital', new THREE.Vector3(0, 0.6 * S, HB.z * 0.8), true);
-  drawDeploy();
-}
-function enemyIntel() {
-  const n = {};
-  for (const g of groups) n[g.cls] = (n[g.cls] || 0) + g.members.filter((e) => e.hp > 0).length;
-  const f = enemyCaps.filter((c) => c.alive).length;
-  const parts = Object.keys(n).map((k) => `${n[k]} ${clsOf(k).short}`);
-  if (f) parts.unshift(`${f} FLAGSHIP${f > 1 ? 'S' : ''}`);
-  return 'ENEMY: ' + parts.join('  ');
-}
-function beginDeploy(o) {
-  deploying = true;
-  const L = CAMP.deployLimits();
-  dep.types = o.types || L.types; dep.squads = o.squads || L.squads; dep.caps = o.caps !== undefined ? o.caps : L.caps;
-  dep.budget = o.budget; dep.tutorial = !!o.tutorial; dep.picked = false; dep.title = o.title || '';
-  const tp = TEST_PLAN && !dep.tutorial ? TEST_PLAN() : null;
-  if (tp) { dep.budget = 999; dep.squads = 6; dep.caps = 3; dep.types = DEPLOY_CLASSES.slice(); }
-  if (!dep.types.includes(dep.cls)) dep.cls = dep.types[0];
-  clearFleet();
-  dep.items = []; dep.held = null; dep.hover = null; dep.depth = 0;
-  const plan = tp || o.plan || (lastPlan ? lastPlan.map((it) => ({ cls: it.cls, pos: it.n.clone().multiply(HB) })) : defaultFleetPlan());
-  for (const it of plan) tryPlace(it.cls, it.pos, true);
-  zoneBox.scale.set(HB.x * ZONE.x, HB.y * ZONE.y, (HB.z * (ZONE.z1 - ZONE.z0)) / 2);
-  zoneBox.position.set(0, 0, (HB.z * (ZONE.z0 + ZONE.z1)) / 2);
-  zoneBox.visible = true;
-  deployPanel.visible = true;
-  drawDeploy();
-  showMessage('DEPLOY YOUR FLEET', `${o.title || ''}  Budget ${dep.budget}. Place ships, then START BATTLE`, 3.0);
-  log(`deploy start budget=${dep.budget} types=${dep.types.join(',')} slots=${dep.squads}/${dep.caps} prefilled=${dep.items.length}`);
-  if (DEMO && !dep.tutorial) { if (!tp) autoDeploy(); endDeploy(); }
-}
-let TEST_PLAN = null;                                   // test: () => a fixed deployment for benchmark battles
-function endDeploy() {
-  if (!dep.items.length) { showMessage('DEPLOY', 'Place at least one squadron first', 1.6); return false; }
-  deploying = false;
-  deployPanel.visible = false; zoneBox.visible = false; ghost.visible = false; ghostTag.visible = false;
-  dep.held = null;
-  lastPlan = dep.items.map((it) => ({ cls: it.cls, n: unitCenter(it.unit).clone().divide(HB) }));
-  fleetPts = depUsed(); lossPts = 0; lossCount = 0; battleT = 0;
-  for (const u of UNITS) { u.order.type = 'idle'; u.speed = DRIFT; u.ring.visible = false; }
-  selected.clear();
-  showMessage(campaignB ? `${campaignB.id}. ${campaignB.name}` : `ROUND ${wave}`, 'Battle stations!', 2.0);
-  sfx.chime(true);
-  log(`deploy done: ${dep.items.map((it) => it.cls).join(',')} pts=${fleetPts}/${dep.budget}`);
-  return true;
-}
-function cancelDeploy() {
-  deploying = false;
-  deployPanel.visible = false; zoneBox.visible = false; ghost.visible = false; ghostTag.visible = false;
-  dep.held = null;
-}
-// One frame of deployment input from a ray (left controller, or the mouse in test mode).
-function deployInput(originW, dirW, trigEdge, gripEdge, sy, dt) {
-  board.worldToLocal(_po.copy(originW));
-  _pd.copy(dirW).normalize();
-  // What placed unit does the ray point at?
-  let hov = null, bs = 1;
-  for (const it of dep.items) {
-    if (it === dep.held) continue;
-    _pv.subVectors(unitCenter(it.unit), _po);
-    const t = _pv.dot(_pd);
-    if (t <= 0) continue;
-    const sc = _pv.addScaledVector(_pd, -t).length() / ((it.cls === 'capital' ? 0.95 : 0.8) * S + 0.05 * t);
-    if (sc < bs) { bs = sc; hov = it; }
-  }
-  dep.hover = hov;
-  // The placing point: where the ray passes closest to the middle of your half, pushed further / nearer
-  // with the stick.
-  if (Math.abs(sy) > 0.2) dep.depth = clamp(dep.depth - sy * dt * 3 * S * (BOX_B / 7.5), -HB.z * 0.6, HB.z * 0.6);
-  _pv.set(0, 0, HB.z * (ZONE.z0 + ZONE.z1) / 2).sub(_po);
-  const t0 = Math.max(0.5 * S, _pv.dot(_pd));
-  clampZone(dep.point.copy(_po).addScaledVector(_pd, t0 + dep.depth));
-  if (dep.held) moveUnitTo(dep.held.unit, dep.point);
-  const why = dep.held || hov ? '' : cantPlace(dep.cls);
-  dep.ok = !why; dep.why = why;
-  if (trigEdge) {
-    if (dep.held) { dep.held = null; sfx.ping(null); haptic('left', 0.3, 30); }
-    else if (hov) { dep.held = hov; sfx.ping(null); haptic('left', 0.3, 30); }
-    else tryPlace(dep.cls, dep.point);
-  }
-  if (gripEdge && (dep.held || hov)) removeItem(dep.held || hov);
-  // Ghost marker at the placing point (green = OK, red = can't), with the class tag.
-  const show = !dep.held && !hov;
-  ghost.visible = show;
-  ghost.position.copy(dep.point);
-  ghost.lookAt(camPos.x, camPos.y, camPos.z);
-  ghost.scale.setScalar((dep.cls === 'capital' ? 1.15 : 0.95) * S);
-  ghost.children[0].material.color.set(dep.ok ? 0x55ff99 : 0xff5566);
-  setTagLook(ghostTag, dep.ok ? '#55ff99' : '#ff5566', clsOf(dep.cls).glyph);
-  placeTag(ghostTag, dep.point, dep.cls === 'capital' ? 0.95 : 0.55);
-  ghostTag.visible = show;
-  // The ray ends at the point.
-  return board.localToWorld(_v1.copy(hov ? unitCenter(hov.unit) : dep.point));
-}
-// While deploying: nothing moves; everything fades in and shows its markers.
-function updateDeployScene(dt) {
-  for (const e of enemies) {
-    e.spawnFade = Math.min(1, e.spawnFade + dt * 1.5);
-    tintShip(e.obj, _c.copy(ENEMY_COLOR).multiplyScalar(e.spawnFade));
-    if (e.bubble) shieldTick(e, dt);
-  }
-  for (const c of enemyCaps) if (c.alive) { tintShip(c.obj, c.color); updateBar(c); }
-  for (const u of UNITS) {
-    const pos = unitCenter(u), cap = u.kind === 'capital';
-    placeTag(u.tag, pos, cap ? 0.95 : 0.55);
-    if (cap) updateBar(u); else for (const b of u.bots) { tintShip(b.obj, u.color); if (b.bubble) shieldTick(b, dt); }
-    const it = dep.items.find((x) => x.unit === u);
-    const on = it && (it === dep.held || it === dep.hover);
-    u.ring.visible = !!on;
-    u.ring.material.opacity = it === dep.held ? 0.95 : 0.5;
-    u.ring.position.copy(pos);
-    u.ring.lookAt(camPos);
-    u.line.visible = false;
-  }
-  updateGroupTags();
-}
-function drawDeploy() {
-  if (!deployPanel.visible && !deploying) return;
-  const P = deployPanel, W = P.W, g = P.g;
-  P.begin('DEPLOY YOUR FLEET');
-  P.text(dep.title || `ROUND ${wave}`, W / 2, 106, { size: 26, color: UI.dim, align: 'center', maxW: W - 60 });
-  const used = depUsed(), left = dep.budget - used;
-  P.text('BUDGET', 36, 156, { size: 28, bold: true, color: UI.text });
-  g.strokeStyle = UI.faint; g.lineWidth = 2; g.strokeRect(200, 130, 420, 32);
-  g.fillStyle = left < 0 ? UI.red : '#55ff99'; g.fillRect(203, 133, 414 * clamp(used / Math.max(1, dep.budget), 0, 1), 26);
-  P.text(`${left} LEFT`, W - 36, 156, { size: 28, bold: true, color: left > 0 ? UI.gold : UI.dim, align: 'right', maxW: 210 });
-  P.text(`SQUADRONS ${depCount(false)}/${dep.squads}     CAPITAL SHIPS ${depCount(true)}/${dep.caps}     ${used}/${dep.budget} PTS`, W / 2, 200, { size: 22, color: UI.text, align: 'center', maxW: W - 50 });
-  DEPLOY_CLASSES.forEach((k, i) => {
-    const C = CLASSES[k], y = 222 + i * 104, locked = !dep.types.includes(k);
-    P.button('type:' + k, 30, y, W - 60, 94, '', { active: dep.cls === k && !locked });
-    drawClassGlyph(g, k, 96, y + 47, 70, locked ? '#3d6676' : dep.cls === k ? UI.gold : '#7fe9ff');
-    P.text(C.name, 160, y + 42, { size: 34, bold: true, color: locked ? UI.dim : dep.cls === k ? UI.gold : UI.title, maxW: 400 });
-    P.text(locked ? (CAMP.typeUnlockRank(k) ? `Unlocks at rank ${CAMP.typeUnlockRank(k).name}` : 'Locked') : C.role, 160, y + 76, { size: 22, color: UI.dim, maxW: 520 });
-    P.text(locked ? 'LOCKED' : `${C.cost} PTS`, W - 50, y + 58, { size: 30, bold: true, color: locked ? '#3d6676' : UI.text, align: 'right', maxW: 160 });
-  });
-  P.text(enemyIntel(), W / 2, 772, { size: 24, color: '#ff8899', align: 'center', maxW: W - 50 });
-  P.text('LEFT: point + trigger = place / pick up / drop', W / 2, 806, { size: 22, color: UI.text, align: 'center', maxW: W - 50 });
-  P.text('grip = remove     stick = further / nearer', W / 2, 834, { size: 22, color: UI.text, align: 'center', maxW: W - 50 });
-  P.button('auto', 30, 856, 400, 70, 'AUTO (COUNTERS)', { size: 26 });
-  P.button('clear', W - 430, 856, 400, 70, 'CLEAR', { size: 26 });
-  const ready = dep.items.length > 0;
-  if (ready) { const k = 0.5 + 0.5 * Math.sin(performance.now() / 200); g.strokeStyle = `rgba(255,204,102,${0.2 + 0.3 * k})`; g.lineWidth = 6; g.strokeRect(24, 938, W - 48, 92); }
-  P.button('start', 30, 944, W - 60, 80, ready ? 'START BATTLE ▶' : 'PLACE SHIPS FIRST', { big: true, active: ready, size: 44 });
-  P.end();
-}
-deployPanel.onClick = (id) => {
-  if (id.startsWith('type:')) {
-    const k = id.slice(5);
-    if (dep.types.includes(k)) { dep.cls = k; dep.picked = true; sfx.ping(null); }
-    else showMessage('LOCKED', cantPlace(k), 1.6);
-  } else if (id === 'auto') { autoDeploy(); sfx.ping(null); }
-  else if (id === 'clear') { while (dep.items.length) removeItem(dep.items[0]); sfx.ping(null); }
-  else if (id === 'start') endDeploy();
-  drawDeploy();
-  log('deploy click ' + id);
-};
 
 // ---------------------------------------------------------------- mode switching
 function applyMode(mode = settings.mode) {
   gameMode = mode;
   const sq = teamMode();
   setBoxB(MODE_BOX[gameMode]);
-  setStarCount(STAR_COUNT[gameMode]);
   freshStars();
   // In Squadron the player "ship" is just the command point: hide the hull, keep the aim line.
-  // In Fleet each unit has its own markers, so the command point is hidden completely.
   player.obj.userData.lines.visible = !sq;
   player.obj.children[1].visible = !sq;
-  for (const ch of player.obj.children.slice(2)) ch.visible = gameMode !== 'fleet';
   trail.visible = !sq && player.alive;
   SHIP_NEUTRAL_Q.copy(BOX_FWD_Q);
-  selRay.visible = gameMode === 'fleet' && !!hands.left;
   resetBots();
-  resetFleet();
 }
 function damagePlayer() {
   if (!player.alive || player.invuln > 0 || !combat()) return;
@@ -2477,13 +1178,12 @@ function damagePlayer() {
 // ---------------------------------------------------------------- game state
 let state = 'lobby';   // lobby | tutorial | playing | gameover
 let simTime = 0;
-const hitStats = { cap: 0, fighter: 0 };              // test: what hits your fighters
 let stateTimer = 0;
 let wave = 0, score = 0, kills = 0, intermission = 0, screenFlash = 0;
 let best = 0;
 try { best = Number(localStorage.getItem('battleRoomBest')) || 0; } catch (e) { /* ignore */ }
 // The goal is the highest round: the best round reached is kept per mode (in stats.js).
-const bestRound = { get fighter() { return stats.modes.fighter.best; }, get squadron() { return stats.modes.squadron.best; }, get fleet() { return stats.modes.fleet.best; } };
+const bestRound = { get fighter() { return stats.modes.fighter.best; }, get squadron() { return stats.modes.squadron.best; } };
 function saveBest() {
   best = Math.max(best, score);
   stats.modes[gameMode].best = Math.max(stats.modes[gameMode].best, wave);
@@ -2496,26 +1196,7 @@ function startWave(n) {
   wave = n;
   const unlocked = setAI(n);
   const heavies = Math.floor((n - 1) / 2);
-  if (campaignB) {
-    // Command School: a hand-designed battle.
-    const B = campaignB;
-    if (gameMode === 'fleet' && B.caps) spawnEnemyCaps(B.caps >= 2 ? 3 : 1, B.capHp);
-    B.groups.forEach((gp, i) => {
-      if (gp.role === 'heavy') spawnGroup('heavy', gp.n, n);
-      else spawnGroup(gp.role, gp.n, n, null, gp.heavy || 0, gp.cls || 'fighter', gameMode === 'fleet' ? enemySpot(i, B.groups.length) : null);
-    });
-  } else if (gameMode === 'fleet') {
-    // A flagship (two from round 3) and a FEW big groups (2 in round 1, 3 from round 2, 4 from round 4)
-    // that grow and get tougher each round, so you never have to manage lots of tiny groups.
-    // v16: each group is one ship class; new classes join as the rounds go up (the newest always appears).
-    spawnEnemyCaps(n);
-    const plan = ['pincer', 'flank', 'bait', n >= 6 ? 'hunter' : 'sniper'].slice(0, n >= 4 ? 4 : n >= 2 ? 3 : 2);
-    const size = { pincer: 3 + n, flank: 2 + n, bait: 3 + Math.floor(n / 2), sniper: 2 + Math.floor(n / 2), hunter: 2 + Math.floor(n / 2) };
-    const pool = ['fighter', 'interceptor', 'bomber', 'shield'].slice(0, Math.min(4, n));
-    const classes = plan.map((r, i) => (i === 0 ? 'fighter' : pool[Math.floor(Math.random() * pool.length)]));
-    if (n >= 2 && n <= 4) classes[1] = pool[n - 1];
-    plan.forEach((role, i) => spawnGroup(role, size[role], n, null, i === 0 ? Math.ceil(heavies / 2) : i === 1 ? Math.floor(heavies / 2) : 0, classes[i], enemySpot(i, plan.length)));
-  } else if (gameMode === 'squadron') {
+  if (gameMode === 'squadron') {
     // Coordinated groups; more of them, and more varied, as the waves go on.
     spawnGroup('pincer', 2, n);
     spawnGroup('flank', 2 + Math.floor(n / 2), n);
@@ -2531,11 +1212,9 @@ function startWave(n) {
     if (n >= 4) spawnGroup('pincer', 2, n);
     if (heavies) spawnGroup('heavy', heavies, n);
   }
-  if (AI.hunters && gameMode !== 'fleet' && !campaignB) spawnGroup('hunter', 2 + Math.floor((n - 6) / 3), n);
-  const nCaps = enemyCaps.filter((c) => c.alive).length;
-  const what = nCaps ? `${nCaps} flagship${nCaps > 1 ? 's' : ''} + ${enemies.length} ships` : `${enemies.length} hostiles inbound`;
-  const title = campaignB ? `${campaignB.id}. ${campaignB.name}` : `ROUND ${n}`;
-  showMessage(title, unlocked.length && !campaignB ? `${what}\nNEW: ${unlocked.join(', ')}` : what, unlocked.length ? 3.6 : 2.4);
+  if (AI.hunters) spawnGroup('hunter', 2 + Math.floor((n - 6) / 3), n);
+  const what = `${enemies.length} hostiles inbound`;
+  showMessage(`ROUND ${n}`, unlocked.length ? `${what}\nNEW: ${unlocked.join(', ')}` : what, unlocked.length ? 3.6 : 2.4);
   sfx.chime(true);
   log(`wave ${n} started with ${enemies.length} enemies; AI lead=${AI.lead.toFixed(2)} ${Object.keys(AI).filter((k) => AI[k] === true).join(',')}`);
 }
@@ -2549,186 +1228,86 @@ function startRound(n) {
   enemyBullets.clear();
   resetPlayer();
   resetBots();
-  resetFleet();
   freshStars();
-  battleT = 0; lossCount = 0; lossPts = 0;
   startWave(n);
-  // v16 Fleet: every round starts with deployment (the enemy is placed and frozen; you place your fleet).
-  if (gameMode === 'fleet') {
-    const L = CAMP.deployLimits();
-    beginDeploy(campaignB ? { budget: campaignB.budget + L.bonus, title: `${campaignB.id}. ${campaignB.name}` }
-      : { budget: 32 + L.bonus + 3 * (n - 1), title: `ROUND ${n}` });
-  }
 }
-function startGame(round = START_WAVE, mode = settings.mode) {
+function startGame(round = START_WAVE) {
   sfx.init();
   tutorial.stop();
   lobbyPanel.visible = false;
   tutFreeze = false;
-  cancelDeploy();
   for (const e of enemies) board.remove(e.obj);
   enemies.length = 0;
   groups.length = 0;
-  for (const c of enemyCaps) resetCapital(c, false);
   playerBullets.clear();
   enemyBullets.clear();
   score = 0; kills = 0;
-  applyMode(mode);
+  applyMode();
   setShape(pickShape(_shapeTmp));                  // a new room shape for every game
   state = 'playing';
   needNeutral = true;
   stateTimer = 0;
   intermission = 0;
   startRound(round);
-  log(`game start mode=${gameMode} round=${round} smart=${SMART_LEADERS}${campaignB ? ' campaign=' + campaignB.id : ''}`);
+  log(`game start mode=${gameMode} round=${round}`);
 }
 function restartHint() {
   return 'Back to the lobby in a moment';
 }
 // Leave a running game for the lobby (Settings > Leave game); it still counts as a game played.
 function leaveGame() {
-  if (state === 'playing' || state === 'gameover') {
-    if (state === 'playing' && !campaignB) { saveBest(); recordGame(gameMode, wave, score, kills); }
-    enterLobby();
-  } else if (state === 'tutorial') finishTutorial();
-}
-
-// ---------------------------------------------------------------- Command School (campaign, v16)
-// One hand-designed battle at a time (campaign.js). Win = the round cleared; then 1-3 stars and XP.
-let campaignB = null, battleT = 0, campaignResult = null;
-function startCampaign(id) {
-  const B = CAMP.battle(id);
-  if (!B || !CAMP.unlocked(id)) return;
-  campaignB = B;
-  campaignResult = null;
-  startGame(B.wave, B.mode);
-}
-function endCampaign(won, title) {
-  const B = campaignB;
-  const lossFrac = fleetPts ? lossPts / fleetPts : 0;
-  const lc = gameMode === 'fighter' ? MAX_HP - Math.max(0, player.hp) : lossCount;
-  const r = CAMP.finishBattle(B, won, lossFrac, lc, battleT);
-  campaignResult = { id: B.id, won, ...r, time: battleT, losses: gameMode === 'fleet' ? `${Math.round(lossFrac * 100)}% of the fleet` : `${lc} ${gameMode === 'fighter' ? 'hull' : 'ships'}` };
-  state = 'gameover';
-  stateTimer = 0;
-  stats.kills += kills; saveStats();
-  const lines = won
-    ? `${CAMP.starText(r.stars)}   +${r.xp} XP${r.rankUp ? `\nRANK UP: ${r.rankUp.name}${r.newTypes.length ? ' - new: ' + r.newTypes.join(', ') : ''}` : ''}`
-    : `${title || 'Defeated'} - try again`;
-  showMessage(won ? 'VICTORY' : 'DEFEAT', lines, 9999);
-  sfx.chime(won);
-  log(`campaign ${B.id} ${won ? 'won' : 'lost'} stars=${r.stars} xp=${r.xp} time=${battleT.toFixed(1)} losses=${campaignResult.losses}${r.rankUp ? ' rankup=' + r.rankUp.name : ''}`);
+  if (state === 'playing' || state === 'gameover') { if (state === 'playing') { saveBest(); recordGame(gameMode, wave, score, kills); } enterLobby(); }
+  else if (state === 'tutorial') finishTutorial();
 }
 
 // ---------------------------------------------------------------- lobby
 // Where you land after entering VR (once the tutorial is done) and a few seconds after each game.
-// A small blue squadron and red raiders skirmish round the stars; you can grab and resize the room.
-// The panel on the right: your rank, XP and stars; COMMAND SCHOOL (the campaign's battle select);
-// FREE PLAY (endless rounds in a mode); your stats.
-let lobbyT = 0, lobbySpawnT = 0, lobbyReviveT = 0, lobbyView = 'main', pickedBattle = 0;
+// A small blue squadron and red raiders skirmish round the stars; you can grab and resize the room;
+// the panel on the right picks the mode, starts the game and shows your stats.
+let lobbyT = 0, lobbySpawnT = 0, lobbyReviveT = 0;
 const lobbyPanel = new Panel(0.44, 880, 1040);
 rig.add(lobbyPanel.mesh);
-const MODE_INFO = { fighter: 'Fly one ship yourself', squadron: 'Lead a squadron of 4 bot fighters', fleet: 'Deploy and command a fleet' };
-// Rank, XP bar and stars (top of both lobby views).
-function drawRank(P, y) {
-  const W = P.W, g = P.g, r = CAMP.rank(), nx = CAMP.nextRank(), xp = CAMP.progress.xp;
-  P.text('RANK', 36, y, { size: 22, color: UI.dim });
-  P.text(r.name, 110, y, { size: 30, bold: true, color: UI.gold, maxW: 380 });
-  P.text(`★ ${CAMP.totalStars()} / ${CAMP.maxStars()}`, W - 36, y, { size: 30, bold: true, color: UI.gold, align: 'right', maxW: 300 });
-  const f = nx ? clamp((xp - r.xp) / (nx.xp - r.xp), 0, 1) : 1;
-  g.strokeStyle = UI.faint; g.lineWidth = 2; g.strokeRect(36, y + 14, W - 72, 22);
-  g.fillStyle = UI.gold; g.fillRect(39, y + 17, (W - 78) * f, 16);
-  P.text(nx ? `XP ${xp} / ${nx.xp}  - next: ${nx.name}` : `XP ${xp}  - top rank`, W / 2, y + 62, { size: 22, color: UI.text, align: 'center', maxW: W - 60 });
-}
+const MODE_INFO = { fighter: 'Fly one ship yourself', squadron: 'Lead a squadron of 4 bot fighters' };
 function drawLobby() {
-  if (lobbyView === 'campaign') { drawCampaign(); return; }
   const P = lobbyPanel, W = P.W;
   P.begin('BATTLE ROOM');
-  drawRank(P, 116);
-  const nb = CAMP.nextBattle();
-  P.button('campaign', 30, 196, W - 60, 110, '', { big: true, active: true });
-  P.text('COMMAND SCHOOL ▶', W / 2, 246, { size: 44, bold: true, color: UI.gold, align: 'center', maxW: W - 100 });
-  P.text(`Campaign - next: ${nb.id}. ${nb.name} (${nb.mode})`, W / 2, 288, { size: 24, color: UI.text, align: 'center', maxW: W - 100 });
-  P.text('FREE PLAY  (endless rounds)', 36, 352, { size: 24, color: UI.dim });
-  MODES.forEach((m, i) => P.button('mode:' + m, 30 + i * 277, 366, 264, 76, m.toUpperCase(), { active: settings.mode === m, size: 30 }));
-  P.text(MODE_INFO[settings.mode], W / 2, 474, { size: 24, align: 'center', maxW: W - 60 });
-  P.button('start', 30, 490, W - 60, 96, 'START FREE PLAY', { big: true, size: 46 });
-  P.text('STATS', 36, 628, { size: 22, color: UI.dim });
+  P.text('GAME MODE', 36, 128, { size: 26, color: UI.dim });
+  MODES.forEach((m, i) => P.button('mode:' + m, 30 + i * 418, 142, 402, 84, m.toUpperCase(), { active: settings.mode === m, size: 30 }));
+  P.text(MODE_INFO[settings.mode], W / 2, 270, { size: 26, align: 'center', maxW: W - 60 });
+  P.button('start', 30, 296, W - 60, 118, 'START', { big: true, size: 56 });
+  P.text('STATS', 36, 470, { size: 26, color: UI.dim });
   const cols = [400, 590, 780];
-  ['BEST ROUND', 'GAMES', 'LAST'].forEach((h, i) => P.text(h, cols[i], 628, { size: 20, color: UI.dim, align: 'center', maxW: 180 }));
+  ['BEST ROUND', 'GAMES', 'LAST'].forEach((h, i) => P.text(h, cols[i], 470, { size: 20, color: UI.dim, align: 'center', maxW: 180 }));
   MODES.forEach((m, i) => {
-    const y = 664 + i * 36, st = stats.modes[m];
-    P.text(m.toUpperCase(), 36, y, { size: 24, color: settings.mode === m ? UI.gold : UI.text, maxW: 250 });
-    [st.best, st.games, st.last].forEach((v, k) => P.text(String(v), cols[k], y, { size: 26, bold: k === 0, color: k === 0 ? UI.title : UI.text, align: 'center', maxW: 170 }));
+    const y = 512 + i * 42, st = stats.modes[m];
+    P.text(m.toUpperCase(), 36, y, { size: 26, color: settings.mode === m ? UI.gold : UI.text, maxW: 250 });
+    [st.best, st.games, st.last].forEach((v, k) => P.text(String(v), cols[k], y, { size: 28, bold: k === 0, color: k === 0 ? UI.title : UI.text, align: 'center', maxW: 170 }));
   });
   const rows = [
-    ['Win streak', `${stats.streak}  (best ${stats.bestStreak})`], ['Kills / time', `${stats.kills}  /  ${fmtTime(stats.time)}`],
-    ['Best score', String(Math.max(stats.bestScore, best))],
+    ['Win streak', `${stats.streak}   (best ${stats.bestStreak})`], ['Total kills', String(stats.kills)],
+    ['Games played', String(stats.games)], ['Time played', fmtTime(stats.time)], ['Best score', String(Math.max(stats.bestScore, best))],
   ];
   rows.forEach(([l, v], i) => {
-    const y = 780 + i * 34;
-    P.text(l, 36, y, { size: 23, color: UI.text, maxW: 380 });
-    P.text(v, W - 36, y, { size: 23, color: UI.title, align: 'right', maxW: 420 });
+    const y = 632 + i * 44;
+    P.text(l, 36, y, { size: 25, color: UI.text, maxW: 380 });
+    P.text(v, W - 36, y, { size: 25, color: UI.title, align: 'right', maxW: 400 });
   });
-  P.button('tutorial', 30, 900, 400, 72, 'REDO TUTORIAL', { size: 28 });
-  P.button('settings', W - 430, 900, 400, 72, 'SETTINGS', { size: 28 });
-  P.text('GRIP: move the room     GRIP + STICK: resize', W / 2, 1016, { size: 22, color: UI.dim, align: 'center', maxW: W - 40 });
-  P.end();
-}
-// Battle select: 18 battles in 3 columns (rows go Fighter, Squadron, Fleet), locked / unlocked with stars.
-function drawCampaign() {
-  const P = lobbyPanel, W = P.W, g = P.g;
-  P.begin('COMMAND SCHOOL');
-  drawRank(P, 116);
-  if (!pickedBattle || !CAMP.unlocked(pickedBattle)) pickedBattle = CAMP.nextBattle().id;
-  const bw = 268, bh = 82;
-  CAMP.BATTLES.forEach((b, i) => {
-    const col = i % 3, row = Math.floor(i / 3), x = 30 + col * (bw + 7), y = 196 + row * (bh + 8);
-    const open = CAMP.unlocked(b.id), st = CAMP.starsOf(b.id), on = b.id === pickedBattle;
-    P.button('battle:' + b.id, x, y, bw, bh, '', { active: on });
-    const c = !open ? '#3d6676' : on ? UI.gold : UI.title;
-    P.text(`${b.id}. ${b.name}`, x + bw / 2, y + 34, { size: 22, bold: true, color: c, align: 'center', maxW: bw - 16 });
-    P.text(open ? `${b.mode.toUpperCase()}  ${CAMP.starText(st)}` : `${b.mode.toUpperCase()}  LOCKED`, x + bw / 2, y + 66, { size: 20, color: !open ? '#3d6676' : st ? UI.gold : UI.dim, align: 'center', maxW: bw - 16 });
-  });
-  const B = CAMP.battle(pickedBattle);
-  const y0 = 196 + 6 * (bh + 8) + 8;
-  g.strokeStyle = UI.faint; g.lineWidth = 2; g.strokeRect(30, y0, W - 60, 190);
-  if (campaignResult && campaignResult.id === B.id) {
-    const R = campaignResult;
-    P.text(R.won ? `VICTORY  ${CAMP.starText(R.stars)}  +${R.xp} XP` : 'DEFEAT - try again', W / 2, y0 + 42, { size: 32, bold: true, color: R.won ? UI.gold : UI.red, align: 'center', maxW: W - 80 });
-    P.text(`Time ${Math.round(R.time)}s (par ${B.par}s)   Lost ${R.losses}`, W / 2, y0 + 82, { size: 22, color: UI.text, align: 'center', maxW: W - 80 });
-    P.text(R.rankUp ? `RANK UP: ${R.rankUp.name}${R.newTypes.length ? '  NEW: ' + R.newTypes.join(', ').toUpperCase() : ''}` : `${B.id}. ${B.name}`, W / 2, y0 + 118, { size: 22, color: R.rankUp ? UI.gold : UI.dim, align: 'center', maxW: W - 80 });
-  } else {
-    P.text(`${B.id}. ${B.name}  -  ${B.mode.toUpperCase()}`, W / 2, y0 + 42, { size: 30, bold: true, color: UI.title, align: 'center', maxW: W - 80 });
-    P.text(B.brief, W / 2, y0 + 82, { size: 22, color: UI.text, align: 'center', maxW: W - 80 });
-    P.text(`Best ${CAMP.starText(CAMP.starsOf(B.id))}   Par ${B.par}s${B.budget ? `   Budget ${B.budget + CAMP.deployLimits().bonus}` : ''}`, W / 2, y0 + 118, { size: 22, color: UI.dim, align: 'center', maxW: W - 80 });
-  }
-  P.text('Stars: win / few losses / under par time', W / 2, y0 + 164, { size: 20, color: UI.dim, align: 'center', maxW: W - 80 });
-  P.button('back', 30, 944, 250, 80, '◀ BACK', { size: 32 });
-  P.button('play', 300, 944, W - 330, 80, `PLAY ${B.id}. ${B.name}`, { big: true, active: true, size: 34 });
+  P.button('tutorial', 30, 884, 400, 78, 'REDO TUTORIAL', { size: 28 });
+  P.button('settings', W - 430, 884, 400, 78, 'SETTINGS', { size: 28 });
+  P.text('GRIP: move the room     GRIP + STICK: resize', W / 2, 1012, { size: 22, color: UI.dim, align: 'center', maxW: W - 40 });
   P.end();
 }
 lobbyPanel.onClick = (id) => {
   if (id.startsWith('mode:')) { setSetting('mode', id.slice(5)); sfx.ping(null); }
-  else if (id === 'start') { campaignB = null; startGame(); }
+  else if (id === 'start') startGame();
   else if (id === 'tutorial') startTutorial();
   else if (id === 'settings') toggleSettings(true);
-  else if (id === 'campaign') { lobbyView = 'campaign'; campaignResult = null; sfx.ping(null); }
-  else if (id === 'back') { lobbyView = 'main'; sfx.ping(null); }
-  else if (id.startsWith('battle:')) {
-    const b = Number(id.slice(7));
-    if (CAMP.unlocked(b)) { pickedBattle = b; campaignResult = null; sfx.ping(null); }
-    else showMessage('LOCKED', 'Win the battle before it first', 1.4);
-  } else if (id === 'play') startCampaign(pickedBattle);
-  if (state === 'lobby') drawLobby();
   log('lobby click ' + id);
 };
 function clearBattle() {
   for (const e of enemies) board.remove(e.obj);
   enemies.length = 0;
   groups.length = 0;
-  updateGroupTags();
-  for (const c of enemyCaps) resetCapital(c, false);
   playerBullets.clear();
   enemyBullets.clear();
 }
@@ -2737,11 +1316,6 @@ function enterLobby() {
   stateTimer = 0;
   tutorial.stop();
   tutFreeze = false;
-  cancelDeploy();
-  // Back from a campaign battle: show its result in the battle select.
-  lobbyView = campaignB ? 'campaign' : lobbyView;
-  if (campaignB) pickedBattle = campaignB.id;
-  campaignB = null;
   clearBattle();
   wave = 1;
   setAI(2);
@@ -2782,7 +1356,7 @@ function updateLobby(dt) {
 
 // ---------------------------------------------------------------- tutorial (steps live in tutorial.js)
 const TUT_KEY = 'battleRoomTutorialDone';
-let tutFreeze = false, tutStageName = '', shotsFired = 0, lastOrderWhat = '';
+let tutFreeze = false, tutStageName = '', shotsFired = 0;
 function tutorialDone() { try { return localStorage.getItem(TUT_KEY) === '1'; } catch (e) { return false; } }
 function startTutorial() {
   state = 'tutorial';
@@ -2802,25 +1376,8 @@ function finishTutorial() {
 }
 // Set the scene for a group of tutorial steps.
 function tutStage(name) {
-  cancelDeploy();
   clearBattle();
-  selected.clear();
   tutStageName = name;
-  if (name === 'deploy') {
-    // v16: a small deployment - three practice targets (frozen, harmless) and 16 points to spend.
-    tutFreeze = false;
-    if (gameMode !== 'fleet') applyMode('fleet');
-    setShape(_v1.set(BOX_B, BOX_B, BOX_B));
-    freshStars();
-    resetPlayer();
-    clearFleet();
-    const g = spawnGroup('pincer', 3, 1, null, 0, 'fighter', enemySpot(1, 3));
-    for (const e of g.members) { e.fireInterval = 1e9; e.fireCd = 1e9; e.tut = true; e.hp = e.maxHp = 1; }
-    const L = CAMP.deployLimits();
-    beginDeploy({ budget: 16, squads: 3, caps: 1, types: L.types, plan: [], tutorial: true, title: 'TRAINING' });
-    needNeutral = true;
-    return;
-  }
   const cube = () => setShape(_v1.set(BOX_B, BOX_B, BOX_B));
   if (name === 'box' || name === 'fly' || name === 'enemy') {
     if (gameMode !== 'fighter' || name === 'box') { applyMode('fighter'); cube(); }
@@ -2834,13 +1391,11 @@ function tutStage(name) {
     freshStars();
     resetPlayer();
     resetBots();
-    resetFleet();
   }
   needNeutral = true;
 }
 // Practice ships never shoot (nothing can hurt you in training); single-shot, slow targets in the FLY part.
 function spawnTut(kind, n) {
-  if (kind === 'flagship') { spawnEnemyCaps(1); const c = enemyCaps[0]; c.maxHp = c.hp = 12; c.tut = true; return; }
   const g = spawnGroup(kind === 'practice' ? 'flank' : 'pincer', n, 1);
   g.members.forEach((e, i) => {
     e.fireInterval = 1e9; e.fireCd = 1e9; e.tut = true;
@@ -2855,19 +1410,12 @@ function spawnTut(kind, n) {
 }
 const tutorial = createTutorial({
   get input() { return input; }, get player() { return player; }, get settings() { return settings; }, setSetting,
-  get shots() { return shotsFired; }, enemyCount: () => enemies.length + enemyCaps.filter((c) => c.alive).length,
-  spawnTut, get selected() { return selected; }, unitsAlive: () => UNITS.filter(unitAlive).length,
-  get lastOrder() { return lastOrderWhat; }, set lastOrder(v) { lastOrderWhat = v; },
-  stage: tutStage, finishTutorial, ping: () => sfx.ping(null), log,
+  get shots() { return shotsFired; }, enemyCount: () => enemies.length,
+  spawnTut, stage: tutStage, finishTutorial, ping: () => sfx.ping(null), log,
   get box() { return box; },
-  selectAll: () => selectUnits(UNITS, true),
-  selectSquads: () => selectUnits(FLEET_SQUADS, true),
   highlight: setTouchHighlight,
-  selectMissed: () => performance.now() / 1000 - selectMissT < 3,
   cue: () => sfx.ping(null),
   good: () => { sfx.chime(true); haptic('right', 0.25, 40); haptic('left', 0.25, 40); },
-  flagshipDamage: () => { const c = enemyCaps.find((x) => x.tut); return c ? (c.alive ? 1 - c.hp / c.maxHp : 1) : 0; },
-  get deploying() { return deploying; }, get deployCount() { return dep.items.length; }, get deployPicked() { return dep.picked; },
 });
 rig.add(tutorial.card.mesh, tutorial.big.mesh);
 
@@ -2897,18 +1445,11 @@ function showMessage(title, sub = '', dur = 2) {
   mctx.strokeRect(4, 4, 1016, 248);
   mctx.textAlign = 'center';
   mctx.fillStyle = '#7fe9ff';
-  // Long titles (e.g. "BLUE -> ASSISTING GREEN") and lines shrink to fit.
-  let ts = 84;
-  mctx.font = `bold ${ts}px monospace`;
-  while (ts > 40 && mctx.measureText(title).width > 990) { ts -= 4; mctx.font = `bold ${ts}px monospace`; }
+  mctx.font = 'bold 84px monospace';
   mctx.fillText(title, 512, 105);
+  mctx.font = '36px monospace';
   mctx.fillStyle = '#bfefff';
-  sub.split('\n').forEach((line, i) => {
-    let ss = 36;
-    mctx.font = `${ss}px monospace`;
-    while (ss > 20 && mctx.measureText(line).width > 1000) { ss -= 2; mctx.font = `${ss}px monospace`; }
-    mctx.fillText(line, 512, 165 + i * 44);
-  });
+  sub.split('\n').forEach((line, i) => mctx.fillText(line, 512, 165 + i * 44));
   msgTex.needsUpdate = true;
   // In VR, messages go on a small panel on the LEFT wrist (right of the score panel) so nothing
   // covers the battle. Only the title-screen prompt uses the big floating panel.
@@ -2931,70 +1472,6 @@ function getCamForwardFlat(out) {
   if (out.lengthSq() < 1e-6) out.set(0, 0, -1);
   return out.normalize();
 }
-// Fleet wrist panel: every unit (selected ones marked), its hull and current order, the enemy flagships.
-const ORDER_TAG = { move: 'MOVE', hold: 'HOLD', follow: 'FOLW', attack: 'ATK', idle: 'IDLE' };
-const TAC_TAG = { approach: 'APPR', run: 'RUN', zoom: 'ZOOM', cover: 'CVR', defend: 'DEF', press: 'FIRE' };
-function drawFleetHud() {
-  const g = hctx;
-  g.font = '20px monospace';
-  g.fillStyle = '#7fe9ff';
-  if (deploying) {
-    // Deployment: budget and what is placed.
-    g.fillText(`DEPLOY  ${depUsed()}/${dep.budget} PTS`, 20, 72);
-    g.font = '17px monospace';
-    g.fillStyle = '#bfefff';
-    g.fillText(`Placing: ${clsOf(dep.cls).name}`, 20, 100);
-    g.fillText(`Squadrons ${depCount(false)}/${dep.squads}  Caps ${depCount(true)}/${dep.caps}`, 20, 124, 250);
-    g.fillStyle = dep.ok ? '#55ff99' : '#ff8899';
-    g.fillText(dep.held ? 'Trigger: drop it here' : dep.hover ? 'Trigger: pick up  Grip: remove' : dep.ok ? 'Trigger: place here' : dep.why, 20, 152, 250);
-    g.fillStyle = '#ff8899';
-    g.fillText(enemyIntel().replace('ENEMY: ', 'FOE: '), 20, 180, 250);
-    g.fillStyle = '#5fa9bf'; g.font = '16px monospace';
-    g.fillText('Panel: START BATTLE', 20, 240, 250);
-    return;
-  }
-  // Header: round, hostiles, enemy flagship hull bars.
-  g.fillText(`R${wave}  HOSTILES ${enemies.length + enemyCaps.filter((c) => c.alive).length}`, 20, 72, 250);
-  let x = 20;
-  g.font = '15px monospace';
-  g.fillStyle = '#ff6677'; g.fillText('FLAG', x, 92);
-  for (const c of enemyCaps) {
-    if (!c.alive) continue;
-    g.strokeStyle = '#ff4455'; g.strokeRect(x + 46, 81, 80, 12);
-    g.fillStyle = '#ff4455'; g.fillRect(x + 48, 83, 76 * Math.max(0, c.hp / c.maxHp), 8);
-    x += 90;
-  }
-  // One row per unit: name, class, hull, what it is doing (orders; * = it decided itself; BST = boosting).
-  const n = UNITS.length, step = n > 7 ? 15 : 17;
-  g.font = (n > 7 ? '14px' : '15px') + ' monospace';
-  UNITS.forEach((u, i) => {
-    const y = 112 + i * step, alive = unitAlive(u), col = '#' + u.color.getHexString();
-    g.fillStyle = selected.has(u) ? '#ffffff' : '#5fa9bf';
-    g.fillText(selected.has(u) ? '>' : ' ', 6, y);
-    g.fillStyle = alive ? col : '#664444';
-    g.fillText(u.kind === 'capital' ? 'CAP ' + u.name.slice(-1) : u.name, 18, y, 62);
-    g.fillStyle = alive ? '#bfefff' : '#664444';
-    g.fillText(clsOf(unitCls(u)).short, 84, y);
-    if (u.kind === 'capital') {
-      g.strokeStyle = col; g.strokeRect(120, y - 11, 84, 11);
-      if (alive) { g.fillStyle = u.hp < u.maxHp * 0.3 ? '#ff5566' : col; g.fillRect(122, y - 9, 80 * Math.max(0, u.hp / u.maxHp), 7); }
-    } else {
-      u.bots.forEach((b, k) => {
-        g.strokeStyle = b.alive ? col : '#664444'; g.strokeRect(120 + k * 21, y - 11, 17, 11);
-        if (b.alive) { g.fillStyle = b.hp <= b.maxHp * 0.34 ? '#ff5566' : col; g.fillRect(122 + k * 21, y - 9, (13 * b.hp) / b.maxHp, 7); }
-      });
-    }
-    g.fillStyle = u.auto ? '#ffcc66' : '#bfefff';
-    if (alive) {
-      const tag = u.smart && u.tac && u.tac.phase ? TAC_TAG[u.tac.defend ? 'defend' : u.tac.phase] : u.engaged ? 'FIRE' : u.autoBoost ? 'BST' : ORDER_TAG[u.order.type];
-      g.fillText(tag + (u.auto ? '*' : ''), 210, y, 52);
-    }
-  });
-  if (n <= 7) {
-    g.fillStyle = '#5fa9bf'; g.font = '16px monospace';
-    g.fillText(state === 'playing' && intermission > 0 ? 'NEXT ROUND...' : fleetHover ? 'POINTING: ' + hoverLabel(fleetHover) : 'L: point+trig select', 20, 246, 250);
-  }
-}
 function drawHud() {
   const W = hudCanvas.width, H = hudCanvas.height;
   hctx.clearRect(0, 0, W, H);
@@ -3008,42 +1485,39 @@ function drawHud() {
   hctx.textAlign = 'left';
   hctx.fillText(`SCORE ${score}`, 20, 44);
   hctx.font = '24px monospace';
-  if (gameMode === 'fleet') drawFleetHud();
-  else {
-    hctx.fillText(`ROUND ${wave}`, 20, 84);
-    hctx.fillText(`HOSTILES ${enemies.length}`, 20, 118);
-    if (gameMode === 'squadron') {
-      // Squadron status: one box per ship, filled by its hull; lost ships are crossed out.
-      hctx.fillText('SQUAD', 20, 160);
-      bots.forEach((b, i) => {
-        const x = 104 + i * 40;
-        hctx.strokeStyle = b.alive ? '#7fe9ff' : '#ff5566';
-        hctx.strokeRect(x, 140, 32, 24);
-        if (b.alive) {
-          hctx.fillStyle = b.hp <= 1 ? '#ff5566' : '#33ddff';
-          hctx.fillRect(x + 3, 143, (26 * b.hp) / BOT_HP, 18);
-        } else {
-          hctx.beginPath(); hctx.moveTo(x + 4, 144); hctx.lineTo(x + 28, 160); hctx.moveTo(x + 28, 144); hctx.lineTo(x + 4, 160); hctx.stroke();
-        }
-      });
-    } else {
-      hctx.fillText('HULL', 20, 160);
-      for (let i = 0; i < MAX_HP; i++) {
-        hctx.strokeStyle = '#7fe9ff';
-        hctx.strokeRect(92 + i * 34, 140, 26, 24);
-        if (i < player.hp) {
-          hctx.fillStyle = player.hp <= 2 ? '#ff5566' : '#33ddff';
-          hctx.fillRect(95 + i * 34, 143, 20, 18);
-        }
+  hctx.fillText(`ROUND ${wave}`, 20, 84);
+  hctx.fillText(`HOSTILES ${enemies.length}`, 20, 118);
+  if (gameMode === 'squadron') {
+    // Squadron status: one box per ship, filled by its hull; lost ships are crossed out.
+    hctx.fillText('SQUAD', 20, 160);
+    bots.forEach((b, i) => {
+      const x = 104 + i * 40;
+      hctx.strokeStyle = b.alive ? '#7fe9ff' : '#ff5566';
+      hctx.strokeRect(x, 140, 32, 24);
+      if (b.alive) {
+        hctx.fillStyle = b.hp <= 1 ? '#ff5566' : '#33ddff';
+        hctx.fillRect(x + 3, 143, (26 * b.hp) / BOT_HP, 18);
+      } else {
+        hctx.beginPath(); hctx.moveTo(x + 4, 144); hctx.lineTo(x + 28, 160); hctx.moveTo(x + 28, 144); hctx.lineTo(x + 4, 160); hctx.stroke();
+      }
+    });
+  } else {
+    hctx.fillText('HULL', 20, 160);
+    for (let i = 0; i < MAX_HP; i++) {
+      hctx.strokeStyle = '#7fe9ff';
+      hctx.strokeRect(92 + i * 34, 140, 26, 24);
+      if (i < player.hp) {
+        hctx.fillStyle = player.hp <= 2 ? '#ff5566' : '#33ddff';
+        hctx.fillRect(95 + i * 34, 143, 20, 18);
       }
     }
-    hctx.fillStyle = '#5fa9bf';
-    hctx.font = '18px monospace';
-    hctx.fillText(`BEST ROUND ${bestRound[gameMode] || 0}`, 20, 200);
-    const sm = activeSteer();
-    hctx.fillText(state === 'playing' && intermission > 0 ? 'NEXT ROUND...'
-      : `${gameMode === 'squadron' ? (squadEngaged ? 'ENGAGING' : 'FORMATION') : 'FIGHTER'} - ${STEER_NAMES[sm]}${sm === 'stick' && invertY ? ' INV' : ''}`, 20, 232);
   }
+  hctx.fillStyle = '#5fa9bf';
+  hctx.font = '18px monospace';
+  hctx.fillText(`BEST ROUND ${bestRound[gameMode] || 0}`, 20, 200);
+  const sm = activeSteer();
+  hctx.fillText(state === 'playing' && intermission > 0 ? 'NEXT ROUND...'
+    : `${gameMode === 'squadron' ? (squadEngaged ? 'ENGAGING' : 'FORMATION') : 'FIGHTER'} - ${STEER_NAMES[sm]}${sm === 'stick' && invertY ? ' INV' : ''}`, 20, 232);
 
   // Radar: top-down view of the box (far side up).
   const cx = W - 128, cy = H / 2, R = 108, range = Math.max(HB.x, HB.z) * 1.15;
@@ -3073,12 +1547,7 @@ function drawHud() {
   }
   for (const e of enemies) plot(e.obj.position, '#ff4455', e.type === 'cruiser' ? 7 : 5);
   if (gameMode === 'squadron') { for (const b of bots) if (b.alive) plot(b.obj.position, '#33ddff', 5); }
-  else if (gameMode === 'fleet') {
-    for (const sq of FLEET_SQUADS) for (const b of sq.bots) if (b.alive) plot(b.obj.position, '#' + sq.color.getHexString(), 4);
-    const sqr = (c, col) => { const sx = cx + (c.obj.position.x / range) * R, sy = cy + (c.obj.position.z / range) * R; hctx.fillStyle = col; hctx.fillRect(sx - 6, sy - 6, 12, 12); };
-    for (const c of FLEET_CAPS) if (c.alive) sqr(c, '#a8f0ff');
-    for (const c of enemyCaps) if (c.alive) sqr(c, '#ff4455');
-  } else if (player.alive) plot(player.obj.position, '#33ddff', 6);
+  else if (player.alive) plot(player.obj.position, '#33ddff', 6);
   hctx.fillStyle = '#ffffff';
   hctx.fillRect(cx - 2, cy - 2, 4, 4);
   hudTex.needsUpdate = true;
@@ -3116,10 +1585,6 @@ try { invertY = localStorage.getItem('battleRoomInvert') === '1'; } catch (e) { 
 function activeSteer() { return DEMO ? 'point' : settings.steer; }
 function steerHelp(mode) {
   const xr = renderer.xr.isPresenting;
-  if (gameMode === 'fleet') {
-    return xr ? 'LEFT: point + trigger = select, grip = order, stick click = all. RIGHT: heading, trigger engage, grip boost'
-      : '1-5 select, 0 all, G = order at the mouse; mouse = heading, hold click = engage';
-  }
   if (gameMode === 'squadron') {
     return xr ? 'Right controller sets the squadron heading - hold trigger: engage, grip: boost, stick click = re-center'
       : 'Mouse sets the squadron heading - hold click: engage, Shift: boost';
@@ -3266,7 +1731,7 @@ for (let i = 0; i < 2; i++) {
     if (hand !== 'left' && hand !== 'right') return;
     hands[hand] = c;
     c.add(touch[hand].root);
-    if (hand === 'left') c.add(hudPanel, wristMsg, selRay, lPointer);
+    if (hand === 'left') c.add(hudPanel, wristMsg, lPointer);
     else c.add(pointer, gimbal);
     log(`controller connected: ${hand} gamepad=${!!ev.data.gamepad}`);
   });
@@ -3453,13 +1918,6 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && menuOpen) toggleSettings(false);
   if (e.code === 'KeyM' && !e.repeat) toggleSteer();
   if (e.code === 'KeyN' && !e.repeat) setSetting('mode', nextMode());
-  if (gameMode === 'fleet' && state === 'playing' && !e.repeat) {
-    // Fleet on desktop: 1-5 select a unit, 0 (or `) selects all, G orders the selection at the mouse pointer.
-    const k = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5'].indexOf(e.code);
-    if (k >= 0 && unitAlive(UNITS[k])) selectUnits([UNITS[k]]);
-    if (e.code === 'Digit0' || e.code === 'Backquote') selectUnits(UNITS);
-    if (e.code === 'KeyG') fleetOrder();
-  }
   if (e.code === 'KeyV' && !e.repeat) toggleInvert();
   if (e.code === 'Space') e.preventDefault();
 });
@@ -3499,7 +1957,7 @@ const input = {
   stickX: 0, stickY: 0, relX: 0, relY: 0, leftFire: false,
 };
 let prevRestartBtn = false, prevB = false, prevStickBtn = false, prevLStick = false, prevXY = false, prevTrigMenu = false, prevLTrig = false, prevLGrip = false;
-const MODES = ['fighter', 'squadron', 'fleet'];
+const MODES = ['fighter', 'squadron'];
 function nextMode() { return MODES[(MODES.indexOf(settings.mode) + 1) % MODES.length]; }
 
 function gatherInputVR(dt) {
@@ -3578,42 +2036,16 @@ function gatherInputVR(dt) {
     const lt = btn(0);
     const onUi = !menuOpen && uiRay('left', L, lt, lt && !prevLTrig);
     boxGrab('left', L, btn(1), sy, dt);
-    if (onUi || state === 'lobby') { selRay.visible = false; prevLStick = btn(3); prevLTrig = lt; prevLGrip = btn(1); return; }
-    if (gameMode === 'fleet' && deploying) {
-      // DEPLOY: the left ray places, picks up / drops (trigger) and removes (grip) your ships.
-      L.getWorldPosition(_v3);
-      _v2.set(0, 0, -1).applyQuaternion(L.getWorldQuaternion(_q));
-      const end = deployInput(_v3, _v2, lt && !prevLTrig && !menuOpen, btn(1) && !prevLGrip && !menuOpen, dead(sy), dt);
-      selRay.scale.z = Math.max(0.05, end.distanceTo(_v3));
-      selRay.visible = !menuOpen;
-      prevLStick = btn(3); prevLTrig = lt; prevLGrip = btn(1);
-      return;
+    if (onUi || state === 'lobby') { prevLStick = btn(3); prevLTrig = lt; prevLGrip = btn(1); return; }
+    // Stick click = put the box back in its default spot (also in Settings).
+    if (btn(3) && !prevLStick && !tutFreeze) { resetBox(); showMessage('BOX RESET', 'Back in front of you', 1.0); }
+    // LEFT TRIGGER = shoot (and start / restart).
+    if (!menuOpen) {
+      if (lt) input.fire = true;
+      if (lt && !prevLTrig) input.restart = true;
     }
-    if (gameMode === 'fleet') {
-      // FLEET: the left controller points a selection ray.
-      L.getWorldPosition(_v3);
-      _v2.set(0, 0, -1).applyQuaternion(L.getWorldQuaternion(_q));
-      fleetHover = pickAlongRay(_v3, _v2);
-      const hp = fleetHover.unit ? unitCenter(fleetHover.unit) : fleetHover.foe ? fleetHover.foe.obj.position : fleetHover.star ? fleetHover.star.c : fleetHover.point;
-      selRay.scale.z = Math.max(0.05, board.localToWorld(_v1.copy(hp)).distanceTo(_v3));
-      selRay.visible = !menuOpen;
-      const playing = (state === 'playing' || state === 'tutorial') && !menuOpen;
-      // Stick click = select ALL; trigger = select what you point at; grip = order the selection.
-      if (btn(3) && !prevLStick && playing) selectUnits(UNITS);
-      if (lt && !prevLTrig && playing) fleetSelect();
-      if (btn(1) && !prevLGrip && playing) fleetOrder();
-    } else {
-      selRay.visible = false;
-      // Stick click = put the box back in its default spot (also in Settings).
-      if (btn(3) && !prevLStick && !tutFreeze) { resetBox(); showMessage('BOX RESET', 'Back in front of you', 1.0); }
-      // LEFT TRIGGER = shoot (and start / restart).
-      if (!menuOpen) {
-        if (lt) input.fire = true;
-        if (lt && !prevLTrig) input.restart = true;
-      }
-      // LEFT GRIP = boost.
-      if (btn(1)) input.boost = true;
-    }
+    // LEFT GRIP = boost.
+    if (btn(1)) input.boost = true;
     prevLStick = btn(3); prevLTrig = lt; prevLGrip = btn(1);
     // Stick forward = boost, back = brake.
     if (sy < -0.5) input.boost = true;
@@ -3628,7 +2060,7 @@ const lPointer = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new TH
 lPointer.visible = false;
 const uiHit = { left: null, right: null };
 const uiHeld = { left: false, right: false };          // a trigger press that clicked a button (not a shot)
-function activePanels() { return [lobbyPanel, deployPanel, tutorial.card, tutorial.big].filter((p) => p.visible); }
+function activePanels() { return [lobbyPanel, tutorial.card, tutorial.big].filter((p) => p.visible); }
 function uiRay(hand, ctrl, trig, edge) {
   const line = hand === 'right' ? pointer : lPointer;
   ctrl.getWorldPosition(_v3);
@@ -3639,7 +2071,7 @@ function uiRay(hand, ctrl, trig, edge) {
   uiHit[hand] = best ? { panel: bp, id: best.id } : null;
   for (const P of activePanels()) {
     const hov = (uiHit.right && uiHit.right.panel === P && uiHit.right.id) || (uiHit.left && uiHit.left.panel === P && uiHit.left.id) || null;
-    if (P.hover !== hov) { P.hover = hov; if (P === lobbyPanel) drawLobby(); else if (P === deployPanel) drawDeploy(); else tutorial.redraw(); }
+    if (P.hover !== hov) { P.hover = hov; if (P === lobbyPanel) drawLobby(); else tutorial.redraw(); }
   }
   // The tutorial card only takes over the controller while you point at one of its buttons, so it
   // never blocks shooting, selecting or ordering at ships seen past it.
@@ -3672,19 +2104,12 @@ function placeSide(mesh, side, widthM) {
   camera.getWorldPosition(_v1);
   faceYaw(mesh, _v1);
 }
-function placeBelow(mesh, heightM) {
-  const sc = board.scale.x;
-  mesh.position.set(board.position.x, board.position.y - HB.y * sc - 0.03 - heightM / 2, board.position.z + HB.z * sc);
-  camera.getWorldPosition(_v1);
-  faceYaw(mesh, _v1);
-}
-// side: +1 = right of the room (normal); -1 = left (while the deployment panel is on the right).
-function placeTutCard(mesh, widthM, side = 1) {
+function placeTutCard(mesh, widthM) {
   const sc = board.scale.x;
   camera.getWorldPosition(_v1);
-  const x = board.position.x + side * (HB.x * sc + 0.04 + widthM / 2);
+  const x = board.position.x + HB.x * sc + 0.04 + widthM / 2;
   const near = board.position.z + HB.z * sc, far = board.position.z - HB.z * sc;
-  const z = clamp(_v1.z - Math.max(0.2, side * (x - _v1.x)) / Math.tan(0.56), far, near);
+  const z = clamp(_v1.z - Math.max(0.2, x - _v1.x) / Math.tan(0.56), far, near);
   mesh.position.set(x, Math.min(board.position.y, _v1.y - 0.12), z);
   faceYaw(mesh, _v1);
   mesh.scale.setScalar(clamp(mesh.position.distanceTo(_v1) / 1.05, 0.8, 2.4));
@@ -3703,8 +2128,7 @@ function placeTutBelow(mesh, heightM) {
 }
 function placePanels() {
   if (lobbyPanel.visible) placeSide(lobbyPanel.mesh, 1, lobbyPanel.widthM);
-  if (deployPanel.visible) placeSide(deployPanel.mesh, 1, deployPanel.widthM);
-  if (tutorial.card.visible) placeTutCard(tutorial.card.mesh, tutorial.card.widthM, deployPanel.visible ? -1 : 1);
+  if (tutorial.card.visible) placeTutCard(tutorial.card.mesh, tutorial.card.widthM);
   if (tutorial.big.visible) placeTutBelow(tutorial.big.mesh, (tutorial.big.widthM * tutorial.big.H) / tutorial.big.W);
   if (menuPanel.visible) placeSide(menuPanel, -1, MENU_M);
 }
@@ -3749,7 +2173,6 @@ function gatherInputDesktop() {
   // Relative mode on desktop: cursor offset from screen centre = stick deflection.
   const dn = (a) => { const m = Math.abs(a); return m < 0.05 ? 0 : Math.sign(a) * Math.min(1, (m - 0.05) / 0.55); };
   input.relX = dn(-mouse.x); input.relY = dn(mouse.y);
-  if (gameMode === 'fleet') fleetHover = pickAlongRay(raycaster.ray.origin, raycaster.ray.direction);
   // +/- scale the box.
   if (keys.has('Equal')) { box.size *= 1.01; applyBoard(); }
   if (keys.has('Minus')) { box.size /= 1.01; applyBoard(); }
@@ -3766,32 +2189,11 @@ function gatherInputDesktop() {
     }
   }
 }
-// Test autopilot for Fleet: squadrons go after the nearest enemy group (keeping a live target),
-// capital ships after the flagship. The same orders for the smart and the old squadron leaders.
-function demoFleet(dt) {
-  input.fire = false;
-  demoOrderT -= dt;
-  if (demoOrderT > 0) return;
-  demoOrderT = 4;
-  const flag = enemyCaps.find((c) => c.alive);
-  for (const u of UNITS) {
-    if (!unitAlive(u)) continue;
-    if (u.order.type === 'attack' && orderTargetPos(u, _v1)) continue;
-    const near = nearestTo(unitCenter(u), enemies.filter((e) => e.hp > 0));
-    const tgt = (u.kind === 'capital' || u.cls === 'bomber' || !near) && flag ? flag : near ? near.group : flag;
-    if (tgt) { u.order.type = 'attack'; u.order.target = tgt; selected.delete(u); }
-  }
-}
-let demoOrderT = 0;
 
 // ---------------------------------------------------------------- update
 // Flight-stick steering: stick X = turn (yaw), stick Y = nose up/down (pitch).
 // Turn rates ease in/out; roll only banks into turns and always levels back out,
 // so the ship stays upright relative to the world.
-function turnToward(v, target, maxAngle) {
-  const a = v.angleTo(target);
-  if (a > 1e-4) v.lerp(target, Math.min(1, maxAngle / a)).normalize();
-}
 function flyByStick(dt, rx, ry) {
   const p = player.obj.position;
   const shape = (a) => {
@@ -3873,7 +2275,6 @@ function updatePlayer(dt) {
     reticle.visible = false;
     flyByStick(dt);
   }
-  if (gameMode === 'fleet') return;                // Fleet: the player ship is only the command orientation
   if (gameMode === 'squadron') {
     // The command point: boost only while NOT engaging (the bots all boost with it); slow while engaged.
     const targetSpeed = input.fire ? CRUISE * 0.55 : input.boost ? BOOST : input.brake ? BRAKE : CRUISE;
@@ -3928,25 +2329,8 @@ function updatePlayer(dt) {
   }
 }
 
-// v16: damage depends on the shooter's class and what it hits (ships.js); shield ships soak shots aimed
-// at ships near them (until their energy runs out).
-const friendShields = [], foeShields = [];
-// Interceptors are agile: a share of small-arms shots that would hit them miss (capital-ship flak doesn't).
-function dodges(t, b) {
-  if (b.dodged === t) return true;                     // already missed this ship
-  if (gameMode !== 'fleet' || b.cls === 'capital') return false;
-  const ev = clsOf(t.unit ? t.unit.cls : t.cls).evade;
-  if (!ev || Math.random() >= ev) return false;
-  b.dodged = t;                                        // one roll per bullet and ship
-  return true;
-}
 function updateCollisions() {
   const sq = teamMode();
-  friendShields.length = 0; foeShields.length = 0;
-  if (gameMode === 'fleet') {
-    for (const f of friends) if (f.bubble && f.alive) friendShields.push(f);
-    for (const e of enemies) if (e.bubble && e.hp > 0) foeShields.push(e);
-  }
   if (sq) {
     // Stars block bullets from both sides.
     for (const b of playerBullets.list) if (obstInside(b.pos)) b.dead = true;
@@ -3954,35 +2338,16 @@ function updateCollisions() {
     for (const b of enemyBullets.list) {
       if (b.dead) continue;
       for (const t of friends) {
-        if (t.alive && segPointDist(b.prev, b.pos, t.obj.position) < (t.hitR || t.radius || 0.14 * S)) {
-          if (dodges(t, b)) continue;
-          b.dead = true;
-          const dmg = shotDamage(b.cls, hitCat(t));
-          if (friendShields.length && shieldSoak(friendShields, t, b, dmg)) { hitStats.soaked = (hitStats.soaked || 0) + dmg; break; }
-          if (t.unit) hitStats[b.src || 'fighter']++;
-          damageTarget(t, dmg);
-          break;
-        }
+        if (t.alive && segPointDist(b.prev, b.pos, t.obj.position) < (t.radius || 0.14 * S)) { b.dead = true; damageTarget(t); break; }
       }
     }
   }
   for (const b of playerBullets.list) {
     if (b.dead) continue;
-    for (const c of enemyCaps) {
-      if (c.alive && segPointDist(b.prev, b.pos, c.obj.position) < c.radius) {
-        b.dead = true;
-        const dmg = shotDamage(b.cls, 'cap');
-        if (!(foeShields.length && shieldSoak(foeShields, c, b, dmg))) damageCapital(c, dmg);
-        break;
-      }
-    }
-    if (b.dead) continue;
     for (const e of enemies) {
       if (e.hp > 0 && segPointDist(b.prev, b.pos, e.obj.position) < e.radius) {
-        if (dodges(e, b)) continue;
         b.dead = true;
-        const dmg = shotDamage(b.cls, hitCat(e));
-        if (!(foeShields.length && shieldSoak(foeShields, e, b, dmg))) damageEnemy(e, dmg);
+        damageEnemy(e, 1);
         break;
       }
     }
@@ -4011,34 +2376,22 @@ function simStep(dt) {
     updateStars(dt);
     updateLobby(dt);
     if (DEMO && !BENCH && stateTimer > 2) startGame();
-  } else if (deploying) {
-    // Fleet deployment: the enemy is frozen; only the markers and the panel update.
-    updateMorph(dt);
-    updateStars(dt);
-    refreshFriends();
-    updateDeployScene(dt);
-    if (state === 'tutorial') tutorial.update(dt);
   } else if (!menuOpen) {
     updateMorph(dt);
     updateStars(dt);
-    if (DEMO && gameMode === 'fleet' && state === 'playing') demoFleet(dt);
     updatePlayer(dt);
     refreshFriends();
     if (gameMode === 'squadron') updateBots(dt);
-    if (gameMode === 'fleet') { updateFleet(dt); updateEnemyCaps(dt); }
     updateEnemies(dt);
-    updateGroupTags();
     playerBullets.update(dt);
     enemyBullets.update(dt);
     updateCollisions();
     if (state === 'tutorial') tutorial.update(dt);
     else if (state === 'playing') {
       stats.time += dt;
-      battleT += dt;
       if ((statsSaveT += dt) > 15) { statsSaveT = 0; saveStats(); }
-      if (enemies.length === 0 && enemyCaps.every((c) => !c.alive)) {
-        if (campaignB) { endCampaign(true); }
-        else if (intermission <= 0) {
+      if (enemies.length === 0) {
+        if (intermission <= 0) {
           // Round cleared: bonus, the stars fade out and the room reshapes; then a fresh battle starts.
           intermission = 3.2;
           morphTo(pickShape(_shapeTmp), 2.4);
@@ -4046,7 +2399,7 @@ function simStep(dt) {
           const bonus = 500 * wave;
           score += bonus;
           saveBest();
-          showMessage(`ROUND ${wave} ${gameMode === 'fleet' ? 'WON' : 'CLEARED'}`, `+${bonus} round bonus - next: a fresh battle, full strength`, 2.8);
+          showMessage(`ROUND ${wave} CLEARED`, `+${bonus} round bonus - next: a fresh battle, full strength`, 2.8);
           log(`round cleared mode=${gameMode} round=${wave} t=${simTime.toFixed(1)}`);
         } else {
           intermission -= dt;
@@ -4055,7 +2408,7 @@ function simStep(dt) {
       }
     } else if (state === 'gameover') {
       reticle.visible = false;
-      if (stateTimer > (campaignResult ? 6 : 4.5) && !BENCH) enterLobby();
+      if (stateTimer > 4.5 && !BENCH) enterLobby();
     }
   }
   updateEffects(dt);
@@ -4104,14 +2457,13 @@ function loop() {
     statusTimer -= dt;
     if (statusTimer <= 0) {
       statusTimer = 3;
-      log(`status mode=${gameMode} state=${state} wave=${wave} score=${score} kills=${kills} hp=${player.hp} bots=${gameMode === 'fleet' ? FLEET_SQUADS.map((q) => q.name[0] + q.bots.filter((b) => b.alive).length).join('') + ' caps=' + FLEET_CAPS.map((c) => (c.alive ? Math.round(c.hp) : 'x')).join('/') + ' flag=' + enemyCaps.map((c) => (c.alive ? Math.round(c.hp) : 'x')).join('/') : bots.filter((b) => b.alive).map((b) => b.hp).join('')} enemies=${enemies.length} fps~${Math.round(frames / 3)} xr=${xr}`);
+      log(`status mode=${gameMode} state=${state} wave=${wave} score=${score} kills=${kills} hp=${player.hp} bots=${bots.filter((b) => b.alive).map((b) => b.hp).join('')} enemies=${enemies.length} fps~${Math.round(frames / 3)} xr=${xr}`);
       frames = 0;
     }
   }
   renderer.render(scene, camera);
 }
 
-if (TEST && URLQ.has('unlockall')) CAMP.setUnlockAll(true);
 applySettings();
 buildDesktopSettings();
 if (AUTO_MODE && MODES.includes(AUTO_MODE)) settings.mode = AUTO_MODE;   // test: this mode (not saved)
@@ -4129,18 +2481,11 @@ window.__game = {
   player, enemiesList: enemies, startGame, rig, camera, renderer, scene, shipArrow, pointer, reticle,
   get steerMode() { return activeSteer(); }, get invertY() { return invertY; },
   settings, setSetting, neutralQ, input, gimbal, board, box, mirrorQ, bots, obstacles, groups,
-  get mode() { return gameMode; }, get boxB() { return BOX_B; }, HB, get morphing() { return morphT < 1; }, AI, bestRound, damageBot, get msgTitle() { return msgTitle; }, get msgSub() { return msgSub; }, get starsOn() { return starsOn; }, get starAlpha() { return starAlpha; }, startRound, wristMsg, msgPanel, hudPanel, UNITS, FLEET_SQUADS, FLEET_CAPS, enemyCaps, selected, selectUnits, fleetOrder, fleetSelect, pickAlongRay, damageCapital, get fleetHover() { return fleetHover; }, set fleetHover(v) { fleetHover = v; }, selRay, get friends() { return friends; }, get squadEngaged() { return squadEngaged; },
+  get mode() { return gameMode; }, get boxB() { return BOX_B; }, HB, get morphing() { return morphT < 1; }, AI, bestRound, damageBot, get msgTitle() { return msgTitle; }, get msgSub() { return msgSub; }, get starsOn() { return starsOn; }, get starAlpha() { return starAlpha; }, startRound, wristMsg, msgPanel, hudPanel, get friends() { return friends; }, get squadEngaged() { return squadEngaged; },
   lobbyPanel, tutorial, enterLobby, startTutorial, finishTutorial, stats, recordGame, leaveGame, grab, uiHit, placePanels,
-  get simTime() { return simTime; }, hitStats, menuLayout, get kills() { return kills; }, get smart() { return SMART_LEADERS; }, setSmart(v) { SMART_LEADERS = v; },
-  get tutStage() { return tutStageName; }, get tutFreeze() { return tutFreeze; }, get lastOrder() { return lastOrderWhat; }, get shots() { return shotsFired; },
+  get simTime() { return simTime; }, menuLayout, get kills() { return kills; },
+  get tutStage() { return tutStageName; }, get tutFreeze() { return tutFreeze; }, get shots() { return shotsFired; },
   tutorialDone, spawnTut, setTutStage: tutStage, applyBoard, drawMenu, touch, get hudVisible() { return hudPanel.visible; }, get menuCanvas() { return menuCanvas; }, MENU_TOP, MENU_ROW, MENU_ROWS,
-  startGameAt(mode, round) { settings.mode = mode; campaignB = null; startGame(round); },
-  // v16 hooks
-  dep, get deploying() { return deploying; }, beginDeploy, endDeploy, autoDeploy, tryPlace, removeItem, deployPanel, deployInput, CLASSES, CAMP,
-  startCampaign, get campaign() { return campaignB; }, get campaignResult() { return campaignResult; }, get lobbyView() { return lobbyView; }, set lobbyView(v) { lobbyView = v; drawLobby(); },
-  setTestPlan(f) { TEST_PLAN = f; },
-  // Test: a custom battle (campaign rules: one round, scored), e.g. a balance duel.
-  testBattle(B) { campaignB = { id: 0, name: 'TEST', mode: 'fleet', wave: 3, par: 999, budget: 999, caps: 0, ...B }; campaignResult = null; startGame(campaignB.wave, 'fleet'); }, get loss() { return { lossCount, lossPts, fleetPts }; }, get battleT() { return battleT; }, SQUAD_POOL, CAP_POOL, groupTags, ghost, zoneBox, drawLobby,
-  setUnlockAll: CAMP.setUnlockAll, setSquadClass, fieldFleet, defaultFleetPlan, get lastPlan() { return lastPlan; }, set lastPlan(v) { lastPlan = v; },
+  startGameAt(mode, round) { settings.mode = mode; startGame(round); },
   get enemyBullets() { return enemyBullets.list.length; }, get bullets() { return playerBullets.list.length; }, toggleSettings, get menuOpen() { return menuOpen; }, get menuHover() { return menuHover; }, menuPanel,
 };

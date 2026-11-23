@@ -1,7 +1,6 @@
 // VR UI: canvas-textured panels with pointer-ray buttons, and small animated controller icons.
 // Same look as the wrist HUD: dark navy glass, cyan frame, monospace text, gold highlights.
 import * as THREE from '../vendor/three.module.js';
-import { drawClassGlyph } from './ships.js?v=16';
 
 export const UI = {
   bg: 'rgba(0,10,22,0.88)', frame: 'rgba(80,220,255,0.8)', faint: 'rgba(80,220,255,0.35)',
@@ -212,12 +211,6 @@ function bullets(g, x0, y0, x1, y1, t, n = 3, col = '136,244,255') {
     g.beginPath(); g.arc(x0 + (x1 - x0) * f, y0 + (y1 - y0) * f, 4, 0, Math.PI * 2); g.fill();
   }
 }
-function capitalShip(g, x, y, s, col = '#a8f0ff') {
-  g.strokeStyle = col; g.lineWidth = 3;
-  g.beginPath(); g.moveTo(x - s * 0.45, y); g.lineTo(x - s * 0.2, y - s * 0.14); g.lineTo(x + s * 0.4, y - s * 0.08); g.lineTo(x + s * 0.48, y);
-  g.lineTo(x + s * 0.4, y + s * 0.08); g.lineTo(x - s * 0.2, y + s * 0.14); g.closePath(); g.stroke();
-}
-
 // Draw icon `kind` centred at (x, y), about `s` pixels tall, at animation time t (seconds), for `hand`.
 // Layout is the same for every icon: the controller on the left, what it does on the right.
 export function drawIcon(g, kind, x, y, s, t, hand = 'right') {
@@ -316,93 +309,6 @@ export function drawIcon(g, kind, x, y, s, t, hand = 'right') {
       controller(g, cx, cy, cs, 0, ['release'], t, hand);
       const sp = 0.3 * (0.5 + 0.5 * Math.cos(t * 1.5));
       formation(g, ex + s * 0.05, ey, s * 0.45, sp);
-      break;
-    }
-    case 'watch': {
-      const k = (t * 0.6) % 1;
-      formation(g, x - s * 0.25 + k * s * 0.15, y, s * 0.45, 0.1, '#3d8bff');
-      ship(g, x + s * 0.32, y, s * 0.2, Math.PI, '#ff4455');
-      bullets(g, x - s * 0.05, y + s * 0.08, x + s * 0.28, y, t);
-      break;
-    }
-    case 'fleet': {
-      capitalShip(g, x - s * 0.15, y - s * 0.2, s * 0.5);
-      capitalShip(g, x + s * 0.25, y - s * 0.05, s * 0.4);
-      formation(g, x - s * 0.3, y + s * 0.28, s * 0.22, 0.05, '#3d8bff');
-      formation(g, x + s * 0.02, y + s * 0.3, s * 0.22, 0.05, '#44ff88');
-      formation(g, x + s * 0.34, y + s * 0.28, s * 0.22, 0.05, '#ffcc33');
-      break;
-    }
-    case 'selectRay': {
-      controller(g, cx, cy, cs, 0, ['trigger'], t, hand, s * 0.42);
-      ring(g, ex + s * 0.12, cy - cs * 0.2, s * (0.15 + 0.02 * pulse(t, 6)), '#ffffff');
-      for (let i = 0; i < 3; i++) dart(g, ex + s * (0.08 + (i % 2) * 0.05), cy - cs * 0.2 + (i - 1) * s * 0.08, s * 0.08, 0, '#3d8bff');
-      break;
-    }
-    case 'selectAll': {
-      controller(g, cx, cy, cs, 0, ['stickClick'], t, hand);
-      const c = ['#3d8bff', '#44ff88', '#ffcc33', '#a8f0ff', '#a8f0ff'];
-      const lit = Math.floor((t * 2.5) % 7);
-      for (let i = 0; i < 5; i++) ring(g, ex - s * 0.12 + (i % 3) * s * 0.17, ey - s * 0.12 + Math.floor(i / 3) * s * 0.24, s * 0.07, i < lit ? c[i] : 'rgba(127,233,255,0.25)');
-      break;
-    }
-    case 'orderHold': case 'orderGuard': case 'orderFollow': case 'orderAttack': case 'orders': {
-      controller(g, cx, cy, cs, 0, ['grip'], t, hand, s * 0.38);
-      const tx = ex + s * 0.16, ty = cy - cs * 0.2;
-      if (kind === 'orderHold') { g.strokeStyle = '#ffffff'; g.lineWidth = 3; g.beginPath(); g.moveTo(tx - 12, ty - 12); g.lineTo(tx + 12, ty + 12); g.moveTo(tx + 12, ty - 12); g.lineTo(tx - 12, ty + 12); g.stroke(); ring(g, tx, ty, s * (0.1 + 0.02 * pulse(t, 6)), 'rgba(255,255,255,0.6)', 2); }
-      if (kind === 'orderGuard') { ring(g, tx, ty, s * 0.12, 'rgba(160,185,220,0.9)'); ship(g, tx + s * 0.18 * Math.cos(t), ty + s * 0.18 * Math.sin(t), s * 0.1, t + Math.PI / 2); }
-      if (kind === 'orderFollow') { capitalShip(g, tx + s * 0.02, ty, s * 0.3); ship(g, tx - s * 0.2 - (t * 20) % 10, ty + s * 0.12, s * 0.1, 0, '#3d8bff'); }
-      if (kind === 'orderAttack' || kind === 'orders') { ship(g, tx, ty, s * 0.18, Math.PI, '#ff4455'); ring(g, tx, ty, s * (0.13 + 0.02 * pulse(t, 6)), '#ff4455'); }
-      break;
-    }
-    case 'flagship': {
-      controller(g, cx, cy, cs, 0, ['grip'], t, hand, s * 0.3);
-      const tx = ex + s * 0.18, ty = cy - cs * 0.2;
-      capitalShip(g, tx, ty, s * 0.42, '#ff4455');
-      ring(g, tx, ty, s * (0.24 + 0.02 * pulse(t, 6)), '#ff4455');
-      break;
-    }
-    // v16: ship classes and deployment.
-    case 'types': {
-      const L = [['fighter', 'FIGHTER', 'all-round'], ['interceptor', 'INTERCEPT', 'hunts fighters'], ['bomber', 'BOMBER', 'hits capitals'], ['shield', 'SHIELD', 'guards friends']];
-      L.forEach(([k, n, d], i) => {
-        const gx = x + (i % 2 ? s * 0.25 : -s * 0.25), gy = y - s * 0.22 + Math.floor(i / 2) * s * 0.46;
-        drawClassGlyph(g, k, gx, gy - s * 0.04, s * 0.22 * (1 + 0.06 * Math.sin(t * 2 + i)), '#7fe9ff');
-        g.fillStyle = '#bfefff'; g.textAlign = 'center';
-        g.font = `bold ${Math.round(s * 0.082)}px monospace`; g.fillText(n, gx, gy + s * 0.15);
-        g.fillStyle = '#5fa9bf'; g.font = `${Math.round(s * 0.066)}px monospace`; g.fillText(d, gx, gy + s * 0.225);
-      });
-      break;
-    }
-    case 'pickType': {
-      controller(g, cx - s * 0.08, cy, cs * 0.9, 0, ['trigger'], t, hand, s * 0.3);
-      const px = ex + s * 0.1, py = y - s * 0.32, k = Math.floor((t * 0.8) % 4);
-      ['fighter', 'interceptor', 'bomber', 'shield'].forEach((c, i) => {
-        const on = i === k;
-        g.strokeStyle = on ? '#ffcc66' : 'rgba(80,220,255,0.5)'; g.lineWidth = on ? 4 : 2;
-        g.strokeRect(px - s * 0.2, py + i * s * 0.17, s * 0.4, s * 0.14);
-        drawClassGlyph(g, c, px - s * 0.1, py + i * s * 0.17 + s * 0.07, s * 0.1, on ? '#ffcc66' : '#7fe9ff');
-        g.fillStyle = on ? '#ffcc66' : '#5fa9bf'; g.fillRect(px - s * 0.02, py + i * s * 0.17 + s * 0.055, s * 0.16, s * 0.03);
-      });
-      break;
-    }
-    case 'place': {
-      controller(g, cx, cy, cs, 0, ['trigger'], t, hand, s * 0.36);
-      // Your half of the room (green) with ships appearing in it.
-      const bx = ex + s * 0.12, by = cy - cs * 0.2;
-      g.strokeStyle = 'rgba(85,255,153,0.7)'; g.lineWidth = 3; g.setLineDash([8, 6]); g.strokeRect(bx - s * 0.2, by - s * 0.2, s * 0.4, s * 0.4); g.setLineDash([]);
-      const k = (t * 0.7) % 1;
-      ring(g, bx, by, s * (0.06 + 0.03 * pulse(t, 6)), HI);
-      if (k > 0.5) drawClassGlyph(g, 'fighter', bx, by, s * 0.12, '#33ddff', -Math.PI / 2);
-      drawClassGlyph(g, 'bomber', bx - s * 0.12, by + s * 0.12, s * 0.1, '#3d8bff', -Math.PI / 2);
-      break;
-    }
-    case 'startBattle': {
-      controller(g, cx - s * 0.05, cy, cs * 0.9, 0, ['trigger'], t, hand, s * 0.3);
-      const bx = ex + s * 0.1, by = y - s * 0.05, k = pulse(t, 4);
-      g.strokeStyle = `rgba(255,204,102,${0.4 + 0.6 * k})`; g.lineWidth = 5; g.strokeRect(bx - s * 0.24, by - s * 0.09, s * 0.48, s * 0.18);
-      g.fillStyle = '#ffcc66'; g.textAlign = 'center'; g.font = `bold ${Math.round(s * 0.07)}px monospace`;
-      g.fillText('START', bx, by - s * 0.005); g.fillText('BATTLE', bx, by + s * 0.065);
       break;
     }
     case 'check': {

@@ -1,6 +1,6 @@
 // Player stats, kept in localStorage: per-mode best round and games, plus overall totals.
 const KEY = 'battleRoomStats1';
-const MODES = ['fighter', 'squadron', 'fleet'];
+const MODES = ['fighter', 'squadron'];
 
 function fresh() {
   const s = { games: 0, kills: 0, time: 0, roundsCleared: 0, bestScore: 0, streak: 0, bestStreak: 0, modes: {} };
