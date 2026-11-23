@@ -2,7 +2,7 @@
 
 A seated, **tabletop** wireframe space battle for **Meta Quest 3 / 3S**, inspired by the
 command-school simulator in *Ender's Game*. The whole battle plays out as a miniature
-inside a wireframe room (about 1 m across, changing shape between waves) floating in front of you, so you never have to turn
+inside a wireframe room (about 1 m across, changing shape between rounds) floating in front of you, so you never have to turn
 or move.
 
 It is a WebXR web page built with three.js. It runs in the Quest's built-in browser, so you
@@ -16,19 +16,49 @@ browser with mouse and keyboard.
 Pick the mode on the title screen (Quest: **B** cycles Fighter / Squadron / Fleet, the right trigger starts; desktop:
 the three START buttons, or **N**) or in Settings.
 
+## Rounds: every round is a fresh battle
+
+All three modes are played in **rounds**, and the goal is to reach the highest round you can.
+Your score keeps adding up across rounds, and each cleared round gives a bonus of 500 x the round number.
+The best round you have reached is saved for each mode and shown on the wrist panel.
+
+- **Each new round fully resets the battlefield.** Your side comes back at full strength in
+  its start positions: in Fighter your ship has full hull; in Squadron all 4 bots have full hull; in Fleet
+  all 3 squadrons have 4 bots each and both capital ships have full hull. The enemy spawns fresh.
+  Nothing carries over (no partial repairs or reinforcements), so you lose only if your side is wiped
+  out within a single round.
+- **The room reshapes** between rounds, and in Squadron and Fleet the **stars** fade out and come
+  back in **new random positions** that suit the new room shape. They are kept clear of both
+  sides' start areas, and no ship is ever left inside a star.
+- **The enemy gets harder and smarter every round.** Each round brings more ships, tougher flagships, faster bullets
+  and better aim. Their shot leading starts at about half and is perfect from round 5. New tactics unlock as you go, and the
+  round-start message on your wrist names any new one:
+
+  | Round | New enemy tactic | Modes |
+  |---|---|---|
+  | 1 | Pincers and flankers, retreat when damaged | All |
+  | 2 | **Focus fire** on your most exposed ship; **bait and ambush** | Squadron, Fleet |
+  | 3 | **Hiding behind stars** (snipers, damaged ships, damaged flagships) | Squadron, Fleet |
+  | 3 | **Retreat and regroup:** damaged ships fall back to their wingmen; outnumbered ships pull back | All |
+  | 4 | **Pincers on your capital ships:** pincer and heavy groups gang up on your weaker capital | Fleet |
+  | 5 | **Synchronized strikes:** every attack group times its run to hit at the same moment | All |
+  | 5 | **Dodging your shots:** many enemy ships side-step incoming bullets | All |
+  | 6 | **Hunter-killers:** a fast pack that chases your most damaged ship | All |
+  | 7 | **Flagships launch fighters:** a fresh pair every 20 seconds while the flagship lives | Fleet |
+
 ### Fighter
 
-You fly one cyan ship and destroy waves of red ships. The battle room is much bigger than
+You fly one cyan ship and win round after round against red ships. The battle room is much bigger than
 the ships, so there is plenty of room to manoeuvre.
 
 The enemies fight in groups with real plans:
 - **Pincer pairs** swing out to opposite sides of you, then attack together.
 - **Flankers** circle round to come at you from the side or behind, make a pass, and swing out again.
-- **Snipers** (from wave 2) hold long range and fire accurate shots.
-- **Heavies** (cruisers, from wave 3) hold medium range and fire 3-shot spreads.
+- **Snipers** (from round 2) hold long range and fire accurate shots.
+- **Heavies** (cruisers, from round 3) hold medium range and fire 3-shot spreads.
 - Everyone **leads their shots** (aims where you will be), and pulls back for a moment when damaged.
 
-Your hull has 5 points. Clearing a wave repairs 1.
+Your hull has 5 points, back to full at the start of every round. Lose them all in one round and it's game over.
 
 ### Squadron
 
@@ -45,17 +75,17 @@ the commanded heading, dodge incoming bullets, and never run into each other.
 - **Right grip = boost.** It only works while NOT engaging, and the whole squadron boosts together.
 - **Stars:** big wireframe spheres. Nothing can fly through them and they block bullets, so
   both sides use them as cover. Ships steer around them. They are spread through the room in
-  proportion to its current shape.
+  proportion to its current shape, in new random positions every round.
 - **Enemies** come in coordinated groups:
   - Pincers and flankers **focus fire** on your most exposed bot (the one furthest from its wingmen).
   - Snipers **hide behind stars** and step out to shoot.
-  - From wave 2, a **bait** ship flies in close and then runs back to a star where two
+  - From round 2, a **bait** ship flies in close and then runs back to a star where two
     **ambushers** are hiding.
   - Enemies **fall back to cover when outnumbered** and pull back when damaged.
-  - Waves get bigger and the enemies get faster and more accurate.
-- Each bot has 3 hull points. A destroyed bot is gone. Clearing a wave gives every
-  surviving bot +1 hull, and every 3rd wave cleared brings one lost wingman back. Lose all
-  4 and it's game over. The wrist panel shows each bot's hull.
+  - Rounds get bigger and the enemies get faster, more accurate and smarter (see Rounds above).
+- Each bot has 3 hull points. A destroyed bot is gone for the rest of the round; every new
+  round starts with all 4 back at full hull. Lose all 4 within one round and it's game over.
+  The wrist panel shows each bot's hull.
 
 ![squadron](screenshots/11-squadron.png)
 
@@ -68,13 +98,13 @@ You command a whole fleet:
 - **2 friendly capital ships** (big cyan cruisers). Their turrets fire automatically at the
   nearest enemy in range. They are slow but tough (60 hull), and you can command them like a squadron.
 
-The enemy brings a **flagship** (two from wave 3), each guarded by an **escort** group, plus
+The enemy brings a **flagship** (two from round 3), each guarded by an **escort** group, plus
 squadrons using all the Squadron tactics (pincers, flankers, snipers, bait and ambush).
-**Destroy every enemy flagship to win the wave.** Any remaining enemy fighters then jump out.
-**Game over when both of your capital ships are destroyed.** Bots can all be lost and you
-fight on with the capitals alone. Between waves the capitals repair 15%, every bot gains
-1 hull, and each squadron gets one replacement fighter (a wiped-out squadron returns
-behind a surviving capital). Waves get harder: more and smarter enemies, tougher flagships
+**Destroy every enemy flagship to win the round.** Any remaining enemy fighters then jump out.
+**It's game over only when both capital ships AND every one of your fighters are destroyed.**
+If both capitals fall, the wrist warns "CAPITALS LOST - fighters only" and you fight on with
+the squadrons you have left (and the other way round: capitals alone fight on too). Every new
+round starts with the full fleet again. Rounds get harder: more and smarter enemies, tougher flagships
 and faster flagship guns.
 
 **Selecting (left hand).** The left controller casts a pointing ray, and the wrist shows what it points at.
@@ -105,12 +135,12 @@ through the opposite face. Enemies wrap too. Your view never moves and the game 
 
 **The room changes shape (all modes):** width, height and depth vary independently, so the
 room may be a long tunnel, a flat slab, a tall tower or a cube. A new shape is picked for
-every game, and between waves the room smoothly reshapes itself, keeping every ship inside.
+every game, and between rounds the room smoothly reshapes itself, keeping every ship inside.
 The volume stays about the same, so the difficulty stays fair, and the size is capped (at
 most about 1.5 m wide or deep, 1.35 m tall with the Medium box size). A deeper room grows
 away from you, so its near face never comes closer.
 
-**Messages** (wave start, wave cleared, wingman down, game over...) appear on a small
+**Messages** (round start and new enemy tactics, round cleared, wingman down, game over...) appear on a small
 panel on your left wrist, to the right of the score panel, so nothing covers the battle.
 On the desktop they show in a small panel next to the HUD in the bottom-left corner. Only
 the title-screen prompt in VR floats in front of you.
@@ -131,7 +161,7 @@ the title-screen prompt in VR floats in front of you.
 | Left | **Click the thumbstick** | Put the box back in its default spot (Fleet: select all; use Settings > Box position) | Same |
 | Left | **X + Y together** | Settings (point with the right controller and pull the right trigger to change; the game pauses) | Same |
 | Left | **Fleet only** | | Point the ray; **trigger** = select the unit you point at, **stick click** = select all, **grip** = quick order (hold / guard / follow / attack) |
-| Left | **Look at your wrist** | Score, wave, hull, a top-down radar, and the message panel | Score, wave, squadron status, a radar with the stars, and the message panel |
+| Left | **Look at your wrist** | Score, round, best round, hull, a top-down radar, and the message panel | Score, round, squadron status, a radar with the stars, and the message panel |
 
 Other steering modes (in Settings) also work in all modes:
 - **Relative (hand stick):** tilt the controller away from a captured neutral. Click the right stick to re-center.
@@ -168,7 +198,7 @@ Changing the mode during a game restarts in the new mode.
 | Tab or the gear button | Settings |
 | Enter / R | Start / restart |
 
-URL options: `?wave=5` starts at wave 5, and `?demo` turns on an autopilot (attract mode).
+URL options: `?wave=5` starts at round 5 (with round-5 enemy tactics), and `?demo` turns on an autopilot (attract mode).
 `?test` sends errors and status lines to a local test server.
 
 ## Getting it onto the Quest
@@ -196,7 +226,7 @@ the left stick to put the box back in its default spot.
 ## Files
 
 - `index.html` - page, desktop HUD and title screen
-- `js/main.js` - game: scene, input (VR + desktop), player, enemy AI, squadron bots, fleet (selection, orders, capital ships), stars, waves, HUD, effects
+- `js/main.js` - game: scene, input (VR + desktop), player, enemy AI, squadron bots, fleet (selection, orders, capital ships), stars, rounds and enemy tactic unlocks, HUD, effects
 - `js/models.js` - wireframe ship models (points joined by lines)
 - `js/audio.js` - synthesized 3D sound effects (WebAudio, no audio files)
 - `vendor/` - three.js r187 (`three.module.js`, `three.core.js`, `VRButton.js`), MIT licence

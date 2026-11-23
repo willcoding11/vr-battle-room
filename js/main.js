@@ -2,8 +2,8 @@
 // with a mouse + keyboard fallback for desktop browsers.
 import * as THREE from '../vendor/three.module.js';
 import { VRButton } from '../vendor/VRButton.js';
-import { buildPlayerShip, buildFighter, buildCruiser, buildControllerGizmo, tintShip } from './models.js?v=11';
-import { Sfx } from './audio.js?v=11';
+import { buildPlayerShip, buildFighter, buildCruiser, buildControllerGizmo, tintShip } from './models.js?v=12';
+import { Sfx } from './audio.js?v=12';
 
 const TEST = /[?&]test/.test(location.search);
 const DEMO = /[?&]demo/.test(location.search);          // autopilot (attract mode / testing)
@@ -412,6 +412,11 @@ let gameMode = settings.mode;
 const obstacles = [];
 const obstacleGroup = new THREE.Group();
 board.add(obstacleGroup);
+const obstacleMat = new THREE.LineBasicMaterial({ color: 0x9fb8dd, transparent: true, opacity: 0 });
+// v12: stars get new random spots every round. They fade out when a round is cleared (and stop
+// counting as obstacles once gone), then fade back in at their new spots when the next round starts.
+let starsOn = true, starAlpha = 0, starTarget = 1;
+function starsActive() { return teamMode() && starsOn; }
 {
   // All spheres. Positions are FRACTIONS of the room's half-extents, so the stars spread out or
   // squeeze together with the room's shape (and glide with it when it changes between waves).
@@ -420,7 +425,7 @@ board.add(obstacleGroup);
     [-0.32, -0.38, 0.26, 0.6], [0.42, 0.28, 0.4, 0.55], [0.24, -0.18, -0.68, 0.6],
     [-0.62, 0.44, 0.52, 0.5], [-0.6, -0.24, -0.64, 0.55],
   ];
-  const mat = new THREE.LineBasicMaterial({ color: 0x9fb8dd, transparent: true, opacity: 0.6 });
+  const mat = obstacleMat;
   for (const [x, y, z, r] of layout) {
     const g = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.IcosahedronGeometry(r, 1)), mat);
     obstacleGroup.add(g);
@@ -434,19 +439,68 @@ function layoutObstacles() {
 }
 OBST_READY = true;
 layoutObstacles();
+// Where the two sides start this round: stars are kept well clear of these spots.
+function starAvoidPoints() {
+  const pts = [];
+  if (gameMode === 'fleet') {
+    for (let i = 0; i < 3; i++) pts.push(new THREE.Vector3((i - 1) * 1.6 * S, (i - 1) * 0.3 * S, HB.z * 0.45));
+    for (const i of [0, 1]) pts.push(new THREE.Vector3((i ? 1 : -1) * 1.4 * S, -0.6 * S, HB.z * 0.65));
+    pts.push(new THREE.Vector3(-0.5 * HB.x, 0, -HB.z * 0.75), new THREE.Vector3(0.5 * HB.x, 0, -HB.z * 0.75));
+  } else pts.push(new THREE.Vector3(0, 0, HB.z * 0.4));
+  return pts;
+}
+// New random star positions for the current room shape: inside the walls, apart from each other,
+// and clear of both sides' start areas (best of many random tries for each star).
+function randomizeStars() {
+  const rs = gameMode === 'fleet' ? 1.4 : 1;
+  const avoid = starAvoidPoints(), placed = [];
+  const n = new THREE.Vector3(), c = new THREE.Vector3(), bestN = new THREE.Vector3();
+  for (const o of obstacles) {
+    const r = o.r0 * rs;
+    let bestScore = -Infinity;
+    for (let k = 0; k < 80; k++) {
+      n.set(rand(-0.75, 0.75), rand(-0.7, 0.7), rand(-0.75, 0.75));
+      c.copy(n).multiply(HB);
+      let sc = Infinity;
+      for (const ax of ['x', 'y', 'z']) sc = Math.min(sc, (HB[ax] - Math.abs(c[ax]) - r) / (0.5 * S));
+      for (const q of avoid) sc = Math.min(sc, (c.distanceTo(q) - r - 1.2 * S) / S);
+      for (const q of placed) sc = Math.min(sc, (c.distanceTo(q.c) - r - q.r - 0.9 * S) / S);
+      if (sc > bestScore) { bestScore = sc; bestN.copy(n); }
+      if (sc > 0.6 && k > 10) break;
+    }
+    o.n.copy(bestN);
+    placed.push({ c: bestN.clone().multiply(HB), r });
+  }
+  layoutObstacles();
+}
+function updateStars(dt) {
+  starAlpha += clamp(starTarget - starAlpha, -dt * 1.6, dt * 1.1);
+  if (starTarget === 0 && starAlpha <= 0.001) starsOn = false;   // faded out: no longer solid
+  obstacleMat.opacity = 0.6 * starAlpha;
+  obstacleGroup.visible = teamMode() && starAlpha > 0.005;
+}
+// Make sure no ship sits inside a star (after new star positions).
+function pushAllOutOfStars() {
+  obstPushOut(player.obj.position, 0.1 * S);
+  for (const b of bots) obstPushOut(b.obj.position, 0.15 * S);
+  for (const sq of FLEET_SQUADS) { obstPushOut(sq.anchor, 0.3 * S); for (const b of sq.bots) obstPushOut(b.obj.position, 0.15 * S); }
+  for (const c of [...FLEET_CAPS, ...enemyCaps]) obstPushOut(c.obj.position, c.radius);
+  for (const e of enemies) obstPushOut(e.obj.position, e.radius);
+}
+function freshStars() { randomizeStars(); starsOn = true; starAlpha = 0; starTarget = 1; pushAllOutOfStars(); }
 const _ob = new THREE.Vector3(), _ob2 = new THREE.Vector3(), _ob3 = new THREE.Vector3();
 function inObst(o, p, pad = 0) {
   if (o.type === 'cube') return Math.abs(p.x - o.c.x) < o.r + pad && Math.abs(p.y - o.c.y) < o.r + pad && Math.abs(p.z - o.c.z) < o.r + pad;
   return p.distanceTo(o.c) < o.r + pad;
 }
 function obstInside(p, pad = 0) {
-  if (!teamMode()) return null;
+  if (!starsActive()) return null;
   for (const o of obstacles) if (inObst(o, p, pad)) return o;
   return null;
 }
 // Push a ship (radius rad) out of any obstacle it has run into.
 function obstPushOut(p, rad) {
-  if (!teamMode()) return false;
+  if (!starsActive()) return false;
   let hit = false;
   for (const o of obstacles) {
     if (o.type === 'cube') {
@@ -476,7 +530,7 @@ function obstPushOut(p, rad) {
 }
 // Is the straight line a -> b blocked by an obstacle?
 function obstBlocks(a, b) {
-  if (!teamMode()) return false;
+  if (!starsActive()) return false;
   for (const o of obstacles) {
     if (segPointDist(a, b, o.c) > o.R) continue;
     const n = Math.max(2, Math.ceil(a.distanceTo(b) / 0.1));
@@ -486,7 +540,7 @@ function obstBlocks(a, b) {
 }
 // Steer around obstacles ahead (adds a push to `desired`).
 function obstAvoid(p, fwd, speed, desired) {
-  if (!teamMode()) return;
+  if (!starsActive()) return;
   const look = 0.8 * S + speed * 1.2;
   for (const o of obstacles) {
     _ob.subVectors(o.c, p);
@@ -504,7 +558,7 @@ function obstAvoid(p, fwd, speed, desired) {
 }
 // A spot hidden behind the obstacle nearest `near`, as seen from `threat`.
 function coverPoint(threat, near, out) {
-  if (!teamMode()) return null;
+  if (!starsActive()) return null;
   let best = null, bd = Infinity;
   for (const o of obstacles) { const d = o.c.distanceTo(near); if (d < bd) { bd = d; best = o; } }
   if (!best) return null;
@@ -546,10 +600,32 @@ function leadPoint(from, t, speed, out) {
 //   heavy  - slow cruiser that holds medium range and fires 3-shot spreads
 //   bait   - (Squadron) flies in close to draw fire, then runs back to its hidden ambush group
 //   ambush - (Squadron) waits behind a star until the squadron comes near or the bait gets home
-// Everyone leads their shots and pulls back for a moment when damaged. In Squadron the attack
+//   hunter - (round 6+) chases whichever of your ships is most damaged
+// Everyone leads their shots and pulls back for a moment when damaged. v12: aim, lead and tactics
+// improve round by round (see AI / AI_UNLOCKS below). In Squadron the attack
 // groups focus fire on the most exposed bot, and enemies fall back to cover when outnumbered.
 const enemies = [];
 const groups = [];
+// v12: the enemy gets smarter every round. Tactics unlock as the rounds go up (see AI_UNLOCKS).
+const AI = { lead: 0.5, focus: false, cover: false, regroup: false, capHunt: false, sync: false, dodge: false, hunters: false, launch: false };
+const AI_UNLOCKS = [
+  { n: 2, key: 'focus', txt: 'focus fire on your most exposed ship', modes: 'sf' },
+  { n: 2, key: null, txt: 'bait & ambush', modes: 'sf' },
+  { n: 3, key: 'cover', txt: 'hiding behind stars', modes: 'sf' },
+  { n: 3, key: 'regroup', txt: 'retreat & regroup', modes: 'Fsf' },
+  { n: 4, key: 'capHunt', txt: 'pincers on your capital ships', modes: 'f' },
+  { n: 5, key: 'sync', txt: 'synchronized strikes', modes: 'Fsf' },
+  { n: 5, key: 'dodge', txt: 'dodging your shots', modes: 'Fsf' },
+  { n: 6, key: 'hunters', txt: 'hunter-killers chase damaged ships', modes: 'Fsf' },
+  { n: 7, key: 'launch', txt: 'flagships launch fighters', modes: 'f' },
+];
+function setAI(n) {
+  AI.lead = Math.min(1, 0.45 + 0.11 * n);          // how well they lead their shots: 56% in round 1, perfect from round 5
+  for (const u of AI_UNLOCKS) if (u.key) AI[u.key] = n >= u.n;
+  const m = { fighter: 'F', squadron: 's', fleet: 'f' }[gameMode];
+  return AI_UNLOCKS.filter((u) => u.n === n && u.modes.includes(m)).map((u) => u.txt);
+}
+let strikeClock = 0;                                 // shared attack timer for synchronized strikes
 const ROLE_STATS = {
   pincer: { hp: 2, speed: 1.2, turn: 1.9, fire: 2.2, range: 4.0, acc: 0.2 },
   flank: { hp: 2, speed: 1.3, turn: 2.0, fire: 2.0, range: 4.0, acc: 0.2 },
@@ -558,6 +634,7 @@ const ROLE_STATS = {
   bait: { hp: 2, speed: 1.4, turn: 2.2, fire: 2.6, range: 3.5, acc: 0.3 },
   ambush: { hp: 2, speed: 1.3, turn: 2.0, fire: 1.8, range: 4.0, acc: 0.15 },
   escort: { hp: 2, speed: 1.25, turn: 2.0, fire: 2.0, range: 4.0, acc: 0.18 },
+  hunter: { hp: 2, speed: 1.45, turn: 2.3, fire: 1.8, range: 4.0, acc: 0.12 },
 };
 function liveTargets() {
   if (teamMode()) return friends;
@@ -600,7 +677,8 @@ function spawnEnemy(role, wave, pos, group) {
     fwd: _v1.copy(ARENA_C).sub(pos).normalize().clone(), bank: 0,
     turn: st.turn + wave * 0.06, speed: st.speed * S * (1 + wave * 0.05),
     fireInterval: Math.max(st.fire * 0.45, st.fire - wave * 0.12), range: st.range * S,
-    acc: st.acc * S * Math.max(0.4, 1 - wave * 0.06),
+    acc: st.acc * S * Math.max(0.25, 1 - (wave - 1) * 0.08),
+    dodger: Math.random() < 0.6,
     fireCd: rand(1.5, 3.0), flash: 0, points: heavy ? 300 : role === 'sniper' ? 150 : 100, spawnFade: 0,
     retreatT: 0, retreatCd: 0, outnumT: rand(0, 0.5), breakT: 0, side: 1, target: null, mode: 'move',
     goal: randomArenaPoint(0.6),
@@ -628,6 +706,14 @@ function updateGroups(dt, tg) {
       if (s > bestS) { bestS = s; exposed = b; }
     }
   }
+  strikeClock += dt;
+  // Hunter-killers go for the most damaged ship you have (capital ships only if nothing else is left).
+  let weakest = null, wv = Infinity;
+  for (const b of tg) {
+    const v = (b.kind === 'capital' ? 10 : 0) + (b.hp || 1) / (b.maxHp || (b === player ? MAX_HP : BOT_HP));
+    if (v < wv) { wv = v; weakest = b; }
+  }
+  const liveCaps = gameMode === 'fleet' ? FLEET_CAPS.filter((c) => c.alive) : [];
   for (let i = groups.length - 1; i >= 0; i--) {
     const g = groups[i];
     g.members = g.members.filter((e) => e.hp > 0);
@@ -636,7 +722,10 @@ function updateGroups(dt, tg) {
     g.focusT -= dt;
     if (g.focusT <= 0 || !g.focus || !g.focus.alive) {
       g.focusT = 3;
-      if (g.role === 'sniper' || g.role === 'heavy' || g.role === 'bait') g.focus = nearestTo(centroid(g.members, _v3), tg);
+      if (g.role === 'hunter') g.focus = weakest;
+      else if (AI.capHunt && liveCaps.length && (g.role === 'pincer' || g.role === 'heavy'))
+        g.focus = liveCaps.reduce((a, c) => (c.hp < a.hp ? c : a));   // gang up on your weaker capital ship
+      else if (g.role === 'sniper' || g.role === 'heavy' || g.role === 'bait' || !AI.focus) g.focus = nearestTo(centroid(g.members, _v3), tg);
       else g.focus = exposed;                       // focus fire
     }
     if (g.role === 'bait' && !g.sprung) {
@@ -658,7 +747,7 @@ function updateEnemies(dt) {
     e.target = T;
     e.retreatT -= dt; e.retreatCd -= dt; e.breakT -= dt;
     // Squadron: fall back to cover when locally outnumbered.
-    if (sq && (e.outnumT -= dt) <= 0) {
+    if (sq && AI.regroup && (e.outnumT -= dt) <= 0) {
       e.outnumT = 0.5;
       let nb = 0, na = 0;
       for (const b of tg) if (b.obj.position.distanceTo(p) < 2.4 * S) nb++;
@@ -669,18 +758,25 @@ function updateEnemies(dt) {
     if (!T) {
       if (p.distanceTo(goal) < 0.5 * S) goal.copy(randomArenaPoint(0.7));
     } else if (e.retreatT > 0) {
-      // Retreat: behind the nearest star (Squadron), or straight away from the threat.
-      if (!coverPoint(T.obj.position, p, goal)) {
-        goal.copy(p).addScaledVector(_es.subVectors(p, T.obj.position).normalize(), 2.5 * S);
+      // Retreat: behind the nearest star (round 3+), back to the wingmen to regroup (round 3+),
+      // or straight away from the threat.
+      if (!(AI.cover && coverPoint(T.obj.position, p, goal))) {
+        if (AI.regroup && g.members.length > 1) {
+          centroid(g.members, goal);
+          _es.subVectors(goal, T.obj.position);
+          if (_es.lengthSq() < 1e-6) _es.set(0, 0, -1);
+          goal.addScaledVector(_es.normalize(), 1.0 * S);
+        } else goal.copy(p).addScaledVector(_es.subVectors(p, T.obj.position).normalize(), 2.5 * S);
         clampIn(goal);
       }
     } else {
       const Tp = T.obj.position, Tf = T.fwd;
       const dist = p.distanceTo(Tp);
+      const gt = AI.sync ? strikeClock : g.t;          // synchronized strikes: every group attacks at once
       switch (e.role) {
         case 'pincer': {
           // Swing wide to opposite sides of the target, then both attack at once.
-          if (g.t % 7 < 4) {
+          if (gt % 7 < 4) {
             sideOf(Tf, _es);
             goal.copy(Tp).addScaledVector(_es, e.side * 2.0 * S).addScaledVector(Tf, 0.8 * S);
             clampIn(goal);
@@ -689,7 +785,7 @@ function updateEnemies(dt) {
         }
         case 'flank': {
           // Circle round to the side / rear, then attack; members are staggered.
-          if ((g.t + (e.side > 0 ? 0 : 1.2)) % 7.5 < 4.5 && dist > 0.9 * S) {
+          if ((gt + (e.side > 0 ? 0 : 1.2)) % (AI.sync ? 7 : 7.5) < (AI.sync ? 4 : 4.5) && dist > 0.9 * S) {
             sideOf(Tf, _es);
             goal.copy(Tp).addScaledVector(Tf, -1.6 * S).addScaledVector(_es, e.side * 1.3 * S);
             clampIn(goal);
@@ -699,7 +795,7 @@ function updateEnemies(dt) {
         case 'sniper':
         case 'heavy': {
           const peek = Math.floor((g.t + (e.side > 0 ? 0 : 1.5)) / 3) % 2 === 1;
-          if (e.role === 'sniper' && coverPoint(Tp, p, goal)) {
+          if (e.role === 'sniper' && AI.cover && coverPoint(Tp, p, goal)) {
             // Behind cover; every few seconds step out to the side to take a shot.
             if (peek) { _ed.subVectors(goal, Tp).normalize(); sideOf(_ed, _es); goal.addScaledVector(_es, e.side * 0.7 * S); }
           } else {
@@ -731,6 +827,7 @@ function updateEnemies(dt) {
           goal.copy(cap.obj.position).add(_es.set(Math.cos(a), 0.3 * Math.sin(a * 0.7), Math.sin(a)).multiplyScalar(1.3 * S));
           break;
         }
+        case 'hunter': mode = 'attack'; break;
         case 'ambush': {
           if (g.sprung) mode = 'attack';
           else { goal.copy(g.ambushPt); if (p.distanceTo(goal) < 0.6 * S) mode = 'aim'; }
@@ -738,7 +835,7 @@ function updateEnemies(dt) {
         }
       }
     }
-    const bulletSpeed = (e.role === 'sniper' ? 4.4 : 3.0 + wave * 0.12) * S;
+    const bulletSpeed = (e.role === 'sniper' ? 4.4 + wave * 0.08 : 3.0 + wave * 0.12) * S;
     const desired = _v2;
     if (mode !== 'move' && T) {
       leadPoint(p, T, bulletSpeed, _ea);
@@ -764,6 +861,19 @@ function updateEnemies(dt) {
         if (d < min && d > 1e-4) desired.addScaledVector(_v1.subVectors(p, c.obj.position).normalize(), ((min - d) / min) * 4);
       }
     }
+    // Round 5+: dodge your shots (side-step bullets that would hit).
+    if (AI.dodge && e.dodger && e.spawnFade >= 1) {
+      for (const pb of playerBullets.list) {
+        _es.subVectors(p, pb.pos);
+        const tca = _es.dot(pb.vel) / Math.max(pb.vel.lengthSq(), 1e-6);
+        if (tca < 0 || tca > 0.6) continue;
+        _es.addScaledVector(pb.vel, -tca);
+        const miss = _es.length();
+        if (miss > 0.3 * S) continue;
+        if (miss < 1e-4) sideOf(_ed.copy(pb.vel).normalize(), _es);
+        desired.addScaledVector(_es.normalize(), 1.3 * (1 - miss / (0.3 * S)));
+      }
+    }
     obstAvoid(p, e.fwd, e.speed, desired);
     desired.normalize();
     steer(e, desired.clone(), dt);
@@ -781,7 +891,7 @@ function updateEnemies(dt) {
     // Fire (with lead) when the target is in range, roughly ahead, and not behind a star.
     e.fireCd -= dt;
     if (T && state === 'playing' && e.fireCd <= 0 && e.spawnFade >= 1 && e.retreatT <= 0) {
-      leadPoint(p, T, bulletSpeed, _ea).add(_v3.randomDirection().multiplyScalar(e.acc));
+      leadPoint(p, T, bulletSpeed, _ea).lerp(T.obj.position, 1 - AI.lead).add(_v3.randomDirection().multiplyScalar(e.acc));
       const to = _es.subVectors(_ea, p);
       const dist = to.length();
       if (dist < e.range && e.fwd.angleTo(to) < (e.role === 'sniper' ? 0.35 : 0.6) && !obstBlocks(p, T.obj.position)) {
@@ -966,6 +1076,7 @@ function updateSquad(sq, dt) {
     const p = b.obj.position;
     const desired = _bD.set(0, 0, 0);
     let spdT, homing = false;
+    b.breakT = Math.max(0, (b.breakT || 0) - dt);
     b.target = null;
     if (engaged) {
       // ENGAGE: the ordered target if it's within reach, otherwise the nearest enemy near the group...
@@ -982,7 +1093,11 @@ function updateSquad(sq, dt) {
       if (best) {
         leadPoint(p, best, 7 * S, _bT);
         desired.subVectors(_bT, p).normalize();
-        if (bd < 0.7 * S + (best.kind === 'capital' ? best.radius : 0)) { sideOf(b.fwd, _bS); desired.addScaledVector(_bS, b.side * 1.5); }   // don't ram it
+        if (best.kind === 'capital') {
+          // Strafing runs on a capital ship: fly in shooting, break away past it, then come round again.
+          if (bd < best.radius + 0.5 * S) b.breakT = 0.9;
+          if (b.breakT > 0) { _bS.subVectors(p, best.obj.position).normalize(); sideOf(_bS, _bR); desired.copy(_bS).addScaledVector(_bR, b.side * 0.6); }
+        } else if (bd < 0.7 * S) { sideOf(b.fwd, _bS); desired.addScaledVector(_bS, b.side * 1.5); }   // don't ram it
       } else desired.copy(cmd);
       // ...but stays on a leash around the group centre.
       wrapDelta(p, anchor, _bS);
@@ -1031,6 +1146,13 @@ function updateSquad(sq, dt) {
     p.addScaledVector(b.fwd, b.speed * dt);
     wrapBox(p);
     obstPushOut(p, 0.12 * S);
+    // Never fly through an enemy capital ship's hull.
+    if (gameMode === 'fleet') for (const c of enemyCaps) {
+      if (!c.alive) continue;
+      _bS.subVectors(p, c.obj.position);
+      const d = _bS.length(), m = c.radius + 0.1 * S;
+      if (d < m && d > 1e-5) p.addScaledVector(_bS, (m - d) / d);
+    }
     // Shoot only with a clear line: never through a friendly ship or a star.
     b.fireCd -= dt;
     if (engaged && b.target && b.fireCd <= 0 && state === 'playing') {
@@ -1084,6 +1206,7 @@ function damageBot(b) {
   if (gameMode === 'fleet') {
     showMessage(left ? `${sq.name} SHIP DOWN` : `${sq.name} LOST`, left ? `${left} left in ${sq.name}` : 'Squadron destroyed', 1.6);
     if (!left) selected.delete(sq);
+    if (FLEET_CAPS.every((x) => !x.alive) && !FLEET_SQUADS.some(unitAlive)) gameOver('FLEET LOST');
     return;
   }
   if (left > 0) { showMessage('WINGMAN DOWN', `${left} ship${left > 1 ? 's' : ''} left`, 1.6); return; }
@@ -1095,9 +1218,8 @@ function gameOver(title) {
   sfx.chime(false);
   state = 'gameover';
   stateTimer = 0;
-  best = Math.max(best, score);
-  try { localStorage.setItem('battleRoomBest', String(best)); } catch (e) { /* ignore */ }
-  showMessage(title, `Score ${score}   Wave ${wave}   Best ${best}\n${restartHint()}`, 9999);
+  saveBest();
+  showMessage(title, endLine(), 9999);
 }
 
 // ---------------------------------------------------------------- Fleet: units, selection, orders
@@ -1171,15 +1293,17 @@ function damageCapital(c, amount = 1) {
     if (enemyCaps.every((x) => !x.alive)) {
       // Flagship(s) down: the rest of the enemy fleet jumps out. Wave won.
       for (const e of enemies) { blink(e.obj.position, ENEMY_COLOR); e.hp = 0; }
-      showMessage('ENEMY FLAGSHIP DOWN', `Wave ${wave} won  +${1000 * wave}`, 2.4);
+      showMessage('ENEMY FLAGSHIP DOWN', `Round ${wave} won  +${1000 * wave}`, 2.4);
     } else showMessage('FLAGSHIP DOWN', 'One more to go', 1.6);
     return;
   }
   selected.delete(c);
   screenFlash = 0.3;
   haptic('right', 1.0, 250);
-  if (FLEET_CAPS.every((x) => !x.alive)) gameOver('FLEET LOST');
-  else showMessage(`${c.name} LOST`, 'One capital ship left', 2.0);
+  if (FLEET_CAPS.every((x) => !x.alive)) {
+    if (FLEET_SQUADS.some(unitAlive)) showMessage('CAPITALS LOST', 'Fighters only - keep fighting!', 3.0);
+    else gameOver('FLEET LOST');
+  } else showMessage(`${c.name} LOST`, 'One capital ship left', 2.0);
 }
 // Turrets: each fires at the nearest foe in range with a clear line (never through friends or stars).
 function capitalGuns(c, dt, foes, interval, range) {
@@ -1351,7 +1475,7 @@ function updateEnemyCaps(dt) {
     const T = nearestTo(pos, FLEET_CAPS.filter((x) => x.alive)) || nearestTo(pos, tg);
     const goal = _fu;
     if (!T) goal.copy(pos).addScaledVector(c.fwd, 1);
-    else if (c.hp < c.maxHp * 0.35 && coverPoint(T.obj.position, pos, goal)) { /* hide behind a star */ }
+    else if (AI.cover && c.hp < c.maxHp * 0.35 && coverPoint(T.obj.position, pos, goal)) { /* hide behind a star */ }
     else {
       _bS.subVectors(pos, T.obj.position);
       if (_bS.lengthSq() < 1e-6) _bS.set(0, 0, -1);
@@ -1375,7 +1499,9 @@ function updateEnemyCaps(dt) {
     pos.addScaledVector(c.fwd, c.speed * dt);
     wrapBox(pos);
     obstPushOut(pos, c.radius);
-    capitalGuns(c, dt, tg, Math.max(0.3, 0.8 - wave * 0.05), 5.2 * S);
+    capitalGuns(c, dt, tg, Math.max(0.25, 0.8 - wave * 0.05), 5.2 * S);
+    // Round 7+: each flagship launches a pair of fighters every 20 s.
+    if (AI.launch && state === 'playing' && (c.launchT -= dt) <= 0 && enemies.length < 40) { c.launchT = 20; spawnGroup('flank', 2, wave, c); }
     c.flash = Math.max(0, c.flash - dt);
     tintShip(c.obj, c.flash > 0 ? WHITE : c.color);
     updateBar(c);
@@ -1384,7 +1510,8 @@ function updateEnemyCaps(dt) {
 function spawnEnemyCaps(n) {
   enemyCaps.forEach((c, i) => {
     if (i >= (n >= 3 ? 2 : 1)) { resetCapital(c, false); return; }
-    c.maxHp = Math.round((70 + 20 * (n - 1)) * (n >= 3 ? 0.75 : 1));
+    c.maxHp = Math.round((70 + 25 * (n - 1)) * (n >= 3 ? 0.8 : 1));
+    c.launchT = 12;
     // Far side of the room from your fleet.
     const p = new THREE.Vector3((i ? 0.5 : -0.5) * HB.x, rand(-0.3, 0.3) * HB.y, -HB.z * 0.75);
     obstPushOut(p, c.radius + 0.2 * S);
@@ -1413,7 +1540,7 @@ function pickAlongRay(originW, dirW) {
   for (const c of enemyCaps) if (c.alive) consider(c.obj.position, 0.9 * S, { foe: c });
   for (const e of enemies) if (e.hp > 0) consider(e.obj.position, 0.4 * S, { foe: e, group: e.group });
   // Stars: a real ray / sphere hit; they win if they are in front of the ship candidate.
-  for (const o of obstacles) {
+  for (const o of (starsActive() ? obstacles : [])) {
     _pv.subVectors(o.c, _po);
     const t = _pv.dot(_pd);
     if (t <= 0) continue;
@@ -1480,7 +1607,7 @@ function applyMode() {
   gameMode = settings.mode;
   const sq = teamMode();
   setBoxB(MODE_BOX[gameMode]);
-  obstacleGroup.visible = sq;
+  freshStars();
   // In Squadron the player "ship" is just the command point: hide the hull, keep the aim line.
   // In Fleet each unit has its own markers, so the command point is hidden completely.
   player.obj.userData.lines.visible = !sq;
@@ -1510,9 +1637,8 @@ function damagePlayer() {
     sfx.chime(false);
     state = 'gameover';
     stateTimer = 0;
-    best = Math.max(best, score);
-    try { localStorage.setItem('battleRoomBest', String(best)); } catch (e) { /* ignore */ }
-    showMessage('SHIP DESTROYED', `Score ${score}   Wave ${wave}   Best ${best}\n${restartHint()}`, 9999);
+    saveBest();
+    showMessage('SHIP DESTROYED', endLine(), 9999);
   }
 }
 
@@ -1522,9 +1648,19 @@ let stateTimer = 0;
 let wave = 0, score = 0, kills = 0, intermission = 0, screenFlash = 0;
 let best = 0;
 try { best = Number(localStorage.getItem('battleRoomBest')) || 0; } catch (e) { /* ignore */ }
+// The goal is the highest round: the best round reached is kept per mode.
+const bestRound = { fighter: 0, squadron: 0, fleet: 0 };
+try { Object.assign(bestRound, JSON.parse(localStorage.getItem('battleRoomBestRound') || '{}')); } catch (e) { /* ignore */ }
+function saveBest() {
+  best = Math.max(best, score);
+  bestRound[gameMode] = Math.max(bestRound[gameMode] || 0, wave);
+  try { localStorage.setItem('battleRoomBest', String(best)); localStorage.setItem('battleRoomBestRound', JSON.stringify(bestRound)); } catch (e) { /* ignore */ }
+}
+function endLine() { return `Reached round ${wave}  (best ${bestRound[gameMode] || 0})   Score ${score}\n${restartHint()}`; }
 
 function startWave(n) {
   wave = n;
+  const unlocked = setAI(n);
   const heavies = Math.floor((n - 1) / 2);
   if (gameMode === 'fleet') {
     // A flagship (two from wave 3) with escorts, plus the Squadron-style attack groups.
@@ -1552,10 +1688,26 @@ function startWave(n) {
     if (n >= 4) spawnGroup('pincer', 2, n);
     if (heavies) spawnGroup('heavy', heavies, n);
   }
+  if (AI.hunters) spawnGroup('hunter', 2 + Math.floor((n - 6) / 3), n);
   const nCaps = enemyCaps.filter((c) => c.alive).length;
-  showMessage(`WAVE ${n}`, nCaps ? `${nCaps} flagship${nCaps > 1 ? 's' : ''} + ${enemies.length} fighters - destroy the flagship` : `${enemies.length} hostiles inbound`, 2.4);
+  const what = nCaps ? `${nCaps} flagship${nCaps > 1 ? 's' : ''} + ${enemies.length} fighters` : `${enemies.length} hostiles inbound`;
+  showMessage(`ROUND ${n}`, unlocked.length ? `${what}\nNEW: ${unlocked.join(', ')}` : what, unlocked.length ? 3.6 : 2.4);
   sfx.chime(true);
-  log(`wave ${n} started with ${enemies.length} enemies`);
+  log(`wave ${n} started with ${enemies.length} enemies; AI lead=${AI.lead.toFixed(2)} ${Object.keys(AI).filter((k) => AI[k] === true).join(',')}`);
+}
+// v12: every round is a fresh battle. Your side comes back at full strength in its start positions,
+// the enemy spawns fresh, and the stars get new random spots for the (reshaped) room.
+function startRound(n) {
+  for (const e of enemies) board.remove(e.obj);
+  enemies.length = 0;
+  groups.length = 0;
+  playerBullets.clear();
+  enemyBullets.clear();
+  resetPlayer();
+  resetBots();
+  resetFleet();
+  freshStars();
+  startWave(n);
 }
 function startGame() {
   sfx.init();
@@ -1568,20 +1720,17 @@ function startGame() {
   score = 0; kills = 0;
   applyMode();
   setShape(pickShape(_shapeTmp));                  // a new room shape for every game
-  resetPlayer();
-  resetBots();
-  resetFleet();
   state = 'playing';
   needNeutral = true;
   stateTimer = 0;
   intermission = 0;
   hideTitle();
-  startWave(START_WAVE);
+  startRound(START_WAVE);
 }
 function showIdlePrompt() {
   if (state === 'title') {
     if (renderer.xr.isPresenting) showMessage('BATTLE ROOM: ' + gameMode.toUpperCase(), 'RIGHT TRIGGER starts - B switches mode (Fighter / Squadron / Fleet)\n' + steerHelp(activeSteer()), 9999);
-  } else if (state === 'gameover') showMessage({ squadron: 'SQUADRON LOST', fleet: 'FLEET LOST' }[gameMode] || 'SHIP DESTROYED', `Score ${score}   Wave ${wave}   Best ${best}\n${restartHint()}`, 9999);
+  } else if (state === 'gameover') showMessage({ squadron: 'SQUADRON LOST', fleet: 'FLEET LOST' }[gameMode] || 'SHIP DESTROYED', endLine(), 9999);
 }
 function restartHint() {
   return renderer.xr.isPresenting ? 'Pull TRIGGER or press A to restart' : 'Click or press R to restart';
@@ -1647,7 +1796,7 @@ function drawFleetHud() {
   const g = hctx;
   g.font = '20px monospace';
   g.fillStyle = '#7fe9ff';
-  g.fillText(`WAVE ${wave}  HOSTILES ${enemies.length + enemyCaps.filter((c) => c.alive).length}`, 20, 72);
+  g.fillText(`ROUND ${wave}  HOSTILES ${enemies.length + enemyCaps.filter((c) => c.alive).length}`, 20, 72);
   g.font = '17px monospace';
   UNITS.forEach((u, i) => {
     const y = 98 + i * 22, alive = unitAlive(u), col = '#' + u.color.getHexString();
@@ -1678,7 +1827,7 @@ function drawFleetHud() {
     x += 90;
   }
   g.fillStyle = '#5fa9bf'; g.font = '16px monospace';
-  g.fillText(state === 'playing' && intermission > 0 ? 'NEXT WAVE...' : fleetHover ? 'POINTING: ' + hoverLabel(fleetHover) : 'L: point+trig select', 20, 240);
+  g.fillText(state === 'playing' && intermission > 0 ? 'NEXT ROUND...' : fleetHover ? 'POINTING: ' + hoverLabel(fleetHover) : 'L: point+trig select', 20, 240);
 }
 function drawHud() {
   const W = hudCanvas.width, H = hudCanvas.height;
@@ -1695,7 +1844,7 @@ function drawHud() {
   hctx.font = '24px monospace';
   if (gameMode === 'fleet') drawFleetHud();
   else {
-    hctx.fillText(`WAVE  ${wave}`, 20, 84);
+    hctx.fillText(`ROUND ${wave}`, 20, 84);
     hctx.fillText(`HOSTILES ${enemies.length}`, 20, 118);
     if (gameMode === 'squadron') {
       // Squadron status: one box per ship, filled by its hull; lost ships are crossed out.
@@ -1724,9 +1873,9 @@ function drawHud() {
     }
     hctx.fillStyle = '#5fa9bf';
     hctx.font = '18px monospace';
-    hctx.fillText(`BEST ${best}`, 20, 200);
+    hctx.fillText(`BEST ROUND ${bestRound[gameMode] || 0}`, 20, 200);
     const sm = activeSteer();
-    hctx.fillText(state === 'playing' && intermission > 0 ? 'NEXT WAVE...'
+    hctx.fillText(state === 'playing' && intermission > 0 ? 'NEXT ROUND...'
       : `${gameMode === 'squadron' ? (squadEngaged ? 'ENGAGING' : 'FORMATION') : 'FIGHTER'} - ${STEER_NAMES[sm]}${sm === 'stick' && invertY ? ' INV' : ''}`, 20, 232);
   }
 
@@ -2578,10 +2727,12 @@ function loop() {
     refreshFriends();
     if (gameMode === 'squadron') updateBots(dt);   // the squadron flies formation behind the demo path
     if (gameMode === 'fleet') updateFleet(dt);
+    updateStars(dt);
     reticle.visible = false;
     if (xr && input.restart) startGame();
   } else if (!menuOpen) {
     updateMorph(dt);
+    updateStars(dt);
     updatePlayer(dt);
     refreshFriends();
     if (gameMode === 'squadron') updateBots(dt);
@@ -2593,34 +2744,17 @@ function loop() {
     if (state === 'playing') {
       if (enemies.length === 0 && enemyCaps.every((c) => !c.alive)) {
         if (intermission <= 0) {
-          intermission = 3;
-          morphTo(pickShape(_shapeTmp), 2.4);          // the room reshapes before the next wave
-          if (gameMode === 'fleet') {
-            // Repairs: capital ships +15% hull, every bot +1, and each squad gets one lost ship back.
-            let back = 0;
-            for (const c of FLEET_CAPS) if (c.alive) c.hp = Math.min(c.maxHp, c.hp + c.maxHp * 0.15);
-            for (const sq of FLEET_SQUADS) {
-              for (const b of sq.bots) if (b.alive) b.hp = Math.min(BOT_HP, b.hp + 1);
-              if (!unitAlive(sq)) {
-                const home = FLEET_CAPS.find((c) => c.alive);
-                if (home) { sq.anchor.copy(home.obj.position).addScaledVector(home.fwd, -1.2 * S); sq.fwd.copy(home.fwd); quatFromDir(sq.fwd, sq.q); sq.right.set(1, 0, 0).applyQuaternion(sq.q); sq.order.type = 'move'; }
-              }
-              if (reviveBot(sq)) back++;
-            }
-            showMessage(`WAVE ${wave} WON`, back ? `Repairs done - ${back} replacement ship${back > 1 ? 's' : ''} launched` : 'Repairs done', 2.6);
-          } else if (gameMode === 'squadron') {
-            // +1 hull for every surviving bot; every 3rd wave a lost wingman is replaced.
-            for (const b of bots) if (b.alive) b.hp = Math.min(BOT_HP, b.hp + 1);
-            const back = wave % 3 === 0 && reviveBot();
-            showMessage(`WAVE ${wave} CLEARED`, back ? 'Reinforcement: a new wingman joins' : 'Squadron hulls +1', 2.6);
-          } else {
-            const healed = player.hp < MAX_HP;
-            player.hp = Math.min(MAX_HP, player.hp + 1);
-            showMessage(`WAVE ${wave} CLEARED`, healed ? '+1 hull repaired' : 'Hull at full strength', 2.6);
-          }
+          // Round cleared: bonus, the stars fade out and the room reshapes; then a fresh battle starts.
+          intermission = 3.2;
+          morphTo(pickShape(_shapeTmp), 2.4);
+          starTarget = 0;
+          const bonus = 500 * wave;
+          score += bonus;
+          saveBest();
+          showMessage(`ROUND ${wave} ${gameMode === 'fleet' ? 'WON' : 'CLEARED'}`, `+${bonus} round bonus - next: a fresh battle, full strength`, 2.8);
         } else {
           intermission -= dt;
-          if (intermission <= 0) startWave(wave + 1);
+          if (intermission <= 0) startRound(wave + 1);
         }
       }
     } else if (state === 'gameover') {
@@ -2677,6 +2811,6 @@ window.__game = {
   player, enemiesList: enemies, startGame, rig, camera, renderer, scene, shipArrow, pointer, reticle,
   get steerMode() { return activeSteer(); }, get invertY() { return invertY; },
   settings, setSetting, neutralQ, input, gimbal, board, box, mirrorQ, bots, obstacles, groups,
-  get mode() { return gameMode; }, get boxB() { return BOX_B; }, HB, get morphing() { return morphT < 1; }, wristMsg, msgPanel, hudPanel, UNITS, FLEET_SQUADS, FLEET_CAPS, enemyCaps, selected, selectUnits, fleetOrder, fleetSelect, pickAlongRay, damageCapital, get fleetHover() { return fleetHover; }, set fleetHover(v) { fleetHover = v; }, selRay, get friends() { return friends; }, get squadEngaged() { return squadEngaged; },
+  get mode() { return gameMode; }, get boxB() { return BOX_B; }, HB, get morphing() { return morphT < 1; }, AI, bestRound, damageBot, get msgTitle() { return msgTitle; }, get msgSub() { return msgSub; }, get starsOn() { return starsOn; }, get starAlpha() { return starAlpha; }, startRound, wristMsg, msgPanel, hudPanel, UNITS, FLEET_SQUADS, FLEET_CAPS, enemyCaps, selected, selectUnits, fleetOrder, fleetSelect, pickAlongRay, damageCapital, get fleetHover() { return fleetHover; }, set fleetHover(v) { fleetHover = v; }, selRay, get friends() { return friends; }, get squadEngaged() { return squadEngaged; },
   get enemyBullets() { return enemyBullets.list.length; }, get bullets() { return playerBullets.list.length; }, toggleSettings, get menuOpen() { return menuOpen; }, get menuHover() { return menuHover; }, menuPanel,
 };
