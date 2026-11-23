@@ -2,8 +2,8 @@
 // with a mouse + keyboard fallback for desktop browsers.
 import * as THREE from '../vendor/three.module.js';
 import { VRButton } from '../vendor/VRButton.js';
-import { buildPlayerShip, buildFighter, buildCruiser, buildControllerGizmo, tintShip } from './models.js?v=7';
-import { Sfx } from './audio.js?v=7';
+import { buildPlayerShip, buildFighter, buildCruiser, buildControllerGizmo, tintShip } from './models.js?v=8';
+import { Sfx } from './audio.js?v=8';
 
 const TEST = /[?&]test/.test(location.search);
 const DEMO = /[?&]demo/.test(location.search);          // autopilot (attract mode / testing)
@@ -30,7 +30,7 @@ const FOLLOW_H = 0.3;                             // follow view height = distan
 // ---------------------------------------------------------------- settings (saved in localStorage)
 const SETTINGS_DEF = [
   { key: 'steer', label: 'Steering', opts: [['mirror', 'Mirror (ship = controller)'], ['relative', 'Relative (hand stick)'], ['point', 'Point'], ['stick', 'Thumbstick']] },
-  { key: 'steerGain', label: 'Mirror gain', opts: [['1', '1x'], ['1.5', '1.5x'], ['2', '2x'], ['3', '3x']] },
+  { key: 'steerGain', label: 'Mirror gain', opts: [['1', '1x'], ['1.5', '1.5x'], ['2', '2x'], ['2.5', '2.5x'], ['3', '3x'], ['3.5', '3.5x']] },
   { key: 'turnSpeed', label: 'Ship turn speed', opts: [['normal', 'Normal'], ['fast', 'Fast'], ['veryfast', 'Very fast']] },
   { key: 'boxSize', label: 'Box size', opts: [['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']] },
 ];
@@ -294,7 +294,7 @@ function updateEffects(dt) {
 // ---------------------------------------------------------------- player ship
 const player = {
   obj: shrink(buildPlayerShip(PLAYER_COLOR.getHex())),
-  fwd: new THREE.Vector3(0, 0, -1), bank: 0, turn: 2.8,
+  fwd: new THREE.Vector3(0, 0, -1), mq: new THREE.Quaternion(), bank: 0, turn: 2.8,
   speed: CRUISE, vel: new THREE.Vector3(), hp: MAX_HP, invuln: 0, flash: 0, fireCd: 0, alive: true,
   yawRate: 0, pitchRate: 0,
 };
@@ -327,6 +327,7 @@ function resetPlayer() {
   player.bank = 0; player.yawRate = 0; player.pitchRate = 0; player.speed = CRUISE; player.hp = MAX_HP; player.invuln = 1.5; player.flash = 0;
   player.alive = true; player.obj.visible = true; trail.visible = true;
   quatFromDir(player.fwd, player.obj.quaternion);
+  player.mq.copy(player.obj.quaternion);
   resetTrail();
 }
 
@@ -633,8 +634,8 @@ try { invertY = localStorage.getItem('battleRoomInvert') === '1'; } catch (e) { 
 function activeSteer() { return DEMO ? 'point' : settings.steer; }
 function steerHelp(mode) {
   const xr = renderer.xr.isPresenting;
-  if (mode === 'mirror') return xr ? 'Ship points where the right controller points (x gain) - hold right trigger = clutch, stick click = re-center' : 'The ship points where the mouse points - M to switch';
-  if (mode === 'relative') return xr ? 'Tilt the right controller like a flight stick - grip / stick click re-centers' : 'Mouse offset from screen centre steers - M to switch';
+  if (mode === 'mirror') return xr ? 'Ship points where the right controller points (x gain) - trigger shoots, grip boosts, stick click = re-center' : 'The ship points where the mouse points - M to switch';
+  if (mode === 'relative') return xr ? 'Tilt the right controller like a flight stick - stick click re-centers' : 'Mouse offset from screen centre steers - M to switch';
   if (mode === 'stick') return xr ? 'Right thumbstick flies the ship' : 'I/K nose up/down, J/L turn - M to switch';
   return xr ? 'Point the right controller' : 'Ship flies toward the mouse - M to switch';
 }
@@ -706,17 +707,33 @@ function updateShipArrow(xr) {
 // or right-stick click). Tilting away from neutral turns the ship relative to its own heading.
 const neutralQ = new THREE.Quaternion();
 let needNeutral = true;
-// Mirror steering: ship yaw/pitch = base + gain x (controller yaw/pitch - neutral).
-let mNeutralYaw = 0, mNeutralPitch = 0, mBaseYaw = 0, mBasePitch = 0, mClutchWas = false;
-const MIRROR_MAX_P = 85 * Math.PI / 180;
-const wrapAng = (a) => Math.atan2(Math.sin(a), Math.cos(a));
-function setMirrorDir(cy, cp) {
+// Mirror steering, all in quaternions (no Euler angles, so no pitch limit and no flip at vertical):
+//   rel   = neutral^-1 * controller            (controller rotation since re-center, in its own frame)
+//   swing = rel with the twist about the controller's forward axis removed (wrist roll is ignored)
+//   swing -> axis-angle, angle x gain (capped at 180 deg), axis taken back to world space
+//   target ship orientation = scaledSwing * shipNeutral
+// The ship's up vector comes from that rotation, so it can loop over the top without snapping.
+const mNeutralQ = new THREE.Quaternion();                  // controller orientation at re-center
+const SHIP_NEUTRAL_Q = new THREE.Quaternion();             // ship orientation at re-center: into the box
+quatFromDir(new THREE.Vector3(0, 0, -1), SHIP_NEUTRAL_Q);
+const mirrorQ = SHIP_NEUTRAL_Q.clone();                    // target ship orientation (before cosmetic bank)
+const _mq = new THREE.Quaternion(), _mt = new THREE.Quaternion(), _ma = new THREE.Vector3();
+function setMirrorTarget(ctrlQ) {
   const g = Number(settings.steerGain) || 2;
-  const yaw = mBaseYaw + g * wrapAng(cy - mNeutralYaw);
-  const pitch = clamp(mBasePitch + g * (cp - mNeutralPitch), -MIRROR_MAX_P, MIRROR_MAX_P);
-  mirrorDir.set(-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
+  _mq.copy(mNeutralQ).invert().multiply(ctrlQ);
+  // Swing-twist decomposition about local Z (the controller points down -Z): rel = swing * twist.
+  const tl = Math.hypot(_mq.z, _mq.w);
+  if (tl > 1e-6) {
+    _mt.set(0, 0, _mq.z / tl, _mq.w / tl).invert();
+    _mq.multiply(_mt);                                    // swing = rel * twist^-1
+  }
+  if (_mq.w < 0) _mq.set(-_mq.x, -_mq.y, -_mq.z, -_mq.w); // shortest-arc form: angle in [0, 180]
+  const s = Math.hypot(_mq.x, _mq.y, _mq.z);
+  if (s < 1e-7) { mirrorQ.copy(SHIP_NEUTRAL_Q); return; }
+  const angle = Math.min(Math.PI, 2 * Math.atan2(s, _mq.w) * g);
+  _ma.set(_mq.x / s, _mq.y / s, _mq.z / s).applyQuaternion(mNeutralQ);  // axis in world space
+  mirrorQ.setFromAxisAngle(_ma, angle).multiply(SHIP_NEUTRAL_Q);
 }
-const mirrorDir = new THREE.Vector3(0, 0, -1);
 const REL_DEAD = 5 * Math.PI / 180, REL_FULL = 35 * Math.PI / 180;
 const _qr = new THREE.Quaternion(), _fr = new THREE.Vector3(), _ur = new THREE.Vector3();
 function relNorm(a) {
@@ -961,7 +978,7 @@ window.addEventListener('resize', () => {
 const input = {
   hasSteer: false, origin: new THREE.Vector3(), dir: new THREE.Vector3(),
   fire: false, boost: false, brake: false, restart: false, move: new THREE.Vector3(),
-  stickX: 0, stickY: 0, relX: 0, relY: 0, clutch: false, leftFire: false,
+  stickX: 0, stickY: 0, relX: 0, relY: 0, leftFire: false,
 };
 let prevRestartBtn = false, prevB = false, prevStickBtn = false, prevLStick = false, prevXY = false, prevTrigMenu = false, prevLTrig = false, yHold = 0;
 const dragLast = new THREE.Vector3();
@@ -985,18 +1002,18 @@ function gatherInputVR(dt) {
     const trig = btn(0);
     input.fire = trig;
     const rel = settings.steer === 'relative', mir = settings.steer === 'mirror';
-    input.boost = !rel && !mir && btn(1);     // grip = boost (point/thumbstick modes)
+    input.boost = btn(1);                     // grip = boost (every mode)
     input.brake = btn(4);                     // A = brake
     if (settings.steer === 'relative' || settings.steer === 'point') {   // stick forward/back = boost/brake
       if (sy > 0.5) input.brake = true;
       if (sy < -0.5) input.boost = true;
     }
     if (settings.steer === 'stick' && btn(5) && !prevB) toggleInvert();   // B = invert (thumbstick mode)
-    input.relX = 0; input.relY = 0; input.clutch = false;
+    input.relX = 0; input.relY = 0;
     if (rel) {
-      // Grip held = clutch: ship flies straight and neutral follows your hand. Stick click = re-center.
+      // Stick click = re-center.
       if (btn(3) && !prevStickBtn) { needNeutral = true; haptic('right', 0.4, 40); }
-      if (needNeutral || btn(1)) { neutralQ.copy(R.quaternion); needNeutral = false; input.clutch = btn(1); }
+      if (needNeutral) { neutralQ.copy(R.quaternion); needNeutral = false; }
       _qr.copy(neutralQ).invert().multiply(R.quaternion);
       _fr.set(0, 0, -1).applyQuaternion(_qr);
       _ur.set(0, 1, 0).applyQuaternion(_qr);
@@ -1007,28 +1024,14 @@ function gatherInputVR(dt) {
       input.relY = relNorm(pitchU);
     }
     if (mir) {
-      const cy = Math.atan2(-input.dir.x, -input.dir.z), cp = Math.asin(clamp(input.dir.y, -1, 1));
+      R.getWorldQuaternion(_q);
       if ((btn(3) && !prevStickBtn) || needNeutral) {
-        // Re-center: current controller direction = straight into the box.
-        mNeutralYaw = cy; mNeutralPitch = cp; mBaseYaw = 0; mBasePitch = 0;
-        needNeutral = false; mClutchWas = false;
+        // Re-center: the controller's current orientation = ship straight into the box.
+        mNeutralQ.copy(_q);
+        needNeutral = false;
         haptic('right', 0.4, 40);
       }
-      input.fire = false;                       // right trigger is the clutch in Mirror mode
-      if (trig && !menuOpen) {
-        // Clutch held: steering frozen, ship keeps its heading.
-        input.clutch = true;
-        mClutchWas = true;
-      } else {
-        if (mClutchWas) {
-          // Released: new neutral here, continuing from the ship's current heading (no jump).
-          mNeutralYaw = cy; mNeutralPitch = cp;
-          mBaseYaw = Math.atan2(-player.fwd.x, -player.fwd.z);
-          mBasePitch = Math.asin(clamp(player.fwd.y, -1, 1));
-          mClutchWas = false;
-        }
-        setMirrorDir(cy, cp);
-      }
+      setMirrorTarget(_q);
     }
     gimbal.visible = rel;
     gimbal.userData.dot.position.set(-input.relX * 0.022, input.relY * 0.022, 0);
@@ -1107,9 +1110,10 @@ function gatherInputDesktop() {
   raycaster.setFromCamera(mouse, camera);
   input.origin.copy(raycaster.ray.origin);
   input.dir.copy(raycaster.ray.direction);
+  // Mirror on desktop: neutral = the camera, "controller" = the camera turned onto the mouse ray.
+  camera.getWorldQuaternion(mNeutralQ);
   camera.getWorldDirection(_v3);
-  mNeutralYaw = Math.atan2(-_v3.x, -_v3.z); mNeutralPitch = Math.asin(clamp(_v3.y, -1, 1)); mBaseYaw = 0; mBasePitch = 0;
-  setMirrorDir(Math.atan2(-input.dir.x, -input.dir.z), Math.asin(clamp(input.dir.y, -1, 1)));
+  setMirrorTarget(_q.setFromUnitVectors(_v3, input.dir).multiply(mNeutralQ));
   input.hasSteer = true;
   input.fire = (mouseDown || keys.has('Space')) && !menuOpen;
   input.boost = keys.has('ShiftLeft') || keys.has('ShiftRight');
@@ -1119,7 +1123,7 @@ function gatherInputDesktop() {
   input.stickY = (keys.has('KeyK') ? 1 : 0) - (keys.has('KeyI') ? 1 : 0);
   // Relative mode on desktop: cursor offset from screen centre = stick deflection.
   const dn = (a) => { const m = Math.abs(a); return m < 0.05 ? 0 : Math.sign(a) * Math.min(1, (m - 0.05) / 0.55); };
-  input.relX = dn(-mouse.x); input.relY = dn(mouse.y); input.clutch = false;
+  input.relX = dn(-mouse.x); input.relY = dn(mouse.y);
   // +/- scale the box.
   if (keys.has('Equal')) { box.size *= 1.01; applyBoard(); }
   if (keys.has('Minus')) { box.size /= 1.01; applyBoard(); }
@@ -1180,37 +1184,33 @@ function flyByStick(dt, rx, ry) {
   player.obj.quaternion.multiply(_q);
 }
 
-// Mirror steering: ship heading follows the (offset) controller direction with ~65 ms smoothing.
-// Only yaw + pitch are copied; roll is just a small cosmetic bank into turns.
-function flyMirror(dt, target) {
-  const desired = _v1.copy(target).normalize();
-  if (Math.abs(desired.y) > Math.sin(MIRROR_MAX_P)) {
-    const h = Math.hypot(desired.x, desired.z) || 1;
-    const c = Math.cos(MIRROR_MAX_P) / h;
-    desired.set(desired.x * c, Math.sign(desired.y) * Math.sin(MIRROR_MAX_P), desired.z * c);
-  }
+// Mirror steering: the ship's full orientation slerps toward mirrorQ (~65 ms smoothing).
+// Its up vector comes from that orientation, so it never flips at vertical or upside down.
+// A small cosmetic bank (about the ship's own up axis turn rate) goes on top.
+function flyMirror(dt) {
   const prev = _v3.copy(player.fwd);
-  let a = player.fwd.angleTo(desired);
-  if (a > 3.0) { desired.addScaledVector(UP, 0.3).normalize(); a = player.fwd.angleTo(desired); }
-  if (a > 1e-4) turnToward(player.fwd, desired, a * (1 - Math.exp(-dt / 0.065)));
-  const turn = (prev.z * player.fwd.x - prev.x * player.fwd.z) / Math.max(dt, 1e-4);
+  player.mq.slerp(mirrorQ, 1 - Math.exp(-dt / 0.065)).normalize();
+  player.fwd.set(0, 0, 1).applyQuaternion(player.mq);
+  const up = _v2.set(0, 1, 0).applyQuaternion(player.mq);
+  const turn = _v1.crossVectors(prev, player.fwd).dot(up) / Math.max(dt, 1e-4);   // + = turning left
   player.bank += (clamp(-turn * 0.2, -0.6, 0.6) - player.bank) * Math.min(1, dt * 6);
-  quatFromDir(player.fwd, player.obj.quaternion);
-  _q.setFromAxisAngle(ZAXIS, player.bank);
-  player.obj.quaternion.multiply(_q);
+  player.obj.quaternion.copy(player.mq).multiply(_q.setFromAxisAngle(ZAXIS, player.bank));
 }
+let lastFlyMode = '';
 
 function updatePlayer(dt) {
   if (!player.alive) return;
   const p = player.obj.position;
   const mode = activeSteer();
   pointer.visible = mode === 'point';
+  if (mode === 'mirror' && lastFlyMode !== 'mirror') quatFromDir(player.fwd, player.mq);   // coming from another mode
+  lastFlyMode = mode;
   if (mode === 'mirror') {
     reticle.visible = false;
-    if (input.hasSteer) flyMirror(dt, input.clutch ? player.fwd : mirrorDir);
+    if (input.hasSteer) flyMirror(dt);
   } else if (mode === 'relative') {
     reticle.visible = false;
-    flyByStick(dt, input.clutch ? 0 : -input.relX, input.clutch ? 0 : -input.relY);
+    flyByStick(dt, -input.relX, -input.relY);
   } else if (mode === 'point') {
     const desired = _v1.copy(player.fwd);
     if (input.hasSteer) {
@@ -1395,5 +1395,5 @@ window.__game = {
   get hp() { return player.hp; }, get enemies() { return enemies.length; },
   player, enemiesList: enemies, startGame, rig, camera, renderer, scene, shipArrow, pointer, reticle,
   get steerMode() { return activeSteer(); }, get invertY() { return invertY; },
-  settings, setSetting, neutralQ, input, gimbal, board, box, mirrorDir, get bullets() { return playerBullets.list.length; }, toggleSettings, get menuOpen() { return menuOpen; }, get menuHover() { return menuHover; }, menuPanel,
+  settings, setSetting, neutralQ, input, gimbal, board, box, mirrorQ, get bullets() { return playerBullets.list.length; }, toggleSettings, get menuOpen() { return menuOpen; }, get menuHover() { return menuHover; }, menuPanel,
 };
