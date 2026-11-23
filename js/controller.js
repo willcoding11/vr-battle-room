@@ -1,23 +1,12 @@
-// Wireframe Quest Touch Plus controller drawn at each hand (target-ray space: -Z = pointing direction).
-// The tutorial can make a part glow (pulsing green) with a small label next to it, so you can see
-// exactly which button on which hand to use.
+// The controllers keep their original look: the small wireframe gizmo at each hand (target-ray space,
+// -Z = pointing direction). For the tutorial, the button to use is marked on it with a pulsing green
+// marker at roughly where that button sits, plus a small label, so you can see which button on which hand.
 import * as THREE from '../vendor/three.module.js';
+import { buildControllerGizmo } from './models.js?v=15';
 
 export const HI_COLOR = 0x55ff99;
-const LABELS = { trigger: 'TRIGGER', grip: 'GRIP', stick: 'STICK', stickClick: 'CLICK STICK', btn1: 'A', btn2: 'B', body: 'TURN' };
+const LABELS = { trigger: 'TRIGGER', grip: 'GRIP', stick: 'STICK', stickClick: 'CLICK STICK', body: 'TURN' };
 
-function wire(geo, color, opacity) {
-  return new THREE.LineSegments(new THREE.EdgesGeometry(geo, 20),
-    new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthWrite: false, fog: false }));
-}
-function part(geo, color) {
-  const g = new THREE.Group();
-  const fill = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3, depthWrite: false, fog: false }));
-  const edge = wire(geo, color, 0.9);
-  g.add(fill, edge);
-  g.userData = { fill, edge };
-  return g;
-}
 function labelSprite(text) {
   const c = document.createElement('canvas');
   c.width = 256; c.height = 72;
@@ -35,42 +24,42 @@ function labelSprite(text) {
   s.renderOrder = 41;
   return s;
 }
+// A glowing marker: a small bright dot inside a wire sphere.
+function marker(r) {
+  const g = new THREE.Group();
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8),
+    new THREE.MeshBasicMaterial({ color: HI_COLOR, wireframe: true, transparent: true, opacity: 0.8, depthTest: false, fog: false }));
+  const core = new THREE.Mesh(new THREE.SphereGeometry(r * 0.45, 8, 6),
+    new THREE.MeshBasicMaterial({ color: HI_COLOR, transparent: true, opacity: 0.9, depthTest: false, fog: false }));
+  halo.renderOrder = core.renderOrder = 40;
+  g.add(halo, core);
+  g.visible = false;
+  return g;
+}
 
 export function createTouchController(hand, color) {
   const side = hand === 'left' ? -1 : 1;           // outer side of the hand (+X for the right hand)
   const root = new THREE.Group();
-  root.name = 'touch-' + hand;
-  // Head (the rounded top with the stick and buttons) and the handle, angled down and back.
-  const headGeo = new THREE.CylinderGeometry(0.026, 0.024, 0.02, 14);
-  const head = wire(headGeo, color, 0.6);
-  head.scale.set(1, 1, 1.25);
-  head.position.set(0, 0, 0.012);
-  root.add(head);
-  const handle = new THREE.Group();
-  handle.rotation.x = -0.7;
-  handle.position.set(0, -0.046, 0.05);
-  const handleBody = wire(new THREE.CylinderGeometry(0.015, 0.013, 0.09, 10), color, 0.6);
-  handle.add(handleBody);
-  root.add(handle);
-  const parts = {};
-  // Thumbstick (inner side of the face), face buttons (outer side).
-  parts.stick = part(new THREE.CylinderGeometry(0.0065, 0.0065, 0.007, 12), color);
-  parts.stick.position.set(-side * 0.009, 0.014, 0.006);
-  parts.btn1 = part(new THREE.CylinderGeometry(0.0048, 0.0048, 0.004, 10), color);
-  parts.btn1.position.set(side * 0.01, 0.012, 0.018);
-  parts.btn2 = part(new THREE.CylinderGeometry(0.0048, 0.0048, 0.004, 10), color);
-  parts.btn2.position.set(side * 0.012, 0.012, 0.002);
-  // Index trigger under the front of the head; grip on the inner side of the handle.
-  parts.trigger = part(new THREE.BoxGeometry(0.012, 0.009, 0.018), color);
-  parts.trigger.position.set(0, -0.017, -0.008);
-  parts.trigger.rotation.x = -0.4;
-  parts.grip = part(new THREE.BoxGeometry(0.007, 0.034, 0.016), color);
-  parts.grip.position.set(-side * 0.014, 0.008, -0.004);
-  handle.add(parts.grip);
-  for (const k of ['stick', 'btn1', 'btn2', 'trigger']) root.add(parts[k]);
-  parts.stickClick = parts.stick;
-  const body = [head, handleBody];
-  // Labels (created on demand) and their leader lines.
+  root.name = 'ctrl-' + hand;
+  const gizmo = buildControllerGizmo(color);     // the original look
+  root.add(gizmo);
+  // Where each button roughly is on a Touch controller held in that hand.
+  const spots = {
+    trigger: [0, -0.022, -0.035],
+    grip: [-side * 0.022, -0.02, 0.01],
+    stick: [-side * 0.008, 0.022, -0.005],
+    stickClick: [-side * 0.008, 0.022, -0.005],
+    btn1: [side * 0.01, 0.022, 0.012],
+    btn2: [side * 0.012, 0.022, -0.008],
+    body: [0, 0, -0.015],
+  };
+  const markers = {};
+  for (const k in spots) {
+    const m = marker(k === 'body' ? 0.05 : 0.009);
+    m.position.fromArray(spots[k]);
+    root.add(m);
+    markers[k] = m;
+  }
   const labels = {};
   const leaderMat = new THREE.LineBasicMaterial({ color: HI_COLOR, transparent: true, opacity: 0.9, depthTest: false, fog: false });
   function label(key) {
@@ -86,43 +75,36 @@ export function createTouchController(hand, color) {
     return labels[key];
   }
   let hi = [];
-  const _p = new THREE.Vector3();
   function setHighlight(list) {
-    hi = (list || []).slice();
+    hi = (list || []).filter((k) => spots[k]);
     for (const k in labels) { labels[k].s.visible = false; labels[k].line.visible = false; }
-    const all = new Set(Object.values(parts));
-    for (const p of all) { p.scale.setScalar(1); p.userData.fill.material.color.setHex(color); p.userData.edge.material.color.setHex(color); p.userData.fill.material.opacity = 0.3; }
-    for (const b of body) { b.material.color.setHex(color); b.material.opacity = 0.6; }
-    // Stack the labels on the outer side of the hand, top to bottom.
+    for (const k in markers) markers[k].visible = false;
+    for (const m of gizmo.userData.mats) m.color.copy(gizmo.userData.baseColor);
+    // Labels stacked on the outer side of the hand, each with a line to its marker.
     hi.forEach((k, i) => {
+      markers[k].visible = true;
       const L = label(k);
       L.s.visible = true; L.line.visible = true;
-      L.s.position.set(side * 0.065, 0.03 - i * 0.02, 0.0);
-    });
-  }
-  function update(t) {
-    if (!hi.length) return;
-    const pulse = 0.5 + 0.5 * Math.sin(t * 6);
-    root.updateMatrixWorld(true);
-    hi.forEach((k) => {
-      const L = labels[k];
-      if (k === 'body') {
-        for (const b of body) { b.material.color.setHex(HI_COLOR); b.material.opacity = 0.5 + 0.5 * pulse; }
-        _p.set(0, 0, 0.012);
-      } else {
-        const p = parts[k];
-        if (!p) return;
-        p.scale.setScalar(1.15 + 0.3 * pulse);
-        p.userData.fill.material.color.setHex(HI_COLOR); p.userData.edge.material.color.setHex(HI_COLOR);
-        p.userData.fill.material.opacity = 0.45 + 0.5 * pulse;
-        p.getWorldPosition(_p); root.worldToLocal(_p);
-      }
+      L.s.position.set(side * 0.065, 0.035 - i * 0.02, -0.01);
       const a = L.line.geometry.attributes.position;
-      a.setXYZ(0, _p.x, _p.y, _p.z);
-      a.setXYZ(1, L.s.position.x - side * 0.03, L.s.position.y, L.s.position.z);
+      const p = spots[k];
+      a.setXYZ(0, p[0] + (k === 'body' ? side * 0.05 : 0), p[1], p[2]);
+      a.setXYZ(1, L.s.position.x - side * 0.022, L.s.position.y, L.s.position.z);
       a.needsUpdate = true;
     });
   }
+  const _c = new THREE.Color();
+  function update(t) {
+    if (!hi.length) return;
+    const pulse = 0.5 + 0.5 * Math.sin(t * 6);
+    for (const k of hi) {
+      const m = markers[k];
+      m.scale.setScalar(k === 'body' ? 1 + 0.1 * pulse : 1 + 0.6 * pulse);
+      m.children[0].material.opacity = 0.4 + 0.6 * pulse;
+      m.children[1].material.opacity = k === 'body' ? 0 : 0.5 + 0.5 * pulse;
+      if (k === 'body') for (const mm of gizmo.userData.mats) mm.color.copy(_c.copy(gizmo.userData.baseColor).lerp(_c.set(HI_COLOR), pulse));
+    }
+  }
   setHighlight([]);
-  return { root, parts, setHighlight, update, get highlight() { return hi; } };
+  return { root, setHighlight, update, get highlight() { return hi; } };
 }

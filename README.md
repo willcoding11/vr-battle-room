@@ -19,17 +19,18 @@ beside the room's right wall, and always has the same layout:
 
 - the section (ROOM / FLY / SQUADRON / FLEET) and a progress bar with **step N / 26**
 - **which hand** to use (RIGHT HAND in cyan, LEFT HAND in gold, the colours of your controllers)
-- a short title and one line of instruction (a few words)
+- a short title and one plain line saying what to do and why ("Pull right trigger: shoot")
 - a big animated icon: a Quest Touch controller with the button to use pulsing green, and what it does
 - a status line: a progress bar for things you hold or repeat, or **NICE!** when you've done it
+- a **NEXT** button at the bottom of the card: lit (gold, pulsing) when you can press it, dim while the step is waiting for you
 
-**The same button glows on the controller in your hand.** Both controllers are drawn as wireframe Touch
-controllers; during the tutorial the trigger, grip or stick to use pulses green with a small label next to it.
+**The button to use is marked on the controller in your hand.** The controllers keep their simple wireframe
+look; during the tutorial a pulsing green marker sits where the trigger, grip or stick is, with a small label.
 
 **Pacing.** Each new card fades in with a soft sound, gives you a moment to read it, then waits for you to
 do the thing. When you do, it shows a check mark and **NICE!**, pauses, and fades calmly into the next step
-(a little slower in the Fleet part). Steps that only explain something use the big **CONTINUE** button
-centred below the room. If something goes wrong, the card says how to fix it (for example *"Missed: point
+(a little slower in the Fleet part); you can also press the lit **NEXT** to move on straight away. Steps that
+only explain something wait for **NEXT** on the card. If something goes wrong, the card says how to fix it (for example *"Missed: point
 right at the ships"* or *"Not quite: point at the red flagship"*).
 
 The steps:
@@ -46,7 +47,7 @@ lobby, and **REDO TUTORIAL** in the lobby runs it again.
 
 ![tutorial](screenshots/16-tutorial.png)
 
-The button to use glows on your controller:
+The button to use is marked on your controller:
 
 ![controller glow](screenshots/18-tut-controller-glow.png)
 
@@ -340,7 +341,7 @@ the left stick to put the box back in its default spot.
 - `index.html` - page with the ENTER VR button (plus the hidden test HUD)
 - `js/main.js` - game: scene, input, player, enemy AI, squadron bots, fleet (selection, orders, capital ships, smart squadron leaders), stars, rounds and enemy tactic unlocks, lobby, HUD, effects
 - `js/ui.js` - VR panels (canvas text and buttons picked with a controller ray) and the animated controller icons
-- `js/controller.js` - the wireframe Touch controllers drawn at your hands, with glowing button highlights
+- `js/controller.js` - the wireframe controller gizmos at your hands, with the tutorial's glowing button markers
 - `js/tutorial.js` - the step-by-step tutorial
 - `js/stats.js` - stats saved on the device (localStorage)
 - `js/models.js` - wireframe ship models (points joined by lines)

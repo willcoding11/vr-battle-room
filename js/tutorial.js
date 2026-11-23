@@ -3,7 +3,7 @@
 // The button to use also glows on the controller you hold. Each step waits for you to do it, shows a
 // short "NICE!" beat, then fades calmly into the next. Info steps use the CONTINUE button centred below
 // the room. G is the game API from main.js.
-import { Panel, drawIcon, HAND_COLOR, HI, UI } from './ui.js?v=14';
+import { Panel, drawIcon, HAND_COLOR, HI, UI } from './ui.js?v=15';
 
 const READ = 1.2;          // seconds before an action counts (time to read the card)
 const NICE = 1.5;          // the "NICE!" beat
@@ -12,7 +12,7 @@ const FADE = 0.45;         // fade out / in between steps
 const SECTIONS = ['ROOM', 'FLY', 'SQUADRON', 'FLEET'];
 
 export function createTutorial(G) {
-  const card = new Panel(0.5, 760, 700);
+  const card = new Panel(0.5, 760, 800);
   const big = new Panel(0.42, 640, 128);
   // Drawn early with depth testing: ships and stars in front of the card always show over it.
   for (const P of [card, big]) { P.mesh.material.depthTest = true; P.mesh.renderOrder = -1; }
@@ -21,7 +21,8 @@ export function createTutorial(G) {
   const held = (dt, cond) => { acc = cond ? acc + dt : 0; return acc; };
   const steerName = () => G.settings.steer;
   // Steering instructions follow the steering style you picked.
-  const steerLine = () => ({ mirror: 'Turn your right hand', relative: 'Tilt your right hand', point: 'Point your right hand', stick: 'Push the right stick' })[steerName()] || 'Turn your right hand';
+  const steerVerb = () => ({ mirror: 'Turn right hand', relative: 'Tilt right hand', point: 'Point right hand', stick: 'Push right stick' })[steerName()] || 'Turn right hand';
+  const steerLine = (why) => () => steerVerb() + ': ' + why;
   const steerIcon = () => ({ mirror: 'mirror', relative: 'relative', point: 'point', stick: 'stick' })[steerName()] || 'mirror';
   const steerHi = () => (steerName() === 'stick' ? ['stick'] : ['body']);
   const moved = () => (box0 ? Math.hypot(G.box.x - box0.x, G.box.y - box0.y, G.box.z - box0.z) : 0);
@@ -35,57 +36,57 @@ export function createTutorial(G) {
   };
   const steps = [
     // ROOM
-    { id: 'welcome', sect: 'ROOM', stage: 'box', title: 'YOUR BATTLE ROOM', line: 'Battles happen in this box', icon: 'room', info: true },
-    { id: 'move', sect: 'ROOM', hand: 'either', title: 'MOVE THE ROOM', line: 'Hold grip, move your hand', icon: 'gripMove', hi: { right: ['grip'], left: ['grip'] },
+    { id: 'welcome', sect: 'ROOM', stage: 'box', title: 'YOUR BATTLE ROOM', line: 'Your battles happen in this box', icon: 'room', info: true },
+    { id: 'move', sect: 'ROOM', hand: 'either', title: 'MOVE THE ROOM', line: 'Hold grip + move hand: move it', icon: 'gripMove', hi: { right: ['grip'], left: ['grip'] },
       enter: () => { box0 = { ...G.box }; }, check: () => moved() > 0.08, meter: () => [Math.min(1, moved() / 0.08), 1] },
-    { id: 'resize', sect: 'ROOM', hand: 'either', title: 'RESIZE THE ROOM', line: 'Hold grip, push stick up/down', icon: 'gripResize', hi: { right: ['grip', 'stick'], left: ['grip', 'stick'] },
+    { id: 'resize', sect: 'ROOM', hand: 'either', title: 'RESIZE THE ROOM', line: 'Hold grip + push stick: resize', icon: 'gripResize', hi: { right: ['grip', 'stick'], left: ['grip', 'stick'] },
       enter: () => { box0 = { ...G.box }; }, check: () => Math.abs(G.box.size - box0.size) > 0.12, meter: () => [Math.min(1, Math.abs(G.box.size - box0.size) / 0.12), 1] },
     // FLY
-    { id: 'steer', sect: 'FLY', stage: 'fly', hand: 'right', title: 'STEER YOUR SHIP', line: steerLine, icon: steerIcon, hi: () => ({ right: steerHi() }),
+    { id: 'steer', sect: 'FLY', stage: 'fly', hand: 'right', title: 'STEER YOUR SHIP', line: steerLine('steer'), icon: steerIcon, hi: () => ({ right: steerHi() }),
       check: () => turned > 2.0, meter: () => [Math.min(1, turned / 2.0), 1] },
-    { id: 'styles', sect: 'FLY', hand: 'right', title: 'STEERING STYLE', line: 'Mirror is easiest. Try one.', choice: true, info: true },
-    { id: 'shoot', sect: 'FLY', hand: 'right', title: 'SHOOT', line: 'Pull the right trigger', icon: 'trigger', hi: { right: ['trigger'] },
+    { id: 'styles', sect: 'FLY', hand: 'right', title: 'STEERING STYLE', line: 'Tap a style to try it', choice: true, info: true },
+    { id: 'shoot', sect: 'FLY', hand: 'right', title: 'SHOOT', line: 'Pull right trigger: shoot', icon: 'trigger', hi: { right: ['trigger'] },
       enter: () => { shots0 = G.shots; }, check: () => G.shots - shots0 >= 8, meter: () => [Math.min(8, G.shots - shots0), 8] },
-    { id: 'boost', sect: 'FLY', hand: 'right', title: 'BOOST', line: 'Hold the right grip', icon: 'boost', hi: { right: ['grip'] },
+    { id: 'boost', sect: 'FLY', hand: 'right', title: 'BOOST', line: 'Hold right grip: fly faster', icon: 'boost', hi: { right: ['grip'] },
       check: (dt) => held(dt, G.input.boost) > 1.5, meter: () => [Math.min(1.5, acc), 1.5] },
-    { id: 'target', sect: 'FLY', stage: 'enemy', hand: 'right', title: 'DESTROY THE TARGET', line: 'Steer at it and shoot', icon: 'target', hi: { right: ['trigger'] },
+    { id: 'target', sect: 'FLY', stage: 'enemy', hand: 'right', title: 'DESTROY THE TARGET', line: 'Steer at it + trigger: destroy it', icon: 'target', hi: { right: ['trigger'] },
       enter: () => G.spawnTut('practice', 1), check: () => G.enemyCount() === 0, meter: kills(1) },
-    { id: 'three', sect: 'FLY', hand: 'right', title: 'THREE MORE', line: "Practice ships can't hurt you", icon: 'target', hi: { right: ['trigger'] },
+    { id: 'three', sect: 'FLY', hand: 'right', title: 'THREE MORE', line: "Same again. They can't hurt you", icon: 'target', hi: { right: ['trigger'] },
       enter: () => G.spawnTut('practice', 3), check: () => G.enemyCount() === 0, meter: kills(3) },
     // SQUADRON
-    { id: 'squad', sect: 'SQUADRON', stage: 'squadron', title: 'YOUR SQUADRON', line: '4 fighters fly where you lead', icon: 'squad', info: true },
-    { id: 'sqSteer', sect: 'SQUADRON', hand: 'right', title: 'LEAD THEM', line: steerLine, icon: steerIcon, hi: () => ({ right: steerHi() }),
+    { id: 'squad', sect: 'SQUADRON', stage: 'squadron', title: 'YOUR SQUADRON', line: '4 fighters follow where you steer', icon: 'squad', info: true },
+    { id: 'sqSteer', sect: 'SQUADRON', hand: 'right', title: 'LEAD THEM', line: steerLine('lead them'), icon: steerIcon, hi: () => ({ right: steerHi() }),
       check: () => turned > 1.8, meter: () => [Math.min(1, turned / 1.8), 1] },
-    { id: 'sqEngage', sect: 'SQUADRON', hand: 'right', title: 'ATTACK', line: 'Hold the right trigger', icon: 'engage', hi: { right: ['trigger'] },
+    { id: 'sqEngage', sect: 'SQUADRON', hand: 'right', title: 'ATTACK', line: 'Hold right trigger: they attack', icon: 'engage', hi: { right: ['trigger'] },
       enter: () => G.spawnTut('squad', 3), check: (dt) => held(dt, G.input.fire) > 2.0, meter: () => [Math.min(2, acc), 2] },
-    { id: 'sqRegroup', sect: 'SQUADRON', hand: 'right', title: 'REGROUP', line: 'Let go of the trigger', icon: 'regroup', hi: { right: ['trigger'] },
+    { id: 'sqRegroup', sect: 'SQUADRON', hand: 'right', title: 'REGROUP', line: 'Let go of trigger: they regroup', icon: 'regroup', hi: { right: ['trigger'] },
       check: (dt) => held(dt, !G.input.fire) > 1.5, meter: () => [Math.min(1.5, acc), 1.5] },
-    { id: 'sqClear', sect: 'SQUADRON', hand: 'right', title: 'FINISH THEM', line: 'Hold the trigger until done', icon: 'engage', hi: { right: ['trigger'] },
+    { id: 'sqClear', sect: 'SQUADRON', hand: 'right', title: 'FINISH THEM', line: 'Hold trigger until all are gone', icon: 'engage', hi: { right: ['trigger'] },
       enter: () => { if (!G.enemyCount()) G.spawnTut('squad', 2); n0 = G.enemyCount(); }, check: () => G.enemyCount() === 0, meter: () => [n0 - G.enemyCount(), n0] },
     // FLEET
-    { id: 'fleet', sect: 'FLEET', stage: 'fleet', title: 'YOUR FLEET', line: '3 squadrons, 2 capital ships', icon: 'fleet', info: true },
-    { id: 'select', sect: 'FLEET', hand: 'left', title: 'SELECT A SQUADRON', line: 'Point left hand, pull trigger', icon: 'selectRay', hi: { left: ['trigger'] },
+    { id: 'fleet', sect: 'FLEET', stage: 'fleet', title: 'YOUR FLEET', line: '3 squadrons + 2 capital ships', icon: 'fleet', info: true },
+    { id: 'select', sect: 'FLEET', hand: 'left', title: 'SELECT A SQUADRON', line: 'Point left + trigger: select one', icon: 'selectRay', hi: { left: ['trigger'] },
       check: () => G.selected.size >= 1, hint: () => (G.selectMissed() ? 'Missed: point right at the ships' : '') },
-    { id: 'all', sect: 'FLEET', hand: 'left', title: 'SELECT EVERYTHING', line: 'Click the left stick', icon: 'selectAll', hi: { left: ['stickClick'] },
+    { id: 'all', sect: 'FLEET', hand: 'left', title: 'SELECT EVERYTHING', line: 'Click left stick: select all', icon: 'selectAll', hi: { left: ['stickClick'] },
       check: () => G.selected.size >= G.unitsAlive() },
-    { id: 'command', sect: 'FLEET', hand: 'right', title: 'STEER THE FLEET', line: steerLine, icon: steerIcon, hi: () => ({ right: steerHi() }),
+    { id: 'command', sect: 'FLEET', hand: 'right', title: 'STEER THE FLEET', line: steerLine('steer them'), icon: steerIcon, hi: () => ({ right: steerHi() }),
       check: () => G.selected.size > 0 && turned > 1.2, meter: () => [Math.min(1, turned / 1.2), 1], hint: selHint },
-    { id: 'orders', sect: 'FLEET', hand: 'left', title: 'GIVING ORDERS', line: 'Point left hand, squeeze grip', icon: 'orders', info: true },
-    { id: 'hold', sect: 'FLEET', hand: 'left', title: 'ORDER: HOLD', line: 'Point at empty space, grip', icon: 'orderHold', hi: { left: ['grip'] },
+    { id: 'orders', sect: 'FLEET', hand: 'left', title: 'GIVING ORDERS', line: 'Point left + grip: give an order', icon: 'orders', info: true },
+    { id: 'hold', sect: 'FLEET', hand: 'left', title: 'ORDER: HOLD', line: 'Grip at empty space: hold there', icon: 'orderHold', hi: { left: ['grip'] },
       enter: () => G.selectAll(), check: () => G.lastOrder === 'HOLD POSITION', hint: orderHint(() => G.lastOrder === 'HOLD POSITION', 'empty space') },
-    { id: 'guard', sect: 'FLEET', hand: 'left', title: 'ORDER: GUARD', line: 'Point at a star, grip', icon: 'orderGuard', hi: { left: ['grip'] },
+    { id: 'guard', sect: 'FLEET', hand: 'left', title: 'ORDER: GUARD', line: 'Grip at a star: guard it', icon: 'orderGuard', hi: { left: ['grip'] },
       enter: () => G.selectAll(), check: () => G.lastOrder === 'GUARD STAR', hint: orderHint(() => G.lastOrder === 'GUARD STAR', 'a star') },
-    { id: 'follow', sect: 'FLEET', hand: 'left', title: 'ORDER: FOLLOW', line: 'Point at a capital ship, grip', icon: 'orderFollow', hi: { left: ['grip'] },
+    { id: 'follow', sect: 'FLEET', hand: 'left', title: 'ORDER: FOLLOW', line: 'Grip at a capital: follow it', icon: 'orderFollow', hi: { left: ['grip'] },
       enter: () => G.selectSquads(), check: () => G.lastOrder.startsWith('FOLLOW'),
       hint: () => (G.selected.size < 2 && !G.lastOrder.startsWith('FOLLOW') ? 'Select all first: click the left stick' : orderHint(() => G.lastOrder.startsWith('FOLLOW'), 'a capital ship')()) },
-    { id: 'attack', sect: 'FLEET', hand: 'left', title: 'ORDER: ATTACK', line: 'Point at an enemy, grip', icon: 'orderAttack', hi: { left: ['grip'] },
+    { id: 'attack', sect: 'FLEET', hand: 'left', title: 'ORDER: ATTACK', line: 'Grip at an enemy: attack it', icon: 'orderAttack', hi: { left: ['grip'] },
       enter: () => { G.selectAll(); G.spawnTut('weak', 3); n0 = 3; }, check: () => G.lastOrder.startsWith('ATTACK'), hint: orderHint(() => G.lastOrder.startsWith('ATTACK'), 'a red enemy') },
-    { id: 'watch', sect: 'FLEET', title: 'WATCH THEM GO', line: 'Your fleet attacks on its own', icon: 'watch', hand: null,
+    { id: 'watch', sect: 'FLEET', title: 'WATCH THEM GO', line: 'Your fleet fights on its own', icon: 'watch', hand: null,
       check: () => G.enemyCount() === 0, meter: () => [n0 - G.enemyCount(), n0] },
-    { id: 'flagship', sect: 'FLEET', hand: 'left', title: 'SINK THE FLAGSHIP', line: 'Order an attack on it', icon: 'flagship', hi: { left: ['grip'] },
+    { id: 'flagship', sect: 'FLEET', hand: 'left', title: 'SINK THE FLAGSHIP', line: 'Grip at the flagship: attack it', icon: 'flagship', hi: { left: ['grip'] },
       enter: () => { G.selectAll(); G.spawnTut('flagship', 1); }, check: () => G.enemyCount() === 0, meter: () => [G.flagshipDamage(), 1],
       hint: orderHint(() => G.lastOrder.startsWith('ATTACK'), 'the red flagship') },
-    { id: 'done', sect: 'FLEET', title: 'TRAINING COMPLETE', line: 'Good luck, commander', icon: 'check', info: true, last: true },
+    { id: 'done', sect: 'FLEET', title: 'TRAINING COMPLETE', line: 'Press NEXT to go to the lobby', icon: 'check', info: true, last: true },
   ];
   const val = (v) => (typeof v === 'function' ? v() : v);
 
@@ -113,13 +114,15 @@ export function createTutorial(G) {
     if (phase !== 'show' && phase !== 'in') return;
     const st = steps[idx];
     phase = st.info ? 'out' : 'done'; pt = 0;      // info steps: no "nice", just move on
-    big.visible = false;
     G.highlight({});
     if (!st.info) G.good(); else G.ping();
     draw();
   }
+  // NEXT on the card: works on info steps, and once an action step is done (skips the rest of the pause).
+  const nextReady = () => { const st = steps[idx]; return st && (st.info ? phase === 'show' && t > 0.6 : phase === 'done'); };
   card.onClick = (id) => {
-    if (id === 'skip') finish();
+    if (id === 'next' && nextReady()) { const st = steps[idx]; if (st.info) complete(); else { phase = 'out'; pt = 0; G.ping(); } }
+    else if (id === 'skip') finish();
     else if (id.startsWith('steer:')) { G.setSetting('steer', id.slice(6)); draw(); }
   };
   big.onClick = (id) => { if (id === 'continue') complete(); };
@@ -165,12 +168,7 @@ export function createTutorial(G) {
     } else drawIcon(g, val(st.icon), W / 2, 445, 300, tt, st.hand === 'left' ? 'left' : 'right');
     // Status line: NICE! / progress / continue / hint.
     if (finished) card.text('NICE!', W / 2, 640, { size: 56, bold: true, color: HI, align: 'center' });
-    else if (st.info) {
-      if (big.visible) {
-        const bob = Math.sin(tt * 4) * 4;
-        card.text('▼  CONTINUE below the room  ▼', W / 2, 640 + bob, { size: 32, color: UI.gold, bold: true, align: 'center', maxW: W - 60 });
-      }
-    } else {
+    else if (st.info) { /* NEXT below says it all */ } else {
       const h = st.hint ? st.hint() : '';
       if (h) card.text(h, W / 2, 640, { size: 32, color: UI.gold, align: 'center', maxW: W - 60 });
       else if (st.meter) {
@@ -181,13 +179,20 @@ export function createTutorial(G) {
         if (b > 1 && Number.isInteger(b)) card.text(`${Math.floor(a)} / ${b}`, W - 140, 628, { size: 24, color: UI.dim });
       }
     }
-    card.button('skip', W - 190, H - 50, 170, 38, 'skip tutorial', { size: 20, subtle: true });
-    card.end();
-    if (big.visible) {
-      big.begin();
-      big.button('continue', 8, 8, big.W - 16, big.H - 16, st.last ? 'TO THE LOBBY' : 'CONTINUE', { big: true, size: 48 });
-      big.end();
+    // NEXT: always in the same spot. Lit (and pulsing) when you can press it; dim while the step
+    // is waiting for you to do something.
+    const nx = W / 2 - 170, ny = 680, nw = 340, nh = 92;
+    const label = st.last ? 'TO LOBBY ▶' : 'NEXT ▶';
+    if (nextReady()) {
+      const k = 0.5 + 0.5 * Math.sin(tt * 5);
+      g.strokeStyle = `rgba(255,204,102,${0.25 + 0.35 * k})`; g.lineWidth = 6; g.strokeRect(nx - 6, ny - 6, nw + 12, nh + 12);
+      card.button('next', nx, ny, nw, nh, label, { big: true, active: true, size: 44 });
+    } else {
+      g.strokeStyle = 'rgba(80,220,255,0.35)'; g.lineWidth = 2; g.strokeRect(nx + 1, ny + 1, nw - 2, nh - 2);
+      card.text(label, W / 2, ny + nh / 2 + 15, { size: 40, color: 'rgba(95,169,191,0.7)', align: 'center' });
     }
+    card.button('skip', 12, H - 52, 186, 44, 'skip tutorial', { size: 24, subtle: true });
+    card.end();
   }
 
   function update(dt) {
@@ -200,7 +205,6 @@ export function createTutorial(G) {
     let op = 1;
     if (phase === 'in') { op = Math.min(1, pt / FADE); if (pt >= FADE) { phase = 'show'; pt = 0; } }
     if (phase === 'show') {
-      if (st.info && !big.visible && t > 0.8) { big.visible = true; draw(); }
       // Actions only count once you've had a moment to read the card.
       if (!st.info && st.check) { const ok = st.check(dt); if (ok && t > READ + FADE) complete(); }
     } else if (phase === 'done') {

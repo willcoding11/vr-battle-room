@@ -2,12 +2,12 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { buildPlayerShip, buildFighter, buildCruiser, tintShip } from './models.js?v=14';
-import { createTouchController } from './controller.js?v=14';
-import { Sfx } from './audio.js?v=14';
-import { Panel, faceYaw, UI } from './ui.js?v=14';
-import { stats, saveStats, recordGame, fmtTime } from './stats.js?v=14';
-import { createTutorial } from './tutorial.js?v=14';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip } from './models.js?v=15';
+import { createTouchController } from './controller.js?v=15';
+import { Sfx } from './audio.js?v=15';
+import { Panel, faceYaw, UI } from './ui.js?v=15';
+import { stats, saveStats, recordGame, fmtTime } from './stats.js?v=15';
+import { createTutorial } from './tutorial.js?v=15';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
@@ -2891,13 +2891,16 @@ function uiRay(hand, ctrl, trig, edge) {
     const hov = (uiHit.right && uiHit.right.panel === P && uiHit.right.id) || (uiHit.left && uiHit.left.panel === P && uiHit.left.id) || null;
     if (P.hover !== hov) { P.hover = hov; if (P === lobbyPanel) drawLobby(); else tutorial.redraw(); }
   }
-  const showRay = !!best || state === 'lobby';
+  // The tutorial card only takes over the controller while you point at one of its buttons, so it
+  // never blocks shooting, selecting or ordering at ships seen past it.
+  const capture = !!best && (!!best.id || bp !== tutorial.card);
+  const showRay = capture || state === 'lobby';
   if (hand === 'left') line.visible = showRay;
   else if (showRay) line.visible = true;
-  line.scale.set(1, 1, best ? best.dist : 0.5);
+  line.scale.set(1, 1, capture ? best.dist : 0.5);
   if (edge && best && best.id) { uiHeld[hand] = true; haptic(hand, 0.3, 25); sfx.ping(null); bp.onClick(best.id); }
   if (!trig) uiHeld[hand] = false;
-  return !!best || uiHeld[hand];
+  return capture || uiHeld[hand];
 }
 // Lobby and the first tutorial step: hold a grip to move the room; push that hand's stick to resize it.
 const grab = { hand: null, start: new THREE.Vector3(), x: 0, y: 0, z: 0, moved: 0 };
