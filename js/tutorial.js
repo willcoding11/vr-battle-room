@@ -3,7 +3,7 @@
 // Each step waits for you to do it, shows a check mark for a moment, then fades into the next.
 // Info steps go on with NEXT. Three parts: the room, flying, the squadron; then the lobby.
 // G is the game API from main.js.
-import { Panel, drawIcon, UI } from './ui.js?v=19';
+import { Panel, drawIcon, UI } from './ui.js?v=20';
 
 const READ = 1.2;          // seconds before an action counts (time to read the card)
 const NICE = 1.5;          // the "NICE!" beat
@@ -21,9 +21,9 @@ export function createTutorial(G) {
   const steps = [
     // The room
     { id: 'welcome', stage: 'box', title: 'YOUR BATTLE ROOM', line: 'Your battles happen in this box', icon: 'room', info: true },
-    { id: 'move', hand: 'either', title: 'MOVE THE ROOM', line: 'Hold grip + move hand', icon: 'gripMove',
+    { id: 'move', hand: 'either', title: 'MOVE THE ROOM', line: 'Hold grip + move hand', icon: 'gripMove', manual: true,
       enter: () => { box0 = { ...G.box }; }, check: () => moved() > 0.08 },
-    { id: 'resize', hand: 'either', title: 'RESIZE THE ROOM', line: 'Hold grip + push stick', icon: 'gripResize',
+    { id: 'resize', hand: 'either', title: 'RESIZE THE ROOM', line: 'Hold grip + push stick', icon: 'gripResize', manual: true,
       enter: () => { box0 = { ...G.box }; }, check: () => Math.abs(G.box.size - box0.size) > 0.12 },
     // Flying
     { id: 'steer', stage: 'fly', hand: 'right', title: 'STEER YOUR SHIP', line: 'Point right hand where to fly', icon: 'mirror',
@@ -100,7 +100,7 @@ export function createTutorial(G) {
     card.begin();
     card.text(st.title, W / 2, 92, { size: 56, bold: true, color: UI.title, align: 'center', maxW: W - 60 });
     card.text(val(st.line), W / 2, 150, { size: 38, color: '#e6fbff', align: 'center', maxW: W - 60 });
-    drawIcon(g, finished ? 'check' : val(st.icon), W / 2, 335, 280, tt, st.hand === 'left' ? 'left' : 'right');
+    drawIcon(g, finished && !st.manual ? 'check' : val(st.icon), W / 2, 335, 280, tt, st.hand === 'left' ? 'left' : 'right');
     const h = !finished && st.hint ? st.hint() : '';
     if (h) card.text(h, W / 2, 500, { size: 30, color: UI.gold, align: 'center', maxW: W - 60 });
     // NEXT: always in the same spot; lit when you can press it, dim while the step waits for you.
@@ -129,7 +129,7 @@ export function createTutorial(G) {
       // Actions only count once you've had a moment to read the card.
       if (!st.info && st.check) { const ok = st.check(dt); if (ok && t > READ + FADE) complete(); }
     } else if (phase === 'done') {
-      if (pt > NICE) { phase = 'out'; pt = 0; }
+      if (pt > NICE && !st.manual) { phase = 'out'; pt = 0; }   // room steps wait for NEXT so you can keep adjusting
     } else if (phase === 'out') {
       op = Math.max(0, 1 - pt / FADE);
       if (pt > FADE + 0.25) { go(idx + 1); return; }

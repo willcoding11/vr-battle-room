@@ -2,12 +2,12 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=19';
-import { createTouchController } from './controller.js?v=19';
-import { Sfx } from './audio.js?v=19';
-import { Panel, faceYaw, UI } from './ui.js?v=19';
-import { stats, saveStats, recordGame, fmtTime } from './stats.js?v=19';
-import { createTutorial } from './tutorial.js?v=19';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=20';
+import { createTouchController } from './controller.js?v=20';
+import { Sfx } from './audio.js?v=20';
+import { Panel, faceYaw, UI } from './ui.js?v=20';
+import { stats, saveStats, recordGame, fmtTime } from './stats.js?v=20';
+import { createTutorial } from './tutorial.js?v=20';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
