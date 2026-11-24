@@ -2,7 +2,7 @@
 // -Z = pointing direction). For the tutorial, the button to use is marked on it with a pulsing green
 // marker at roughly where that button sits, plus a small label, so you can see which button on which hand.
 import * as THREE from '../vendor/three.module.js';
-import { buildControllerGizmo } from './models.js?v=27';
+import { buildControllerGizmo } from './models.js?v=28';
 
 export const HI_COLOR = 0x55ff99;
 const LABELS = { trigger: 'TRIGGER', grip: 'GRIP', stick: 'STICK', stickClick: 'CLICK STICK', body: 'TURN' };

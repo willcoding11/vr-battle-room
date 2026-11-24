@@ -9,8 +9,9 @@ It is a WebXR web page built with three.js. It runs in the Quest's built-in brow
 don't need to install an app or turn on developer mode. **It is VR only:** the page shows a single
 **ENTER VR** button. In a browser without WebXR, or with no headset, a short note under the button says so.
 
-There are two modes: **Fighter** (fly one ship yourself) and **Squadron** (lead 4 bot fighters, or split
-them into 2 pairs and lead one pair with each hand).
+There are three modes: **Fighter** (fly one ship yourself), **Squadron** (lead 4 bot fighters, or split
+them into 2 pairs and lead one pair with each hand) and **Endless** (fly out into open space, raid enemy
+outposts and grow from one fighter into a squadron).
 
 ![diorama](screenshots/09-diorama.png)
 
@@ -51,6 +52,7 @@ A battle plays inside the room as a backdrop, and it follows the mode you pick:
   ships using the real Fighter-mode behaviours (waves 1-4 in turn), in a Fighter-sized room that reshapes
   between waves. The blue ship can be shot down; it comes back a moment later.
 - **Squadron:** a blue squadron skirmishing with red raiders round the stars.
+- **Endless:** the Fighter backdrop.
 
 Changing the mode **cross-fades** between them: the battle fades out, the room glides to its new shape and the
 other battle fades in (about 0.65 s). The room's frame stays put.
@@ -61,9 +63,9 @@ other battle fades in (about 0.65 s). The room's frame stays put.
 ### The holo ring
 
 The menu is a **curved holo band above the room**, facing you (point with either controller's ray, pull the
-trigger): **FIGHTER / SQUADRON**, **START**, **SETTINGS**, **STATS** and **TUTORIAL** on one row, everything
+trigger): **FIGHTER / SQUADRON / ENDLESS**, **START**, **SETTINGS**, **STATS** and **TUTORIAL** on one row, everything
 within about 35 degrees of straight ahead. A short line above START shows your best score and the selected
-mode's best round. In a game the band shows the round and hostiles, the score in the middle and announcements
+mode's best round (best distance for Endless). In a game the band shows the round and hostiles, the score in the middle and announcements
 on the right.
 
 **It never covers the battle:** the band's bottom edge is always above the room's top, so every sight line to
@@ -77,8 +79,7 @@ STATS button with a quick fade (0.3 s), like Settings. Press STATS again, or CLO
 It has one section per mode, each with that mode's own numbers (the selected mode is highlighted):
 - **FIGHTER** and **SQUADRON:** best round, games, last round, best score, kills, time played, win streak and
   best streak (a "win" is a game in which you cleared at least round 1; the streak counts wins in a row).
-- **ENDLESS:** best distance, best score, outposts destroyed, games and time played (shown as dashes until
-  Endless mode arrives).
+- **ENDLESS:** best distance, best score, outposts destroyed, games and time played.
 - The header line has the totals: **screen time** (all time in the headset: lobby, tutorial and games; saved
   every 15 s and when you leave VR), total kills and games.
 
@@ -104,9 +105,44 @@ where you want the level.
 |---|---|---|
 | ![](screenshots/v27-game.png) | ![](screenshots/v27-lobby-fighter-sim.png) | ![](screenshots/v27-lobby-squadron-sim.png) |
 
+## Endless
+
+No room walls: your ship (or your squadron's centre) stays in the middle of the usual room-sized window and
+space moves past it. Fly as far as you like; the space is generated from a fixed seed, so it is the same
+every run.
+
+- **Stars** everywhere, fading with distance; a bigger **home star** where you start, with a dock.
+- **Enemy outposts** (red): a cluster of ships round a star, far apart. They wake when you come close, roam
+  near their star (they never chase you far), and go back to sleep if you leave. The further from home, the
+  higher the **tier**: more and tougher ships, and more points. A faint red chevron at the window's edge
+  points to the nearest outpost (a green one to the nearest dock when you are hurt), and the ring shows the
+  outpost's distance and tier.
+- **Asteroid fields** drift slowly and damage whatever hits them; they are commoner further out.
+- **Docks** (green rings), commoner near home: fly into one with no enemies close by to dock. A panel on
+  your right offers **repair all** (300), **a new fighter** (1,500, +500 each time) and **+1 hull for every
+  ship** (1,200, +50% each time), paid with credits. **LAUNCH** to leave. The game waits while it is open.
+- You start as **one fighter** (Fighter controls). Kills earn credits; destroying an outpost gives 1,000 x its tier in points
+  and in credits, and an **upgrade choice**: **+1 wingman**, **+hull** (every ship, fully repaired) or **+fire rate** (15%).
+  With a wingman you lead a squadron (Squadron controls, up to 4 ships).
+- A destroyed ship is gone for good. Lose them all and the run ends: you see your distance and score, then
+  the lobby.
+- **Score:** distance (10 points per unit of new distance), outposts and kills. Best distance and best score
+  are saved.
+
+Only nearby things are simulated (outposts wake within a short range, stars and rocks come from small pools),
+so a busy tier-3 outpost fight costs about 0.5 ms of game logic per frame.
+
+| Start: home star and dock | Outpost (tier 1) | Asteroid field |
+|---|---|---|
+| ![](screenshots/v28-endless-start.png) | ![](screenshots/v28-endless-outpost.png) | ![](screenshots/v28-endless-asteroids.png) |
+
+| Upgrade choice | Docked | Further out |
+|---|---|---|
+| ![](screenshots/v28-endless-upgrade.png) | ![](screenshots/v28-endless-dock.png) | ![](screenshots/v28-endless-fight.png) |
+
 ## Rounds: every round is a fresh battle
 
-Both modes are played in **rounds**, and the goal is to reach the highest round you can.
+Fighter and Squadron are played in **rounds**, and the goal is to reach the highest round you can.
 Your score keeps adding up across rounds, and each cleared round gives a bonus of 500 x the round number.
 The best round you have reached is saved for each mode (see the lobby stats).
 
@@ -325,6 +361,8 @@ the left stick to put the box back in its default spot.
 - `js/ui.js` - VR panels (canvas text and buttons picked with a controller ray) and the animated controller icons
 - `js/controller.js` - the wireframe controller gizmos at your hands
 - `js/tutorial.js` - the step-by-step tutorial
+- `js/endless.js` - Endless mode: the seeded open world (stars, outposts, asteroid fields, docks), the
+  dock / upgrade panel and run scoring
 - `js/ring.js` - the holo ring (lobby menu, in-game score and announcements) and the stats panel
 - `js/stats.js` - stats saved on the device (localStorage)
 - `js/models.js` - wireframe ship models (points joined by lines)
@@ -348,6 +386,17 @@ room's front face and facing you, capped at 22 degrees, about the vertical axis 
 head; they are only re-placed when you move, resize or reshape the room (or re-centre with the Meta button).
 
 ![panels from the seat](screenshots/27-panels-seated.png)
+
+## Changes in v28
+
+- **Endless mode** (third mode on the ring): open space round a centred ship, seeded stars, outposts with
+  tiers that rise with distance, asteroid fields, docks to repair and buy ships, upgrade choices, permanent
+  losses, best distance and best score saved.
+- The stats panel's Endless section now shows real numbers.
+
+| Lobby (three modes) | Stats |
+|---|---|
+| ![](screenshots/v28-lobby.png) | ![](screenshots/v28-lobby-stats.png) |
 
 ## Changes in v27
 

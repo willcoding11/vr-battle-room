@@ -7,6 +7,7 @@ const MODES = ['fighter', 'squadron'];
 function fresh() {
   const s = { games: 0, kills: 0, time: 0, screen: 0, roundsCleared: 0, bestScore: 0, streak: 0, bestStreak: 0, modes: {} };
   for (const m of MODES) s.modes[m] = { best: 0, games: 0, last: 0, bestScore: 0, kills: 0, time: 0, streak: 0, bestStreak: 0 };
+  s.modes.endless = { bestDist: 0, bestScore: 0, outposts: 0, games: 0, time: 0, kills: 0 };   // v28
   return s;
 }
 
@@ -15,7 +16,7 @@ try {
   const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
   if (saved) {
     for (const k of Object.keys(stats)) if (k !== 'modes' && typeof saved[k] === 'number' && isFinite(saved[k])) stats[k] = saved[k];
-    for (const m of MODES) if (saved.modes && saved.modes[m]) Object.assign(stats.modes[m], saved.modes[m]);
+    for (const m of [...MODES, 'endless']) if (saved.modes && saved.modes[m]) Object.assign(stats.modes[m], saved.modes[m]);
   }
   // Carry over the v12 per-mode best round.
   const old = JSON.parse(localStorage.getItem('battleRoomBestRound') || '{}');
@@ -41,6 +42,20 @@ export function recordGame(mode, round, score, kills) {
   stats.roundsCleared += Math.max(0, round - 1);
   stats.bestScore = Math.max(stats.bestScore, score);
   if (round >= 2) { stats.streak++; stats.bestStreak = Math.max(stats.bestStreak, stats.streak); } else stats.streak = 0;
+  saveStats();
+}
+
+// An Endless run: distance reached (shown units), score, kills and outposts destroyed.
+export function recordEndless(dist, score, kills, outposts) {
+  const m = stats.modes.endless;
+  stats.games++;
+  m.games++;
+  m.bestDist = Math.max(m.bestDist, dist);
+  m.bestScore = Math.max(m.bestScore, score);
+  m.outposts += outposts;
+  m.kills += kills;
+  stats.kills += kills;
+  stats.bestScore = Math.max(stats.bestScore, score);
   saveStats();
 }
 

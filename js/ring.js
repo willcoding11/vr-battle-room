@@ -1,5 +1,5 @@
 // The holo ring: a curved band above the battle room, facing you.
-//   Lobby: FIGHTER / SQUADRON, START, SETTINGS, STATS and TUTORIAL on one row (all within about 35 degrees
+//   Lobby: FIGHTER / SQUADRON / ENDLESS, START, SETTINGS, STATS and TUTORIAL on one row (all within about 35 degrees
 //          of straight ahead), with your best score and best round on a short line above.
 //   Game:  round and hostiles, the score in the middle, announcements on the right.
 // STATS opens a stats panel to the RIGHT of the room (Settings opens on the left): it slides out of the
@@ -11,7 +11,7 @@
 // Panels are ui.js Panels (canvas + buttons picked by the ray's UV), so pointing, clicking and the beam /
 // cursor work the same on the curved band.
 import * as THREE from '../vendor/three.module.js';
-import { Panel, UI } from './ui.js?v=27';
+import { Panel, UI } from './ui.js?v=28';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const RR = 1.2;                    // ring radius around your seat (m)
@@ -120,14 +120,15 @@ export function createRingUI(G) {
     const mode = G.settings.mode;
     { const P = lobby;
       P.begin();
-      G.MODES.forEach((m, i) => P.button('mode:' + m, 220 + i * 465, 40, 445, 160, m.toUpperCase(), { active: mode === m, size: 52 }));
+      G.MODES.forEach((m, i) => P.button('mode:' + m, 220 + i * 310, 40, 295, 160, m.toUpperCase(), { active: mode === m, size: 46 }));
       P.button('start', 1160, 22, 680, 196, 'START', { big: true, size: 104 });
       [['settings', 'SETTINGS'], ['stats', 'STATS'], ['tutorial', 'TUTORIAL']].forEach(([id, l], i) =>
         P.button(id, 1870 + i * 310, 40, 290, 160, l, { size: 46, active: id === 'stats' && statsOpen() }));
       P.end(); }
     { const P = key, W = P.W;
       P.begin();
-      P.text(`BEST SCORE ${N(G.best())}      BEST ROUND ${N(G.stats.modes[mode].best)}`, W / 2, 64, { size: 44, color: UI.text, align: 'center', maxW: W - 60 });
+      const sec = mode === 'endless' ? `BEST DISTANCE ${N(G.stats.modes.endless.bestDist)}` : `BEST ROUND ${N(G.stats.modes[mode].best)}`;
+      P.text(`BEST SCORE ${N(G.best())}      ${sec}`, W / 2, 64, { size: 44, color: UI.text, align: 'center', maxW: W - 60 });
       P.end(); }
     if (statsP.visible) drawStats();
   }
@@ -136,11 +137,12 @@ export function createRingUI(G) {
   function drawGame(force = false) {
     const d = G.game();
     if (d.state !== 'playing' && d.state !== 'gameover') return;
-    const k = [d.score, d.wave, d.hostiles, d.state, d.msgOn, d.msgTitle, d.msgSub, d.intermission].join('|');
+    const k = [d.score, d.wave, d.hostiles, d.state, d.msgOn, d.msgTitle, d.msgSub, d.intermission, JSON.stringify(d.endless)].join('|');
     if (!force && k === gameKey) return;
     gameKey = k;
     const sub = d.state === 'gameover' ? `ROUND ${d.wave}` : d.intermission ? `ROUND ${d.wave} CLEARED` : `ROUND ${d.wave}`;
     const P = game, g = P.g;
+    if (d.endless) { drawEndless(d); return; }
     P.begin();
     P.text(sub, 760, 112, { size: 72, bold: true, color: UI.title, align: 'center', maxW: 600 });
     if (d.state === 'playing' && !d.intermission) P.text(`${d.hostiles} HOSTILE${d.hostiles === 1 ? '' : 'S'}`, 760, 186, { size: 50, color: UI.text, align: 'center' });
@@ -151,6 +153,27 @@ export function createRingUI(G) {
       P.text(d.msgTitle, 2240, 100, { size: 64, bold: true, color: UI.title, align: 'center', maxW: 640 });
       const lines = wrap(g, d.msgSub.split('\n')[0], 640, '40px monospace', 2);
       lines.forEach((l, i) => P.text(l, 2240, 158 + i * 46, { size: 40, color: UI.gold, align: 'center', maxW: 640 }));
+    }
+    P.end();
+  }
+
+  // Endless: distance, fleet and credits on the left, score in the middle, announcements (or the distance
+  // to the next outpost) on the right.
+  function drawEndless(d) {
+    const P = game, g = P.g, e = d.endless;
+    P.begin();
+    P.text(`DISTANCE ${N(e.dist)}`, 760, 100, { size: 60, bold: true, color: UI.title, align: 'center', maxW: 620 });
+    P.text(e.active ? `TIER ${e.active} OUTPOST  ${e.hostiles} LEFT` : `FLEET ${e.fleet}   CREDITS ${N(e.credits)}`, 760, 172, { size: 42, color: e.active ? UI.gold : UI.text, align: 'center', maxW: 620 });
+    g.fillStyle = UI.faint; g.fillRect(1090, 30, 3, 180); g.fillRect(1908, 30, 3, 180);
+    P.text('SCORE', 1500, 62, { size: 40, bold: true, color: UI.dim, align: 'center' });
+    P.text(N(d.score), 1500, 200, { size: 140, bold: true, color: '#7fe9ff', align: 'center', maxW: 780 });
+    if (d.msgOn) {
+      P.text(d.msgTitle, 2240, 100, { size: 64, bold: true, color: UI.title, align: 'center', maxW: 640 });
+      const lines = wrap(g, d.msgSub.split('\n')[0], 640, '40px monospace', 2);
+      lines.forEach((l, i) => P.text(l, 2240, 158 + i * 46, { size: 40, color: UI.gold, align: 'center', maxW: 640 }));
+    } else if (e.next) {
+      P.text('NEXT OUTPOST', 2240, 92, { size: 40, bold: true, color: UI.dim, align: 'center' });
+      P.text(`${N(e.next.dist)}   TIER ${e.next.tier}`, 2240, 160, { size: 54, bold: true, color: '#ff8877', align: 'center', maxW: 640 });
     }
     P.end();
   }

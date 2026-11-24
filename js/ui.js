@@ -70,7 +70,7 @@ export class Panel {
     }
     const size = o.size || Math.min(34, Math.floor(h * 0.45));
     const col = o.active ? UI.gold : o.subtle && !hov ? UI.dim : o.color || UI.title;
-    this.text(label, x + w / 2, y + h / 2 + size * 0.36, { size, bold: !!(o.big || o.active), color: col, align: 'center', maxW: w - 20 });
+    if (label) this.text(label, x + w / 2, y + h / 2 + size * 0.36, { size, bold: !!(o.big || o.active), color: col, align: 'center', maxW: w - 20 });
   }
   // Ray test: returns the button id under the ray (or '' on the panel, null off it) and the distance.
   pick(raycaster) {

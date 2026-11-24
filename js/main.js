@@ -2,13 +2,14 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=27';
-import { createTouchController } from './controller.js?v=27';
-import { Sfx } from './audio.js?v=27';
-import { UI } from './ui.js?v=27';
-import { stats, saveStats, recordGame, addPlayTime, fmtTime, fmtNum } from './stats.js?v=27';
-import { createTutorial } from './tutorial.js?v=27';
-import { createRingUI } from './ring.js?v=27';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=28';
+import { createTouchController } from './controller.js?v=28';
+import { Sfx } from './audio.js?v=28';
+import { UI } from './ui.js?v=28';
+import { stats, saveStats, recordGame, recordEndless, addPlayTime, fmtTime, fmtNum } from './stats.js?v=28';
+import { createTutorial } from './tutorial.js?v=28';
+import { createRingUI } from './ring.js?v=28';
+import { createEndless } from './endless.js?v=28';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
@@ -27,11 +28,16 @@ const HEAD_H = 1.2;                               // seated eye height (desktop)
 const ARENA_C = new THREE.Vector3(0, 0, 0);       // battle centre = centre of the box (game units)
 // Battle box half-size in game units. The box keeps its physical size in front of you, so a bigger
 // BOX_B = more room relative to the ships. Fighter: 2.8 (was 1.75). Squadron: zoomed out much further.
-const MODE_BOX = { fighter: 2.8, squadron: 5.0 };
+const MODE_BOX = { fighter: 2.8, squadron: 5.0, endless: 4.0 };   // Endless: the view window round your ship
 let BOX_B = MODE_BOX.fighter;                     // base half-size: sets the scale (ship size) for the mode
 // The room's actual half-extents per axis. Width, height and depth vary independently (long, flat,
 // tall or cube) with roughly the same volume as a BOX_B cube; they change each game and each wave.
 const HB = new THREE.Vector3(BOX_B, BOX_B, BOX_B);
+// Endless mode (endless.js): no walls, the world moves round your ship. VC = the view centre (your ship or
+// command point) in world coordinates; AH = the half-size of the area enemies keep to (the room in the
+// other modes; round their outpost in Endless, centred on ARENA_C).
+let endless = false, E = null, AH = HB;
+const VC = new THREE.Vector3();
 const FRIEND_COLOR = new THREE.Color(0x33ddff);
 const PLAYER_COLOR = new THREE.Color(0x33ddff);
 const ENEMY_COLOR = new THREE.Color(0xff3344);
@@ -39,6 +45,7 @@ const LEADER_COLOR = new THREE.Color(0xff8833);   // enemy squadron leaders
 const ACE_COLOR = new THREE.Color(0xffc22e);      // named enemy aces
 const WHITE = new THREE.Color(0xffffff);
 const MAX_HP = 5;
+let playerMax = MAX_HP, botMax = 3, fireMul = 1;   // hull / fire-rate upgrades (Endless)
 const CRUISE = 1.6 * S, BOOST = 3.2 * S, BRAKE = 0.5 * S; // player speeds (m/s)
 const LEAD = 0.9 * S;                             // how far past the ship the steering target sits
 const FOLLOW_H = 0.3;                             // follow view height = distance * this
@@ -47,7 +54,7 @@ const FOLLOW_H = 0.3;                             // follow view height = distan
 const GAIN_OPTS = [['1', '1x'], ['1.5', '1.5x'], ['2', '2x'], ['2.5', '2.5x'], ['3', '3x'], ['3.5', '3.5x']];
 const VOL_OPTS = Array.from({ length: 11 }, (_, i) => [String(i), String(i)]);   // 0..10 (sliders)
 const SETTINGS_DEF = [
-  { key: 'mode', label: 'Game mode', opts: [['fighter', 'Fighter'], ['squadron', 'Squadron']] },
+  { key: 'mode', label: 'Game mode', opts: [['fighter', 'Fighter'], ['squadron', 'Squadron'], ['endless', 'Endless']] },
   { key: 'steerGain', label: 'Steering gain (Fighter)', opts: GAIN_OPTS },
   { key: 'steerGainSq', label: 'Steering gain (Squadron)', opts: GAIN_OPTS },
   { key: 'boxSize', label: 'Box size', opts: [['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']] },
@@ -121,6 +128,10 @@ rig.add(camera);
 // It only translates + scales uniformly (never rotates), so directions are the same as in the world.
 const board = new THREE.Group();
 scene.add(board);
+// Everything that moves lives in `world` (inside the board). In Endless it is shifted so your ship stays
+// in the middle of the view; in the other modes it sits at the board's origin.
+const world = new THREE.Group();
+board.add(world);
 const BOX_DEFAULT = { x: 0, y: 1.0, z: -0.85, size: BOX_SIZES[settings.boxSize] };
 const box = { ...BOX_DEFAULT };
 try {
@@ -210,14 +221,19 @@ setBoxB(MODE_BOX[settings.mode] || MODE_BOX.fighter);
 // Shortest vector from a to b in the wrap-around box (each axis wraps).
 function wrapDelta(a, b, out) {
   out.subVectors(b, a);
+  if (endless) return out;                          // no walls, no wrap-around
   for (const k of ['x', 'y', 'z']) {
     if (out[k] > HB[k]) out[k] -= 2 * HB[k]; else if (out[k] < -HB[k]) out[k] += 2 * HB[k];
   }
   return out;
 }
-function outsideBox(p, m = 1) { return Math.abs(p.x) > HB.x * m || Math.abs(p.y) > HB.y * m || Math.abs(p.z) > HB.z * m; }
+function outsideBox(p, m = 1) {
+  if (endless) return p.distanceTo(VC) > BOX_B * 1.15 * m;    // past the edge of the view window
+  return Math.abs(p.x) > HB.x * m || Math.abs(p.y) > HB.y * m || Math.abs(p.z) > HB.z * m;
+}
 // Wrap-around: leave through one face, come back in through the opposite face.
 function wrapBox(p) {
+  if (endless) return false;
   let w = false;
   for (const k of ['x', 'y', 'z']) {
     if (p[k] > HB[k]) { p[k] -= 2 * HB[k]; w = true; } else if (p[k] < -HB[k]) { p[k] += 2 * HB[k]; w = true; }
@@ -248,13 +264,13 @@ scene.add(grid);
 grid.visible = false;
 
 const sfx = new Sfx();
-sfx.toWorld = (v) => board.localToWorld(v.clone());
+sfx.toWorld = (v) => world.localToWorld(v.clone());
 
 // ---------------------------------------------------------------- helpers
 function shrink(obj) { obj.scale.setScalar(S); obj.userData.ptBase = obj.userData.mats[1].size; obj.userData.mats[1].size *= S * board.scale.x; return obj; }
 function randomArenaPoint(scale = 0.8) {
   _v1.randomDirection().multiplyScalar(Math.cbrt(Math.random()) * scale * 0.9);
-  return new THREE.Vector3(ARENA_C.x + _v1.x * HB.x, ARENA_C.y + _v1.y * HB.y, ARENA_C.z + _v1.z * HB.z);
+  return new THREE.Vector3(ARENA_C.x + _v1.x * AH.x, ARENA_C.y + _v1.y * AH.y, ARENA_C.z + _v1.z * AH.z);
 }
 // Orient a +Z-forward object along dir, keeping world up as up.
 function quatFromDir(dir, out) {
@@ -296,7 +312,7 @@ class Bullets {
       color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
     }));
     this.mesh.frustumCulled = false;
-    board.add(this.mesh);
+    world.add(this.mesh);
   }
   spawn(pos, vel, life, src) {
     if (this.list.length >= this.max) return;
@@ -351,13 +367,13 @@ function explode(obj, color, vel, big = false) {
   const mat = new THREE.LineBasicMaterial({ color: color.clone().lerp(WHITE, 0.4), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
   const mesh = new THREE.LineSegments(g, mat);
   mesh.frustumCulled = false;
-  board.add(mesh);
+  world.add(mesh);
   // Expanding wireframe shock-sphere.
   const shock = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(1, 1)),
     new THREE.LineBasicMaterial({ color: color.clone().lerp(WHITE, 0.6), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
   shock.position.copy(center);
   shock.scale.setScalar(0.02);
-  board.add(shock);
+  world.add(shock);
   effects.push({ type: 'frags', mesh, frags, arr, life: big ? 2.2 : 1.5, max: big ? 2.2 : 1.5 });
   effects.push({ type: 'shock', mesh: shock, life: 0.4, max: 0.4, size: (big ? 1.2 : 0.55) * S });
   // v18: a spark burst, a flash ring and a bright core.
@@ -370,7 +386,7 @@ function blink(pos, color) {
     new THREE.LineBasicMaterial({ color: color.clone().lerp(WHITE, 0.5), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
   shock.position.copy(pos);
   shock.scale.setScalar(0.02);
-  board.add(shock);
+  world.add(shock);
   effects.push({ type: 'shock', mesh: shock, life: 0.3, max: 0.3, size: 0.3 * S });
 }
 // v18 juice. One shared point cloud for every spark and explosion burst (cheap: a single draw call).
@@ -386,7 +402,7 @@ partCloud.geometry.setAttribute('color', new THREE.BufferAttribute(parts.col, 3)
 partCloud.frustumCulled = false;
 partCloud.userData.ptBase = 0.075; partCloud.userData.mats = [null, partMat];   // re-fitted with the board scale
 partMat.size = 0.075 * S * board.scale.x;
-board.add(partCloud);
+world.add(partCloud);
 const HOT = new THREE.Color(1, 0.92, 0.75);
 // n sparks flying out of pos (speed in game units / s), fading over `life` seconds.
 function burst(pos, n, color, speed, life, vel = null) {
@@ -425,14 +441,14 @@ function flashRing(pos, color, size, life = 0.3) {
   const m = new THREE.LineLoop(RING_GEO, new THREE.LineBasicMaterial({ color: color.clone().lerp(WHITE, 0.55), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
   m.position.copy(pos);
   m.scale.setScalar(0.02);
-  board.add(m);
+  world.add(m);
   effects.push({ type: 'ring', mesh: m, life, max: life, size, shared: true });
 }
 function coreFlash(pos, color, size) {
   const m = new THREE.Sprite(new THREE.SpriteMaterial({ map: getDotTexture(), color: color.clone().lerp(WHITE, 0.7), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
   m.position.copy(pos);
   m.scale.setScalar(0.01);
-  board.add(m);
+  world.add(m);
   effects.push({ type: 'core', mesh: m, life: 0.16, max: 0.16, size, sprite: true });
 }
 // Camera-free feedback: the room's frame lights up briefly (kills: cyan; you're hit: red; aces: gold).
@@ -477,7 +493,7 @@ function updateEffects(dt) {
   }
   for (let i = effects.length - 1; i >= 0; i--) {
     if (effects[i].life <= 0) {
-      board.remove(effects[i].mesh);
+      world.remove(effects[i].mesh);
       if (!effects[i].shared && !effects[i].sprite) effects[i].mesh.geometry.dispose();
       effects[i].mesh.material.dispose();
       effects.splice(i, 1);
@@ -492,7 +508,7 @@ const player = {
   speed: CRUISE, vel: new THREE.Vector3(), hp: MAX_HP, invuln: 0, flash: 0, fireCd: 0, alive: true,
   yawRate: 0, pitchRate: 0,
 };
-board.add(player.obj);
+world.add(player.obj);
 // Engine trail: short fading line behind the ship.
 const TRAIL_N = 24;
 const trailArr = new Float32Array(TRAIL_N * 3);
@@ -507,7 +523,7 @@ for (let i = 0; i < TRAIL_N; i++) {
   trailCol.set([0.2 * k, 0.8 * k, 1.0 * k], i * 3);
 }
 trail.frustumCulled = false;
-board.add(trail);
+world.add(trail);
 let trailTimer = 0;
 function resetTrail() {
   for (let i = 0; i < TRAIL_N; i++) trailArr.set([player.obj.position.x, player.obj.position.y, player.obj.position.z], i * 3);
@@ -518,7 +534,7 @@ function resetPlayer() {
   // Start near the front-centre of the box, flying away from you.
   player.obj.position.set(0, 0, HB.z * 0.4);
   player.fwd.set(0, 0, -1);
-  player.bank = 0; player.yawRate = 0; player.pitchRate = 0; player.speed = CRUISE; player.hp = MAX_HP; player.invuln = 1.5; player.flash = 0;
+  player.bank = 0; player.yawRate = 0; player.pitchRate = 0; player.speed = CRUISE; player.hp = playerMax; player.invuln = 1.5; player.flash = 0;
   player.alive = true; player.obj.visible = true; trail.visible = settings.mode === 'fighter';
   quatFromDir(player.fwd, player.obj.quaternion);
   player.mq.copy(player.obj.quaternion);
@@ -529,18 +545,18 @@ function resetPlayer() {
 // 'fighter'  = you fly one ship.
 // 'squadron' = you command 4 bot fighters (the right controller sets their heading), in a bigger,
 //              zoomed-out battlefield with Ender's Game "stars" (big fixed obstacles) to use as cover.
-let gameMode = settings.mode;
+let gameMode = settings.mode === 'squadron' ? 'squadron' : 'fighter';   // the controls in use (Endless switches between them)
 
 // ---------------------------------------------------------------- "stars": big fixed obstacles (Squadron)
 // Ships can't pass through them and bullets are blocked, so both sides use them as cover.
 const obstacles = [];
 const obstacleGroup = new THREE.Group();
-board.add(obstacleGroup);
+world.add(obstacleGroup);
 const obstacleMat = new THREE.LineBasicMaterial({ color: 0x9fb8dd, transparent: true, opacity: 0 });
 // v12: stars get new random spots every round. They fade out when a round is cleared (and stop
 // counting as obstacles once gone), then fade back in at their new spots when the next round starts.
 let starsOn = true, starAlpha = 0, starTarget = 1;
-function starsActive() { return teamMode() && starsOn; }
+function starsActive() { return endless || (teamMode() && starsOn); }
 {
   // All spheres. Positions are FRACTIONS of the room's half-extents, so the stars spread out or
   // squeeze together with the room's shape (and glide with it when it changes between waves).
@@ -558,10 +574,12 @@ function starsActive() { return teamMode() && starsOn; }
   obstacleGroup.visible = false;
 }
 function layoutObstacles() {
+  if (endless) return;                              // Endless fills `obstacles` with the world's stars and rocks
   for (const o of obstacles) { o.r = o.R = o.r0; o.c.copy(o.n).multiply(HB); o.g.position.copy(o.c); }
 }
 OBST_READY = true;
 layoutObstacles();
+const BASE_OBSTACLES = obstacles.slice();          // the room's 8 stars (Endless swaps in its own list)
 // Where your side starts this round: stars are kept well clear of this spot.
 function starAvoidPoints() { return [new THREE.Vector3(0, 0, HB.z * 0.4)]; }
 // New random star positions for the current room shape: inside the walls, apart from each other,
@@ -591,7 +609,7 @@ function updateStars(dt) {
   starAlpha += clamp(starTarget - starAlpha, -dt * 1.6, dt * 1.1);
   if (starTarget === 0 && starAlpha <= 0.001) starsOn = false;   // faded out: no longer solid
   obstacleMat.opacity = 0.6 * starAlpha;
-  obstacleGroup.visible = teamMode() && starAlpha > 0.005;
+  obstacleGroup.visible = !endless && teamMode() && starAlpha > 0.005;
 }
 // Make sure no ship sits inside a star (after new star positions).
 function pushAllOutOfStars() {
@@ -680,7 +698,8 @@ function coverPoint(threat, near, out) {
   return clampIn(out);
 }
 function clampIn(p, m = 0.88) {
-  p.x = clamp(p.x, -HB.x * m, HB.x * m); p.y = clamp(p.y, -HB.y * m, HB.y * m); p.z = clamp(p.z, -HB.z * m, HB.z * m);
+  const c = ARENA_C;
+  p.x = clamp(p.x, c.x - AH.x * m, c.x + AH.x * m); p.y = clamp(p.y, c.y - AH.y * m, c.y + AH.y * m); p.z = clamp(p.z, c.z - AH.z * m, c.z + AH.z * m);
   return p;
 }
 function sideOf(fwd, out) {
@@ -784,14 +803,15 @@ function spawnGroup(role, n, wave) {
   const ref = player.obj.position;
   let best = null, bestD = -1;
   for (let k = 0; k < 8; k++) {
-    const p = new THREE.Vector3(rand(-0.7, 0.7), rand(-0.7, 0.7), rand(-0.7, 0.7)).multiply(HB);
+    const p = new THREE.Vector3(rand(-0.7, 0.7), rand(-0.7, 0.7), rand(-0.7, 0.7)).multiply(AH);
     const ax = ['x', 'y', 'z'][k % 3];
-    p[ax] = (Math.random() < 0.5 ? -1 : 1) * HB[ax] * 0.95;
+    p[ax] = (Math.random() < 0.5 ? -1 : 1) * AH[ax] * 0.95;
+    p.add(ARENA_C);
     if (obstInside(p, 0.4 * S)) continue;
     const d = p.distanceTo(ref) + rand(0, BOX_B * 0.6);
     if (d > bestD) { bestD = d; best = p; }
   }
-  if (!best) best = new THREE.Vector3(0, 0, -HB.z * 0.95);
+  if (!best) best = new THREE.Vector3(0, 0, -AH.z * 0.95).add(ARENA_C);
   if (role === 'bait') g.ambushPt = coverPoint(ref, best, new THREE.Vector3()) || best.clone().multiplyScalar(0.8);
   for (let i = 0; i < n; i++) {
     const pos = best.clone().add(_v1.randomDirection().multiplyScalar(0.4 * S * Math.sqrt(Math.max(1, n / 3))));
@@ -828,7 +848,7 @@ function spawnEnemy(role, wave, pos, group) {
   };
   quatFromDir(e.fwd, obj.quaternion);
   tintShip(obj, _c.setRGB(0, 0, 0)); // fades in
-  board.add(obj);
+  world.add(obj);
   enemies.push(e);
   return e;
 }
@@ -853,7 +873,7 @@ function updateGroups(dt, tg) {
   // Hunter-killers go for the most damaged ship you have.
   let weakest = null, wv = Infinity;
   for (const b of tg) {
-    const v = (b.hp || 1) / (b === player ? MAX_HP : BOT_HP);
+    const v = (b.hp || 1) / (b === player ? playerMax : botMax);
     if (v < wv) { wv = v; weakest = b; }
   }
   for (let i = groups.length - 1; i >= 0; i--) {
@@ -1118,7 +1138,7 @@ function updateEnemies(dt) {
     }
   }
   for (let i = enemies.length - 1; i >= 0; i--) {
-    if (enemies[i].hp <= 0) { board.remove(enemies[i].obj); enemies.splice(i, 1); }
+    if (enemies[i].hp <= 0) { world.remove(enemies[i].obj); enemies.splice(i, 1); }
   }
 }
 function damageEnemy(e, amount) {
@@ -1129,7 +1149,7 @@ function damageEnemy(e, amount) {
     const big = e.type === 'cruiser' || e.role === 'leader' || e.role === 'ace';
     explode(e.obj, e.color, _v1.copy(e.fwd).multiplyScalar(e.speed), big);
     sfx.boom(e.obj.position, big);
-    if (state === 'playing') { score += e.points * wave; kills++; killHeat++; }
+    if (state === 'playing') { score += e.points * wave; kills++; killHeat++; if (endless) E.onKill(e); }
     if (state !== 'lobby') {
       // Kill juice: a rumble pulse, a tiny freeze-frame and the room's frame lights up.
       haptic('right', 0.7, 70);
@@ -1219,7 +1239,7 @@ function makeSquad(name, color) {
   for (let i = 0; i < BOT_N; i++) {
     const obj = shrink(buildPlayerShip(sq.color.getHex()));
     obj.visible = false;
-    board.add(obj);
+    world.add(obj);
     sq.bots.push({ i, unit: sq, grp: sq, obj, fwd: new THREE.Vector3(0, 0, -1), bank: 0, turn: 3.4, speed: CRUISE, hp: BOT_HP, alive: false, flash: 0, invuln: 0, fireCd: rand(0, 0.3), target: null, aim: null, side: i % 2 ? 1 : -1, radius: 0 });
   }
   return sq;
@@ -1234,7 +1254,7 @@ const GA = makeGroup('A', 0x33ddff), GB = makeGroup('B', 0xffbb44);
 const cmdB = { obj: new THREE.Group(), fwd: new THREE.Vector3(0, 0, -1), mq: new THREE.Quaternion(), speed: CRUISE, bank: 0, turn: 2.8 };
 cmdB.obj.scale.setScalar(S);
 cmdB.obj.visible = false;
-board.add(cmdB.obj);
+world.add(cmdB.obj);
 
 // Everything on our side that is alive this frame (for targeting, friendly-fire and collision checks).
 let friends = [];
@@ -1372,7 +1392,7 @@ function assignTargets(sq, alive, foes, leash, dt) {
 }
 function resetSquad(sq, on) {
   sq.bots.forEach((b, k) => {
-    b.alive = on; b.hp = BOT_HP; b.flash = 0; b.invuln = 0; b.speed = CRUISE; b.bank = 0;
+    b.alive = on; b.hp = botMax; b.flash = 0; b.invuln = 0; b.speed = CRUISE; b.bank = 0;
     b.obj.visible = on;
     placeBot(sq, b, k, BOT_N);
   });
@@ -1480,7 +1500,7 @@ function updateSquad(sq, dt) {
       if (_bS.length() < BOT_RANGE && b.fwd.angleTo(_bS) < 0.22 && !friendsInLine(b, _bT) && !obstBlocks(p, b.target.obj.position)) {
         playerBullets.spawn(_v3.copy(p).addScaledVector(b.fwd, 0.2 * S), _v1.copy(_bS).normalize().multiplyScalar(7 * S), 1.2, 'bot');
         sfx.laser(p, 0.55);
-        b.fireCd = 0.3;
+        b.fireCd = 0.3 * fireMul;
       } else b.fireCd = 0.05;
     }
     b.invuln = Math.max(0, b.invuln - dt);
@@ -1566,7 +1586,7 @@ function gameOver(title) {
   state = 'gameover';
   stateTimer = 0;
   saveBest();
-  recordGame(gameMode, wave, score, kills);
+  if (endless) E.record(); else recordGame(gameMode, wave, score, kills);
   showMessage(title, endLine(), 9999);
   log(`gameover mode=${gameMode} round=${wave} score=${score} kills=${kills}`);
 }
@@ -1633,11 +1653,11 @@ try { best = Number(localStorage.getItem('battleRoomBest')) || 0; } catch (e) { 
 const bestRound = { get fighter() { return stats.modes.fighter.best; }, get squadron() { return stats.modes.squadron.best; } };
 function saveBest() {
   best = Math.max(best, score);
-  stats.modes[gameMode].best = Math.max(stats.modes[gameMode].best, wave);
+  if (endless) E.saveBest(); else stats.modes[gameMode].best = Math.max(stats.modes[gameMode].best, wave);
   try { localStorage.setItem('battleRoomBest', String(best)); } catch (e) { /* ignore */ }
   saveStats();
 }
-function endLine() { return `Reached round ${wave}  (best ${bestRound[gameMode] || 0})\n${restartHint()}`; }
+function endLine() { return endless ? `${E.endLine()}\n${restartHint()}` : `Reached round ${wave}  (best ${bestRound[gameMode] || 0})\n${restartHint()}`; }
 
 function startWave(n) {
   wave = n;
@@ -1667,7 +1687,7 @@ function roster(n, sq) {
 // v12: every round is a fresh battle. Your side comes back at full strength in its start positions,
 // the enemy spawns fresh, and the stars get new random spots for the (reshaped) room.
 function startRound(n) {
-  for (const e of enemies) board.remove(e.obj);
+  for (const e of enemies) world.remove(e.obj);
   enemies.length = 0;
   groups.length = 0;
   playerBullets.clear();
@@ -1679,9 +1699,11 @@ function startRound(n) {
 }
 function startGame(round = START_WAVE) {
   sfx.init();
+  if (settings.mode === 'endless') { startEndless(); return; }
+  exitEndless();
   tutorial.stop();
   tutFreeze = false;
-  for (const e of enemies) board.remove(e.obj);
+  for (const e of enemies) world.remove(e.obj);
   enemies.length = 0;
   groups.length = 0;
   playerBullets.clear();
@@ -1702,7 +1724,7 @@ function restartHint() {
 }
 // Leave a running game for the lobby (Settings > Leave game); it still counts as a game played.
 function leaveGame() {
-  if (state === 'playing' || state === 'gameover') { if (state === 'playing') { saveBest(); recordGame(gameMode, wave, score, kills); } enterLobby(); }
+  if (state === 'playing' || state === 'gameover') { if (state === 'playing') { saveBest(); if (endless) E.record(); else recordGame(gameMode, wave, score, kills); } enterLobby(); }
   else if (state === 'tutorial') finishTutorial();
 }
 
@@ -1716,7 +1738,7 @@ function leaveGame() {
 let lobbyT = 0, lobbySpawnT = 0, lobbyReviveT = 0, screenShown = '';
 let lobbySim = 'squadron', lobbyWave = 0, lobbyGap = false;
 let ringUI = null;                                    // the holo ring (created once the panels exist)
-const MODE_INFO = { fighter: 'Fly one ship yourself', squadron: 'Lead 4 bot fighters - or split them into 2 pairs' };
+const MODE_INFO = { fighter: 'Fly one ship yourself', squadron: 'Lead 4 bot fighters - or split them into 2 pairs', endless: 'Fly free, raid outposts, grow a squadron' };
 function drawLobby() {
   screenShown = fmtTime(stats.screen);
   if (ringUI) ringUI.drawLobby();
@@ -1731,18 +1753,19 @@ function lobbyClick(id) {
   log('lobby click ' + id);
 }
 function clearBattle() {
-  for (const e of enemies) board.remove(e.obj);
+  for (const e of enemies) world.remove(e.obj);
   enemies.length = 0;
   groups.length = 0;
   playerBullets.clear();
   enemyBullets.clear();
 }
 function enterLobby() {
+  exitEndless();
   state = 'lobby';
   stateTimer = 0;
   tutorial.stop();
   tutFreeze = false;
-  setupLobbySim(settings.mode, false);
+  setupLobbySim(simFor(settings.mode), false);
   simFade.v = 1; simFade.dir = 0;
   hideMessage();
   drawLobby();
@@ -1750,6 +1773,8 @@ function enterLobby() {
 }
 // Set up the lobby backdrop for a mode. `smooth`: the room glides from its current shape to the new one.
 const _lobbyShape = new THREE.Vector3(), _lobbyDir = new THREE.Vector3();
+// Endless has no room, so its lobby backdrop is the Fighter one (a lone fighter against red raiders).
+function simFor(mode) { return mode === 'squadron' ? 'squadron' : 'fighter'; }
 function setupLobbySim(mode, smooth) {
   const f = _lobbyShape.copy(HB).divideScalar(BOX_B);   // current shape (as factors of the room size)
   lobbySim = mode;
@@ -1775,10 +1800,11 @@ const simFade = { v: 1, dir: 0 };
 const SIM_FADE_HALF = 0.32;
 function updateLobbyFade(dt) {
   if (state !== 'lobby') { if (simFade.v < 1 || simFade.dir) { simFade.v = 1; simFade.dir = 0; setSimOpacity(1); } return; }
-  if (settings.mode !== lobbySim && simFade.dir >= 0) simFade.dir = -1;
+  const want = simFor(settings.mode);
+  if (want !== lobbySim && simFade.dir >= 0) simFade.dir = -1;
   if (!simFade.dir) return;
   simFade.v = clamp(simFade.v + (simFade.dir * dt) / SIM_FADE_HALF, 0, 1);
-  if (simFade.dir < 0 && simFade.v <= 0) { setupLobbySim(settings.mode, true); simFade.dir = 1; }
+  if (simFade.dir < 0 && simFade.v <= 0) { setupLobbySim(want, true); simFade.dir = 1; }
   else if (simFade.dir > 0 && simFade.v >= 1) simFade.dir = 0;
   setSimOpacity(simFade.v);
 }
@@ -1878,6 +1904,7 @@ const TUT_KEY = 'battleRoomTutorialDone';
 let tutFreeze = false, tutStageName = '', shotsFired = 0;
 function tutorialDone() { try { return localStorage.getItem(TUT_KEY) === '1'; } catch (e) { return false; } }
 function startTutorial() {
+  exitEndless();
   state = 'tutorial';
   stateTimer = 0;
   hideMessage();
@@ -1987,7 +2014,7 @@ function drawHud() {
       hctx.strokeRect(x, 30, 64, 42);
       if (b.alive) {
         hctx.fillStyle = b.hp <= 1 ? '#ff5566' : col;
-        hctx.fillRect(x + 4, 34, (56 * b.hp) / BOT_HP, 34);
+        hctx.fillRect(x + 4, 34, (56 * b.hp) / botMax, 34);
       } else {
         hctx.beginPath(); hctx.moveTo(x + 6, 36); hctx.lineTo(x + 58, 66); hctx.moveTo(x + 58, 36); hctx.lineTo(x + 6, 66); hctx.stroke();
       }
@@ -2000,12 +2027,13 @@ function drawHud() {
     hctx.fillText(line, 20, 126, W - 40);
   } else {
     hctx.fillText('HULL', 20, 64);
-    for (let i = 0; i < MAX_HP; i++) {
+    const step = Math.min(72, 400 / playerMax), bw = step - 14;
+    for (let i = 0; i < playerMax; i++) {
       hctx.strokeStyle = '#7fe9ff';
-      hctx.strokeRect(130 + i * 72, 30, 58, 42);
+      hctx.strokeRect(130 + i * step, 30, bw, 42);
       if (i < player.hp) {
         hctx.fillStyle = player.hp <= 2 ? '#ff5566' : '#33ddff';
-        hctx.fillRect(134 + i * 72, 34, 50, 34);
+        hctx.fillRect(134 + i * step, 34, bw - 8, 34);
       }
     }
     hctx.font = '28px monospace';
@@ -2105,12 +2133,12 @@ shipArrow.visible = false;
 camera.add(shipArrow);
 function updateShipArrow(xr) {
   if (!player.alive || state === 'lobby' || tutFreeze) { shipArrow.visible = false; return; }
-  _v1.copy(player.obj.position);
+  player.obj.getWorldPosition(_v1);
   camera.worldToLocal(_v1);
   let visibleOnScreen;
   if (xr) visibleOnScreen = _v1.angleTo(_v2.set(0, 0, -1)) < 0.6;
   else {
-    _v2.copy(player.obj.position).project(camera);
+    player.obj.getWorldPosition(_v2).project(camera);
     visibleOnScreen = _v2.z < 1 && Math.abs(_v2.x) < 0.95 && Math.abs(_v2.y) < 0.95;
   }
   if (visibleOnScreen) { shipArrow.visible = false; return; }
@@ -2223,7 +2251,7 @@ function applySettings(changed) {
   player.turn = cmdB.turn = TURN_RATE;
   sfx.setVolumes(Number(settings.musicVol) / 10, Number(settings.sfxVol) / 10);
   if (changed === 'boxSize') { box.size = BOX_SIZES[settings.boxSize]; applyBoard(); saveBox(); }
-  if (changed === 'mode' && settings.mode !== gameMode && (state === 'playing' || state === 'gameover')) startGame();
+  if (changed === 'mode' && settings.mode !== runMode() && (state === 'playing' || state === 'gameover')) startGame();
   if (changed === 'mode' && state === 'lobby') drawLobby();
 }
 
@@ -2444,7 +2472,7 @@ let prevA = false, prevLStick = false, prevXY = false, prevMenuBtn = false, prev
 let xDown = false, xWithY = false;                 // X tap (released without Y) = split / rejoin
 // Group B's orders (left controller, while the squadron is split).
 const inputB = { fire: false, boost: false, brake: false, hasSteer: false, dir: new THREE.Vector3(0, 0, -1) };
-const MODES = ['fighter', 'squadron'];
+const MODES = ['fighter', 'squadron', 'endless'];
 function nextMode() { return MODES[(MODES.indexOf(settings.mode) + 1) % MODES.length]; }
 
 function gatherInputVR(dt) {
@@ -2572,7 +2600,7 @@ function updateRays(dt) {
 }
 const uiHit = { left: null, right: null };
 const uiHeld = { left: false, right: false };          // a trigger press that clicked a button (not a shot)
-function activePanels() { return [...ringUI.lobbyPanels(), tutorial.card, tutorial.big].filter((p) => p.visible); }
+function activePanels() { return [...ringUI.lobbyPanels(), tutorial.card, tutorial.big, ...(E ? E.panels() : [])].filter((p) => p.visible); }
 function uiRay(hand, ctrl, trig, edge) {
   const line = hand === 'right' ? pointer : lPointer;
   ctrl.getWorldPosition(_v3);
@@ -2584,7 +2612,7 @@ function uiRay(hand, ctrl, trig, edge) {
   if (best) rayOnUi(hand, _v3, _v2, best.dist, bp.mesh);
   for (const P of activePanels()) {
     const hov = (uiHit.right && uiHit.right.panel === P && uiHit.right.id) || (uiHit.left && uiHit.left.panel === P && uiHit.left.id) || null;
-    if (P.hover !== hov) { P.hover = hov; if (P.isLobby) drawLobby(); else tutorial.redraw(); }
+    if (P.hover !== hov) { P.hover = hov; if (P.isLobby) drawLobby(); else if (P.redraw) P.redraw(); else tutorial.redraw(); }
   }
   // The tutorial card only takes over the controller while you point at one of its buttons, so it
   // never blocks shooting, selecting or ordering at ships seen past it.
@@ -2645,7 +2673,68 @@ ringUI = createRingUI({
   placeSide: (mesh, side, w) => placeSide(mesh, side, w), click: () => sfx.click(),
   boxDims: () => { const sc = board.scale.x; return { x: board.position.x, y: board.position.y, z: board.position.z, hx: HB.x * sc, hy: HB.y * sc, hz: HB.z * sc, cube: BOX_B * sc }; },
   best: () => Math.max(stats.bestScore, best), screen: () => fmtTime(stats.screen),
-  game: () => ({ state, score, wave, hostiles: enemies.length, msgOn: msgTime > 0, msgTitle, msgSub, intermission: intermission > 0 }),
+  game: () => ({ state, score, wave, hostiles: enemies.length, msgOn: msgTime > 0, msgTitle, msgSub, intermission: intermission > 0, endless: endless ? E.info() : null }),
+});
+
+// ---------------------------------------------------------------- Endless (world, outposts, docks: endless.js)
+function runMode() { return endless ? 'endless' : gameMode; }
+// Endless controls: one fighter (Fighter controls) until you have wingmen, then Squadron controls.
+function setEndlessControls(m) {
+  gameMode = m;
+  const sq = m === 'squadron';
+  player.obj.userData.lines.visible = !sq;
+  player.obj.children[1].visible = !sq;
+  trail.visible = !sq && player.alive;
+  setSplit(false, true);
+  refreshFriends();
+}
+function startEndless() {
+  tutorial.stop();
+  tutFreeze = false;
+  clearBattle();
+  score = 0; kills = 0; killHeat = 0;
+  formation = 'line';
+  aces.pending = null;
+  endless = true;
+  gameMode = 'fighter';
+  setBoxB(MODE_BOX.endless);                         // the view window: same size as the room, no walls
+  boxFrame.visible = false;
+  obstacles.length = 0;
+  playerMax = MAX_HP; botMax = BOT_HP; fireMul = 1;
+  resetBots();
+  resetPlayer();
+  player.obj.position.set(0, 0, -2.4);               // just off the home star, flying out
+  resetTrail();
+  setEndlessControls('fighter');
+  state = 'playing';
+  stateTimer = 0;
+  intermission = 0;
+  wave = 1;
+  E.start();
+  showMessage('ENDLESS', 'Fly out and raid red outposts for upgrades. Green rings: docks', 4);
+  log('game start mode=endless');
+}
+function exitEndless() {
+  if (!endless) return;
+  E.stop();
+  endless = false;
+  AH = HB; ARENA_C.set(0, 0, 0); VC.set(0, 0, 0);
+  obstacles.length = 0;
+  obstacles.push(...BASE_OBSTACLES);
+  boxFrame.visible = true;
+  playerMax = MAX_HP; botMax = BOT_HP; fireMul = 1;
+  world.position.set(0, 0, 0);
+}
+E = createEndless({
+  world, board, rig, VC, obstacles, bots, player, enemies, stats, fmtNum, S, log,
+  BOX_B: () => BOX_B, gameMode: () => gameMode, playerMax: () => playerMax, botMax: () => botMax,
+  score: () => score, kills: () => kills, addScore: (n) => { score += n; },
+  setControls: setEndlessControls, syncSquad: () => syncSquadToPlayer(), placeBot: (b, k, m) => placeBot(SQUAD, b, k, m), refreshFriends,
+  setUpgrades: (hull, fire) => { playerMax = MAX_HP + 2 * hull; botMax = BOT_HP + hull; fireMul = fire; },
+  setArena: (c, half) => { ARENA_C.copy(c); AH = half; }, setAI, setWave: (n) => { wave = n; }, roster, spawnGroup,
+  clearEnemies: () => { clearBattle(); }, showMessage, damagePlayer, damageBot, damageEnemy, obstInside,
+  playerBullets: () => playerBullets.list, enemyBullets: () => enemyBullets.list,
+  recordEndless, chime: () => sfx.chime(true), click: () => sfx.click(), faceSeat, placeSide: (m, side, w) => placeSide(m, side, w),
 });
 function placeSide(mesh, side, widthM) {
   const sc = board.scale.x;
@@ -2687,6 +2776,7 @@ function placePanels() {
     placeTutBelow(tutorial.big.mesh, (tutorial.big.widthM * tutorial.big.H) / tutorial.big.W);
     placeSide(menuPanel, -1, MENU_M);
     ringUI.place();                                  // the ring, and the stats panel on the right
+    E.place();                                       // the Endless dock / upgrade panel (right)
     menuHome.copy(menuPanel.position);
     panelMoves++;
   }
@@ -2825,6 +2915,7 @@ function updatePlayer(dt) {
   player.vel.copy(player.fwd).multiplyScalar(player.speed);
   p.addScaledVector(player.vel, dt);
   if (wrapBox(p)) { resetTrail(); blink(p, PLAYER_COLOR); }
+  if (endless) obstPushOut(p, 0.12 * S);            // stars and rocks are solid
 
   // Shooting, with gentle aim assist toward an enemy inside a narrow cone.
   player.fireCd -= dt;
@@ -2833,7 +2924,7 @@ function updatePlayer(dt) {
     fireShot(p);
     sfx.laser(p);
     haptic('right', 0.25, 20);
-    player.fireCd = 0.14;
+    player.fireCd = 0.14 * fireMul;
   }
   playerFx(dt);
 }
@@ -2942,7 +3033,7 @@ function simStep(dt) {
     updateStars(dt);
     updateLobby(dt);
     if (DEMO && !BENCH && stateTimer > 2) startGame();
-  } else if (!menuOpen) {
+  } else if (!menuOpen && !(endless && E.paused())) {
     updateMorph(dt);
     updateStars(dt);
     updatePlayer(dt);
@@ -2953,11 +3044,12 @@ function simStep(dt) {
     playerBullets.update(dt);
     enemyBullets.update(dt);
     updateCollisions();
+    if (endless) E.update(dt);
     if (state === 'tutorial') tutorial.update(dt);
     else if (state === 'playing') {
-      addPlayTime(gameMode, dt);
+      addPlayTime(endless ? 'endless' : gameMode, dt);
       if ((statsSaveT += dt) > 15) { statsSaveT = 0; saveStats(); }
-      if (enemies.length === 0) {
+      if (enemies.length === 0 && !endless) {
         if (intermission <= 0) {
           // Round cleared: bonus, the stars fade out and the room reshapes; then a fresh battle starts.
           intermission = 3.2;
@@ -3024,6 +3116,7 @@ function loop() {
   if (hitStopT > 0) hitStopT -= dt;                 // freeze-frame: the battle pauses for a moment
   else for (let k = 0; k < SIM; k++) simStep(dt);
   updateMusic();
+  if (endless) world.position.set(-VC.x, -VC.y, -VC.z); else world.position.set(0, 0, 0);
   playerBullets.sync();
   enemyBullets.sync();
   updateSeat();
@@ -3088,7 +3181,7 @@ window.__game = {
   get simTime() { return simTime; }, menuLayout, get kills() { return kills; },
   get tutStage() { return tutStageName; }, get tutFreeze() { return tutFreeze; }, get shots() { return shotsFired; },
   tutorialDone, spawnTut, setTutStage: tutStage, applyBoard, drawMenu, touch, get hudVisible() { return hudPanel.visible; }, get menuCanvas() { return menuCanvas; }, MENU_TOP, MENU_ROW, MENU_ROWS,
-  startGameAt(mode, round) { settings.mode = mode; startGame(round); }, damagePlayer,
+  startGameAt(mode, round) { settings.mode = mode; startGame(round); }, damagePlayer, world, VC, get endless() { return endless; }, get E() { return E; }, get playerMax() { return playerMax; }, get botMax() { return botMax; }, get fireMul() { return fireMul; }, damageBot, setControls: (m) => setEndlessControls(m),
   get enemyBullets() { return enemyBullets.list.length; }, get bullets() { return playerBullets.list.length; }, toggleSettings, get menuOpen() { return menuOpen; }, get menuHover() { return menuHover; }, menuPanel, seat, rayFx, get panelMoves() { return panelMoves; }, menuAnim,
   // v18
   get split() { return split; }, setSplit, get formation() { return formation; }, cycleFormation, cmdB, GA, GB, SQUAD, inputB,
