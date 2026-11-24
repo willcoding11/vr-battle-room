@@ -2,12 +2,12 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=20';
-import { createTouchController } from './controller.js?v=20';
-import { Sfx } from './audio.js?v=20';
-import { Panel, faceYaw, UI } from './ui.js?v=20';
-import { stats, saveStats, recordGame, fmtTime } from './stats.js?v=20';
-import { createTutorial } from './tutorial.js?v=20';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=21';
+import { createTouchController } from './controller.js?v=21';
+import { Sfx } from './audio.js?v=21';
+import { Panel, faceYaw, UI } from './ui.js?v=21';
+import { stats, saveStats, recordGame, fmtTime } from './stats.js?v=21';
+import { createTutorial } from './tutorial.js?v=21';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
@@ -1735,7 +1735,7 @@ lobbyPanel.onClick = (id) => {
   if (id.startsWith('mode:')) { setSetting('mode', id.slice(5)); sfx.click(); }
   else if (id === 'start') startGame();
   else if (id === 'tutorial') startTutorial();
-  else if (id === 'settings') toggleSettings(true);
+  else if (id === 'settings') toggleSettings();
   if (!id.startsWith('mode:')) sfx.click();
   log('lobby click ' + id);
 };
@@ -2020,6 +2020,25 @@ reticle.renderOrder = 5;
 scene.add(reticle);
 const pointer = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]),
   new THREE.LineBasicMaterial({ color: 0x33ddff, transparent: true, opacity: 0.25, fog: false }));
+// UI rays: subtle lines; over a panel a slightly thicker, brighter beam fades in (~0.15 s) with a small ring
+// cursor where the ray meets the panel.
+const RAY_BASE = { right: 0.25, left: 0.35 }, RAY_FADE = 0.15;
+const BEAM_GEO = new THREE.BoxGeometry(0.0032, 0.0032, 1).translate(0, 0, -0.5);
+const CURSOR_GEO = new THREE.RingGeometry(0.0055, 0.0085, 32);
+const CURSOR_DOT = new THREE.CircleGeometry(0.0018, 12);
+function makeRayFx(line, color) {
+  const beam = new THREE.Mesh(BEAM_GEO, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+  beam.visible = false;
+  line.add(beam);                                  // scales with the line's length
+  const cursor = new THREE.Group();
+  const cm = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthTest: false, depthWrite: false, fog: false });
+  const ring = new THREE.Mesh(CURSOR_GEO, cm), dot = new THREE.Mesh(CURSOR_DOT, cm);
+  ring.renderOrder = dot.renderOrder = 40;
+  cursor.add(ring, dot);
+  cursor.visible = false;
+  rig.add(cursor);
+  return { line, beam, cursor, cm, glow: 0, hit: false, point: new THREE.Vector3(), quat: new THREE.Quaternion(), color: new THREE.Color(color) };
+}
 
 // ---------------------------------------------------------------- steering
 // Mirror steering only. (The hidden test autopilot, ?demo, flies by pointing the ship at a target.)
@@ -2129,7 +2148,8 @@ for (let i = 0; i < 2; i++) {
     c.add(touch[hand].root);
     if (hand === 'left') c.add(hudPanel, lPointer);
     else c.add(pointer);
-    log(`controller connected: ${hand} gamepad=${!!ev.data.gamepad}`);
+    const gpd = ev.data.gamepad;
+    log(`controller connected: ${hand} gamepad=${!!gpd} buttons=${gpd ? gpd.buttons.length : 0} profiles=${(ev.data.profiles || []).join(',')}`);
   });
   c.addEventListener('disconnected', () => {
     const hand = c.userData.hand;
@@ -2151,6 +2171,9 @@ function haptic(hand, intensity, ms) {
 renderer.xr.addEventListener('sessionstart', () => {
   document.body.classList.add('in-vr');
   rig.position.set(0, 0, 0);
+  seatPending = true; seatWait = 10;
+  const rs = renderer.xr.getReferenceSpace && renderer.xr.getReferenceSpace();
+  if (rs && rs.addEventListener) rs.addEventListener('reset', () => { seatPending = true; seatWait = 3; log('reference space reset'); });
   if (state !== 'playing') { if (tutorialDone()) enterLobby(); else startTutorial(); }
   log('xr sessionstart');
 });
@@ -2254,11 +2277,21 @@ function cycleSetting(i, px = null) {
   sfx.click();
 }
 function toggleSettings(open = !menuOpen) {
+  if (open === menuOpen) return;
   menuOpen = open;
   menuHover = -1;
   if (renderer.xr.isPresenting) {
-    menuPanel.visible = open;
-    if (open) { placeSide(menuPanel, -1, MENU_M); pointer.visible = true; }   // left of the room, so it never covers the battle
+    if (open) {
+      // Left of the room, so it never covers the battle. From the lobby it slides over from the lobby panel.
+      panelKey = ''; placePanels();
+      menuAnim.slide = state === 'lobby' && lobbyPanel.visible;
+      menuFrom.copy(lobbyPanel.mesh.position);
+      menuAnim.t = 0; menuAnim.dur = menuAnim.slide ? 0.3 : 0.15; menuAnim.closing = false;
+      menuPanel.material.opacity = 0;
+      menuPanel.position.copy(menuAnim.slide ? menuFrom : menuHome);
+      menuPanel.visible = true;
+      pointer.visible = true;
+    } else if (menuPanel.visible) { menuAnim.t = 0; menuAnim.dur = 0.15; menuAnim.closing = true; }
   }
   document.getElementById('settings').classList.toggle('hidden', !(open && !renderer.xr.isPresenting));
   drawMenu();
@@ -2268,16 +2301,19 @@ function updateMenuPointer(trigEdge) {
   const prev = menuHover;
   menuHover = -1;
   raycaster.set(input.origin, input.dir);
-  const hit = raycaster.intersectObject(menuPanel, false)[0];
+  const hit = menuPanel.visible ? raycaster.intersectObject(menuPanel, false)[0] : null;
   let px = null;
   if (hit && hit.uv) {
     const row = Math.floor(((1 - hit.uv.y) * menuCanvas.height - MENU_TOP) / MENU_ROW);
     if (row >= 0 && row < MENU_ROWS) menuHover = row;
     px = hit.uv.x * MENU_W;
     pointer.scale.set(1, 1, hit.distance);
+    pointer.visible = true;
+    rayOnUi('right', input.origin, input.dir, hit.distance, menuPanel);
   } else pointer.scale.set(1, 1, 0.5);
   if (trigEdge && menuHover >= 0) cycleSetting(menuHover, px);
   if (prev !== menuHover) drawMenu();
+  return !!(hit && hit.uv);
 }
 // Desktop overlay: one <select> per setting.
 function buildDesktopSettings() {
@@ -2371,7 +2407,7 @@ const input = {
   hasSteer: false, origin: new THREE.Vector3(), dir: new THREE.Vector3(),
   fire: false, boost: false, brake: false, move: new THREE.Vector3(),
 };
-let prevA = false, prevLStick = false, prevXY = false, prevTrigMenu = false, prevLTrig = false;
+let prevA = false, prevLStick = false, prevXY = false, prevMenuBtn = false, prevTrigMenu = false, prevLTrig = false;
 let xDown = false, xWithY = false;                 // X tap (released without Y) = split / rejoin
 // Group B's orders (left controller, while the squadron is split).
 const inputB = { fire: false, boost: false, brake: false, hasSteer: false, dir: new THREE.Vector3(0, 0, -1) };
@@ -2405,8 +2441,9 @@ function gatherInputVR(dt) {
     setMirrorTarget(_q);                      // absolute: no re-centre, the stick click does nothing
     const trigEdge = trig && !prevTrigMenu;
     prevTrigMenu = trig;
-    if (menuOpen) { input.fire = false; updateMenuPointer(trigEdge); }
+    if (menuOpen && updateMenuPointer(trigEdge)) input.fire = false;
     else if (uiRay('right', R, trig, trigEdge)) input.fire = false;
+    if (menuOpen) input.fire = false;
     boxGrab('right', R, btn(1), sy, dt);
     if (state === 'lobby' || tutFreeze) input.boost = false;
   }
@@ -2420,6 +2457,9 @@ function gatherInputVR(dt) {
     const xy = bx && by;
     if (xy && !prevXY) toggleSettings();
     prevXY = xy;
+    const menuBtn = gp.buttons.length > 7 && btn(7);       // a 'menu' button at index 7, where a browser exposes one
+    if (menuBtn && !prevMenuBtn) toggleSettings();
+    prevMenuBtn = menuBtn;
     // X alone (pressed and released without Y) = split / rejoin the squadron.
     if (bx && !xDown) { xDown = true; xWithY = by || menuOpen; }
     if (xDown && (by || menuOpen)) xWithY = true;
@@ -2428,11 +2468,11 @@ function gatherInputVR(dt) {
       if (!xWithY && !by && gameMode === 'squadron' && live) setSplit(!split);
     }
     const lt = btn(0);
-    const onUi = !menuOpen && uiRay('left', L, lt, lt && !prevLTrig);
+    const onUi = uiRay('left', L, lt, lt && !prevLTrig);
     boxGrab('left', L, btn(1), sy, dt);
     if (onUi || state === 'lobby') { prevLStick = btn(3); prevLTrig = lt; return; }
     // Stick click: put the box back in its default spot.
-    if (btn(3) && !prevLStick && !tutFreeze && !menuOpen) { resetBox(); showMessage('BOX RESET', 'Back in front of you', 1.0); }
+    if (btn(3) && !prevLStick && !tutFreeze) { resetBox(); showMessage('BOX RESET', 'Back in front of you', 1.0); }
     if (split && gameMode === 'squadron') {
       // SPLIT: the left hand commands the gold pair: its own mirror steering, trigger = engage, grip / stick = boost.
       L.getWorldQuaternion(_q);
@@ -2459,6 +2499,32 @@ function gatherInputVR(dt) {
 const lPointer = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]),
   new THREE.LineBasicMaterial({ color: 0xffcc66, transparent: true, opacity: 0.35, fog: false }));
 lPointer.visible = false;
+const rayFx = { right: makeRayFx(pointer, 0x66eeff), left: makeRayFx(lPointer, 0xffd480) };
+// Called wherever a ray meets a panel this frame: where, and the panel's orientation (for the cursor).
+function rayOnUi(hand, origin, dir, dist, mesh) {
+  const f = rayFx[hand];
+  f.hit = true;
+  f.point.copy(origin).addScaledVector(dir, dist - 0.002);
+  mesh.getWorldQuaternion(f.quat);
+}
+function updateRays(dt) {
+  for (const hand of ['right', 'left']) {
+    const f = rayFx[hand], k = dt / RAY_FADE;
+    f.glow = f.hit ? Math.min(1, f.glow + k) : Math.max(0, f.glow - k);
+    const g = f.glow * f.glow * (3 - 2 * f.glow);          // smoothstep: soft in and out
+    if (g > 0 && hands[hand]) f.line.visible = true;
+    f.line.material.opacity = RAY_BASE[hand] + 0.4 * g;
+    f.beam.visible = g > 0.01;
+    f.beam.material.opacity = 0.5 * g;
+    f.cursor.visible = g > 0.01 && f.line.visible && !!hands[hand];
+    if (f.cursor.visible) {
+      if (f.hit) { f.cursor.position.copy(f.point); f.cursor.quaternion.copy(f.quat); }
+      f.cm.opacity = 0.9 * g;
+      f.cursor.scale.setScalar(0.85 + 0.15 * g);
+    }
+    f.hit = false;                                         // set again by next frame's ray tests
+  }
+}
 const uiHit = { left: null, right: null };
 const uiHeld = { left: false, right: false };          // a trigger press that clicked a button (not a shot)
 function activePanels() { return [lobbyPanel, tutorial.card, tutorial.big].filter((p) => p.visible); }
@@ -2470,6 +2536,7 @@ function uiRay(hand, ctrl, trig, edge) {
   let best = null, bp = null;
   for (const P of activePanels()) { const h = P.pick(raycaster); if (h && (!best || h.dist < best.dist)) { best = h; bp = P; } }
   uiHit[hand] = best ? { panel: bp, id: best.id } : null;
+  if (best) rayOnUi(hand, _v3, _v2, best.dist, bp.mesh);
   for (const P of activePanels()) {
     const hov = (uiHit.right && uiHit.right.panel === P && uiHit.right.id) || (uiHit.left && uiHit.left.panel === P && uiHit.left.id) || null;
     if (P.hover !== hov) { P.hover = hov; if (P === lobbyPanel) drawLobby(); else tutorial.redraw(); }
@@ -2488,7 +2555,7 @@ function uiRay(hand, ctrl, trig, edge) {
 // Lobby and the first tutorial step: hold a grip to move the room; push that hand's stick to resize it.
 const grab = { hand: null, start: new THREE.Vector3(), x: 0, y: 0, z: 0, moved: 0 };
 function boxGrab(hand, ctrl, grip, sy, dt) {
-  const allowed = (state === 'lobby' || tutFreeze) && !menuOpen;
+  const allowed = state === 'lobby' || tutFreeze || menuOpen;
   if (!allowed || !grip) { if (grab.hand === hand) { grab.hand = null; saveBox(); } return; }
   ctrl.getWorldPosition(_v3);
   if (grab.hand === null) { grab.hand = hand; grab.start.copy(_v3); grab.x = box.x; grab.y = box.y; grab.z = box.z; }
@@ -2498,16 +2565,30 @@ function boxGrab(hand, ctrl, grip, sy, dt) {
   grab.moved += _v3.distanceTo(grab.start) * dt;
   applyBoard();
 }
-// Panels sit beside the room (and follow it when you move it), turned to face you.
+// Panels sit beside the room (and are re-placed when you move or resize it). They are turned (about the
+// vertical axis only) toward a fixed SEAT point - where your head was when you entered VR - and never
+// follow your head after that. The seat is captured again only if you re-centre the view (Meta button).
+const seat = new THREE.Vector3(0, HEAD_H, 0);
+let seatPending = true, seatWait = 0;
+function updateSeat() {
+  if (!renderer.xr.isPresenting) { if (seatPending) { camera.getWorldPosition(seat); seatPending = false; } return; }
+  if (!seatPending) return;
+  if (--seatWait > 0) return;                          // let a few XR frames pass: the head pose is real by then
+  camera.getWorldPosition(_v1);
+  if (_v1.y < 0.2) return;                             // no head pose yet
+  rig.worldToLocal(seat.copy(_v1));
+  seatPending = false;
+  panelKey = '';
+  log(`seat ${seat.x.toFixed(2)},${seat.y.toFixed(2)},${seat.z.toFixed(2)}`);
+}
 function placeSide(mesh, side, widthM) {
   const sc = board.scale.x;
   mesh.position.set(board.position.x + side * (HB.x * sc + 0.07 + widthM / 2), board.position.y + 0.03, board.position.z + HB.z * sc * 0.55);
-  camera.getWorldPosition(_v1);
-  faceYaw(mesh, _v1);
+  faceYaw(mesh, seat);
 }
 function placeTutCard(mesh, widthM) {
   const sc = board.scale.x;
-  camera.getWorldPosition(_v1);
+  _v1.copy(seat);
   const x = board.position.x + HB.x * sc + 0.04 + widthM / 2;
   const near = board.position.z + HB.z * sc, far = board.position.z - HB.z * sc;
   const z = clamp(_v1.z - Math.max(0.2, x - _v1.x) / Math.tan(0.56), far, near);
@@ -2518,7 +2599,7 @@ function placeTutCard(mesh, widthM) {
 function placeTutBelow(mesh, heightM) {
   const sc = board.scale.x;
   const near = board.position.z + HB.z * sc;
-  camera.getWorldPosition(_v1);
+  _v1.copy(seat);
   const z = near - 0.5 * 2 * HB.z * sc;
   const k = clamp(Math.hypot(_v1.z - z, _v1.y - (board.position.y - HB.y * sc)) / 1.0, 0.8, 2.2);
   mesh.scale.setScalar(k);
@@ -2527,19 +2608,49 @@ function placeTutBelow(mesh, heightM) {
   // Tilt it back so it faces your eyes.
   mesh.rotateX(-Math.atan2(_v1.y - mesh.position.y, Math.hypot(_v1.x - mesh.position.x, _v1.z - mesh.position.z)));
 }
+// Re-placed only when the room (position, size, shape) or the seat changes - not every frame.
+let panelKey = '';
+const menuHome = new THREE.Vector3(), menuFrom = new THREE.Vector3();
+const menuAnim = { t: 1, dur: 0.3, slide: false, closing: false };
 function placePanels() {
-  if (lobbyPanel.visible) placeSide(lobbyPanel.mesh, 1, lobbyPanel.widthM);
-  if (tutorial.card.visible) placeTutCard(tutorial.card.mesh, tutorial.card.widthM);
-  if (tutorial.big.visible) placeTutBelow(tutorial.big.mesh, (tutorial.big.widthM * tutorial.big.H) / tutorial.big.W);
-  if (menuPanel.visible) placeSide(menuPanel, -1, MENU_M);
-  if (infoPanel.visible) placeInfo();
+  const sc = board.scale.x, f = (v) => v.toFixed(4);
+  const key = [board.position.x, board.position.y, board.position.z, sc, HB.x, HB.y, HB.z, seat.x, seat.y, seat.z].map(f).join(',');
+  if (key !== panelKey) {
+    panelKey = key;
+    placeSide(lobbyPanel.mesh, 1, lobbyPanel.widthM);
+    placeTutCard(tutorial.card.mesh, tutorial.card.widthM);
+    placeTutBelow(tutorial.big.mesh, (tutorial.big.widthM * tutorial.big.H) / tutorial.big.W);
+    placeInfo();
+    placeSide(menuPanel, -1, MENU_M);
+    menuHome.copy(menuPanel.position);
+    panelMoves++;
+  }
+}
+let panelMoves = 0;
+// Settings panel: opening from the lobby slides it in from the lobby panel (right) to its spot on the left
+// with a quick fade-in (0.3 s), so you see where it went; in a game it just fades in. Closing fades out.
+function animateMenu(dt) {
+  if (menuAnim.t >= 1 && !menuAnim.closing) { if (menuPanel.visible) { menuPanel.position.copy(menuHome); faceYaw(menuPanel, seat); menuPanel.material.opacity = 1; } return; }
+  menuAnim.t = Math.min(1, menuAnim.t + dt / menuAnim.dur);
+  const u = menuAnim.t, e = 1 - Math.pow(1 - u, 3);          // ease-out
+  if (menuAnim.closing) {
+    menuPanel.material.opacity = 1 - u;
+    if (u >= 1) { menuPanel.visible = false; menuAnim.closing = false; menuPanel.material.opacity = 1; }
+    return;
+  }
+  if (menuAnim.slide) {
+    menuPanel.position.lerpVectors(menuFrom, menuHome, e);
+    menuPanel.position.z += Math.sin(u * Math.PI) * 0.12;      // a slight arc toward you, past the room
+  } else menuPanel.position.copy(menuHome);
+  faceYaw(menuPanel, seat);
+  menuPanel.material.opacity = Math.min(1, u * 1.6);
 }
 // The side board: just outside the room's right wall, about 30 degrees right of straight ahead (where the
 // tutorial card sits), its top near the room's top, turned to face you and scaled with distance so the
 // text always reads the same size.
 function placeInfo() {
   const sc = board.scale.x, h = (INFO_M * INFO_H) / INFO_W;
-  camera.getWorldPosition(_v1);
+  _v1.copy(seat);
   const x0 = board.position.x + HB.x * sc + 0.05;
   const near = board.position.z + HB.z * sc, far = board.position.z - HB.z * sc;
   const z = clamp(_v1.z - Math.max(0.2, x0 + INFO_M / 2 - _v1.x) / Math.tan(0.56), far, near);
@@ -2852,7 +2963,10 @@ function loop() {
   playerBullets.sync();
   enemyBullets.sync();
   infoPanel.visible = state === 'playing' || state === 'gameover';
+  updateSeat();
   placePanels();
+  animateMenu(dt);
+  if (xr) updateRays(dt);
   { const tn = performance.now() / 1000; touch.left.update(tn); touch.right.update(tn); }
   reticle.lookAt(camPos);
   hudPanel.visible = state !== 'lobby' && state !== 'tutorial';
@@ -2910,7 +3024,7 @@ window.__game = {
   get tutStage() { return tutStageName; }, get tutFreeze() { return tutFreeze; }, get shots() { return shotsFired; },
   tutorialDone, spawnTut, setTutStage: tutStage, applyBoard, drawMenu, touch, get hudVisible() { return hudPanel.visible; }, get menuCanvas() { return menuCanvas; }, MENU_TOP, MENU_ROW, MENU_ROWS,
   startGameAt(mode, round) { settings.mode = mode; startGame(round); },
-  get enemyBullets() { return enemyBullets.list.length; }, get bullets() { return playerBullets.list.length; }, toggleSettings, get menuOpen() { return menuOpen; }, get menuHover() { return menuHover; }, menuPanel,
+  get enemyBullets() { return enemyBullets.list.length; }, get bullets() { return playerBullets.list.length; }, toggleSettings, get menuOpen() { return menuOpen; }, get menuHover() { return menuHover; }, menuPanel, seat, rayFx, get panelMoves() { return panelMoves; }, menuAnim,
   // v18
   get split() { return split; }, setSplit, get formation() { return formation; }, cycleFormation, cmdB, GA, GB, SQUAD, inputB,
   aces, spawnAce, sfx, perf, get hitStops() { return hitStops; }, get edgeFlashes() { return edgeFlashes; }, liveParticles,

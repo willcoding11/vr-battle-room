@@ -59,7 +59,13 @@ A blue-vs-red skirmish plays out around the stars in the room as a backdrop.
 
 ![lobby](screenshots/14-lobby.png)
 
-Settings (left X + Y, or the lobby button) open on a panel to the **left** of the room:
+Settings (left **X + Y**, or the lobby **SETTINGS** button; press either again to close) open on a panel to
+the **left** of the room. From the lobby the panel slides over from the lobby panel to its spot in about 0.3 s,
+fading in, so you can see where it went; closing is a quick fade. With Settings open:
+- **In the lobby** nothing stops: the skirmish keeps playing, and you can still grip-move and grip + stick resize
+  the room.
+- **In a game** the battle is **paused** (so nothing can hit you while you read), and you can grip-move and
+  grip + stick resize the room too. Close Settings to carry on.
 
 ![settings](screenshots/15-settings.png)
 
@@ -218,7 +224,7 @@ the battle. Your **wrist** only shows your hull (Fighter) or your 4 bots' hull a
 | Left | **Tap X** | - | **Split / rejoin** the squadron |
 | Left | **Point / turn the controller** | - | **Split:** steers the gold pair (same absolute forward) |
 | Left | **Click the thumbstick** | Put the box back in its default spot | Same |
-| Left | **X + Y together** | Settings, on a panel to the left of the room (point and pull the trigger to change; the game pauses) | Same |
+| Left | **X + Y together** | Settings open / close, on a panel to the left of the room (point and pull the trigger to change; a game pauses meanwhile) | Same |
 | Left | **Look at your wrist** | Hull | Your 4 bots' hull, formation, split state |
 
 Right B and the right stick click do nothing. Steering is always this one style (there are no other steering modes).
@@ -296,6 +302,34 @@ the left stick to put the box back in its default spot.
 - `js/music.js` - procedural music: lobby pad and the battle track
 - `vendor/` - three.js r187 (`three.module.js`, `three.core.js`), MIT licence
 - `screenshots/` - screenshots (test mode and the IWER headset emulator)
+
+**Pointing at panels.** Each controller has a faint ray. When it is over a panel (lobby, settings, tutorial
+card), the ray brightens into a slightly thicker beam and a small ring cursor shows where it meets the panel;
+both fade in and out in about 0.15 s.
+
+![ui pointer](screenshots/25-ui-pointer.png)
+
+**Panels stay still.** The lobby panel, Settings, the tutorial card and the side board are placed beside the room
+and turned (about the vertical axis only) toward where you sat when you entered VR. They never follow your head;
+they are only re-placed when you move, resize or reshape the room (or re-centre with the Meta button).
+
+## Changes in v21
+
+- **UI pointer:** over a panel the ray becomes a brighter, slightly thicker beam with a small ring cursor at the
+  hit point, fading in / out (~0.15 s). Off the UI it stays a faint line.
+- **Settings toggle:** the lobby SETTINGS button closes Settings again when they are open (X + Y already did).
+- **Lobby keeps running with Settings open**, and the room can be grip-moved / resized; in a game too
+  (the battle is paused while Settings are open, so you can't die).
+- **Opening animation** from the lobby: the Settings panel slides from the lobby panel to the left and fades
+  in (0.3 s); in a game it fades in; closing is a quick fade.
+- **Fixed panel orientation:** panels face the spot where you sit (captured once on entering VR) instead of
+  turning with your head every frame.
+- **Left menu (☰) button:** not available. The Quest Browser's WebXR gamepad for the Touch controllers has
+  7 buttons (0 trigger, 1 grip, 2 unused, 3 thumbstick, 4 X, 5 Y, 6 thumbrest; this is the layout recorded from
+  real Quest headsets that the IWER emulator reproduces). There is no menu button in it: the system keeps that
+  button for its own menu, so it never reaches the page. Settings stay on **X + Y**. The game
+  still listens for a menu button at index 7 in case a browser ever exposes one, and with `?test` it logs each
+  controller's button count and profiles when it connects.
 
 ## Changes in v19
 
