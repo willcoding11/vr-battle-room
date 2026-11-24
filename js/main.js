@@ -2,12 +2,13 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=25';
-import { createTouchController } from './controller.js?v=25';
-import { Sfx } from './audio.js?v=25';
-import { Panel, faceYaw, UI } from './ui.js?v=25';
-import { stats, saveStats, recordGame, fmtTime, fmtNum } from './stats.js?v=25';
-import { createTutorial } from './tutorial.js?v=25';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=26';
+import { createTouchController } from './controller.js?v=26';
+import { Sfx } from './audio.js?v=26';
+import { Panel, faceYaw, UI } from './ui.js?v=26';
+import { stats, saveStats, recordGame, fmtTime, fmtNum } from './stats.js?v=26';
+import { createTutorial } from './tutorial.js?v=26';
+import { createLayoutUI, LAYOUT_OPTS } from './layout.js?v=26';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
@@ -50,12 +51,13 @@ const SETTINGS_DEF = [
   { key: 'steerGain', label: 'Steering gain (Fighter)', opts: GAIN_OPTS },
   { key: 'steerGainSq', label: 'Steering gain (Squadron)', opts: GAIN_OPTS },
   { key: 'boxSize', label: 'Box size', opts: [['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']] },
+  { key: 'layout', label: 'Layout', opts: LAYOUT_OPTS },
   { key: 'musicVol', label: 'Music volume', opts: VOL_OPTS, slider: true },
   { key: 'sfxVol', label: 'Sound volume', opts: VOL_OPTS, slider: true },
   { key: '_box', label: 'Box position', opts: [], action: 'RESET' },     // actions, not stored settings
   { key: '_lobby', label: 'Leave game', opts: [], action: 'TO LOBBY' },
 ];
-const SETTINGS_DEFAULT = { mode: 'fighter', boxSize: 'medium', steerGain: '2', steerGainSq: '3', musicVol: '6', sfxVol: '8' };
+const SETTINGS_DEFAULT = { mode: 'fighter', boxSize: 'medium', layout: 'table', steerGain: '2', steerGainSq: '3', musicVol: '6', sfxVol: '8' };
 const BOX_SIZES = { small: 0.7, medium: 1.0, large: 1.3 };     // box width in metres
 const TURN_RATE = 2.8 * 2.6;                                   // turn rate of command points / autopilot (rad/s scale)
 const settings = { ...SETTINGS_DEFAULT };
@@ -1668,7 +1670,6 @@ function startRound(n) {
 function startGame(round = START_WAVE) {
   sfx.init();
   tutorial.stop();
-  lobbyPanel.visible = false;
   tutFreeze = false;
   for (const e of enemies) board.remove(e.obj);
   enemies.length = 0;
@@ -1698,48 +1699,22 @@ function leaveGame() {
 // ---------------------------------------------------------------- lobby
 // Where you land after entering VR (once the tutorial is done) and a few seconds after each game.
 // A small blue squadron and red raiders skirmish round the stars; you can grab and resize the room;
-// the panel on the right picks the mode, starts the game and shows your stats.
+// the lobby panels (see layout.js: table, ring or pillars) pick the mode, start the game and show your stats.
 let lobbyT = 0, lobbySpawnT = 0, lobbyReviveT = 0, screenShown = '';
-const lobbyPanel = new Panel(0.44, 880, 1040);
-rig.add(lobbyPanel.mesh);
+let LUI = null;                                       // the panel layout (created once the panels exist)
 const MODE_INFO = { fighter: 'Fly one ship yourself', squadron: 'Lead 4 bot fighters - or split them into 2 pairs' };
 function drawLobby() {
-  const P = lobbyPanel, W = P.W;
-  P.begin('BATTLE ROOM');
-  P.text('GAME MODE', 36, 128, { size: 26, color: UI.dim });
-  MODES.forEach((m, i) => P.button('mode:' + m, 30 + i * 418, 142, 402, 84, m.toUpperCase(), { active: settings.mode === m, size: 30 }));
-  P.text(MODE_INFO[settings.mode], W / 2, 270, { size: 26, align: 'center', maxW: W - 60 });
-  P.button('start', 30, 296, W - 60, 118, 'START', { big: true, size: 56 });
-  P.text('STATS', 36, 470, { size: 26, color: UI.dim });
-  const cols = [400, 590, 780];
-  ['BEST ROUND', 'GAMES', 'LAST'].forEach((h, i) => P.text(h, cols[i], 470, { size: 20, color: UI.dim, align: 'center', maxW: 180 }));
-  MODES.forEach((m, i) => {
-    const y = 512 + i * 42, st = stats.modes[m];
-    P.text(m.toUpperCase(), 36, y, { size: 26, color: settings.mode === m ? UI.gold : UI.text, maxW: 250 });
-    [st.best, st.games, st.last].forEach((v, k) => P.text(fmtNum(v), cols[k], y, { size: 28, bold: k === 0, color: k === 0 ? UI.title : UI.text, align: 'center', maxW: 170 }));
-  });
-  const rows = [
-    ['Win streak', `${stats.streak}   (best ${stats.bestStreak})`], ['Total kills', fmtNum(stats.kills)],
-    ['Games played', fmtNum(stats.games)], ['Time in battle', fmtTime(stats.time)], ['Screen time', (screenShown = fmtTime(stats.screen))], ['Best score', fmtNum(Math.max(stats.bestScore, best))],
-  ];
-  rows.forEach(([l, v], i) => {
-    const y = 628 + i * 40;
-    P.text(l, 36, y, { size: 24, color: UI.text, maxW: 380 });
-    P.text(v, W - 36, y, { size: 24, color: UI.title, align: 'right', maxW: 400 });
-  });
-  P.button('tutorial', 30, 884, 400, 78, 'REDO TUTORIAL', { size: 28 });
-  P.button('settings', W - 430, 884, 400, 78, 'SETTINGS', { size: 28 });
-  P.text('GRIP: move the room     GRIP + STICK: resize', W / 2, 1012, { size: 22, color: UI.dim, align: 'center', maxW: W - 40 });
-  P.end();
+  screenShown = fmtTime(stats.screen);
+  if (LUI) LUI.drawLobby();
 }
-lobbyPanel.onClick = (id) => {
+function lobbyClick(id) {
   if (id.startsWith('mode:')) { setSetting('mode', id.slice(5)); sfx.click(); }
   else if (id === 'start') startGame();
   else if (id === 'tutorial') startTutorial();
   else if (id === 'settings') toggleSettings();
   if (!id.startsWith('mode:')) sfx.click();
   log('lobby click ' + id);
-};
+}
 function clearBattle() {
   for (const e of enemies) board.remove(e.obj);
   enemies.length = 0;
@@ -1764,7 +1739,6 @@ function enterLobby() {
   resetBots();
   lobbyT = 0; lobbySpawnT = 1.0; lobbyReviveT = 0;
   hideMessage();
-  lobbyPanel.visible = true;
   drawLobby();
   log('lobby');
 }
@@ -1798,7 +1772,6 @@ function tutorialDone() { try { return localStorage.getItem(TUT_KEY) === '1'; } 
 function startTutorial() {
   state = 'tutorial';
   stateTimer = 0;
-  lobbyPanel.visible = false;
   hideMessage();
   score = 0; kills = 0; wave = 1;
   setAI(1);
@@ -1924,11 +1897,13 @@ function showMessage(title, sub = '', dur = 2) {
   msgEl.querySelector('.s').textContent = sub;
   msgEl.classList.add('show');
   drawInfo(true);
+  if (LUI) LUI.drawGame(true);
 }
 function hideMessage() {
   msgTime = 0;
   msgEl.classList.remove('show');
   drawInfo(true);
+  if (LUI) LUI.drawGame(true);
 }
 
 const camFwd = new THREE.Vector3(), camPos = new THREE.Vector3();
@@ -2198,6 +2173,7 @@ function applySettings(changed) {
   if (changed === 'boxSize') { box.size = BOX_SIZES[settings.boxSize]; applyBoard(); saveBox(); }
   if (changed === 'mode' && settings.mode !== gameMode && (state === 'playing' || state === 'gameover')) startGame();
   if (changed === 'mode' && state === 'lobby') drawLobby();
+  if (changed === 'layout') { panelKey = ''; drawLobby(); if (LUI) LUI.drawGame(true); }
 }
 
 // ---------------------------------------------------------------- settings menu (VR panel + desktop overlay)
@@ -2289,10 +2265,10 @@ function toggleSettings(open = !menuOpen) {
   menuHover = -1;
   if (renderer.xr.isPresenting) {
     if (open) {
-      // Left of the room, so it never covers the battle. From the lobby it slides over from the lobby panel.
+      // Where the layout keeps it (never over the battle). From the lobby it slides out of the SETTINGS button.
       panelKey = ''; placePanels();
-      menuAnim.slide = state === 'lobby' && lobbyPanel.visible;
-      menuFrom.copy(lobbyPanel.mesh.position);
+      menuAnim.slide = state === 'lobby' && LUI.mainPanel().visible;
+      LUI.menuFrom(menuFrom);                       // from the lobby's SETTINGS button
       menuAnim.t = 0; menuAnim.dur = menuAnim.slide ? 0.3 : 0.15; menuAnim.closing = false;
       menuPanel.material.opacity = 0;
       menuPanel.position.copy(menuAnim.slide ? menuFrom : menuHome);
@@ -2508,13 +2484,20 @@ const lPointer = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new TH
 lPointer.visible = false;
 const rayFx = { right: makeRayFx(pointer, 0x66eeff), left: makeRayFx(lPointer, 0xffd480) };
 // Called wherever a ray meets a panel this frame: where, and the panel's orientation (for the cursor).
-const _rn = new THREE.Vector3();
+const _rn = new THREE.Vector3(), _rp = new THREE.Vector3();
 function rayOnUi(hand, origin, dir, dist, mesh) {
   const f = rayFx[hand];
   f.hit = true;
-  mesh.getWorldQuaternion(f.quat);
+  if (mesh.userData.arc) {
+    // Curved band: the normal points from the hit point to the band's vertical axis.
+    mesh.getWorldPosition(_rn).sub(_rp.copy(origin).addScaledVector(dir, dist));
+    _rn.y = 0; _rn.normalize();
+    f.quat.setFromUnitVectors(ZAXIS, _rn);
+  } else {
+    mesh.getWorldQuaternion(f.quat);
+    _rn.set(0, 0, 1).applyQuaternion(f.quat);
+  }
   // On the surface, lifted 2 mm along the panel's normal (toward the side the ray came from).
-  _rn.set(0, 0, 1).applyQuaternion(f.quat);
   if (_rn.dot(dir) > 0) _rn.negate();
   f.point.copy(origin).addScaledVector(dir, dist).addScaledVector(_rn, 0.002);
   f.line.scale.set(1, 1, dist);                     // the beam stops exactly at the hit point
@@ -2539,7 +2522,7 @@ function updateRays(dt) {
 }
 const uiHit = { left: null, right: null };
 const uiHeld = { left: false, right: false };          // a trigger press that clicked a button (not a shot)
-function activePanels() { return [lobbyPanel, tutorial.card, tutorial.big].filter((p) => p.visible); }
+function activePanels() { return [...LUI.lobbyPanels(), tutorial.card, tutorial.big].filter((p) => p.visible); }
 function uiRay(hand, ctrl, trig, edge) {
   const line = hand === 'right' ? pointer : lPointer;
   ctrl.getWorldPosition(_v3);
@@ -2551,7 +2534,7 @@ function uiRay(hand, ctrl, trig, edge) {
   if (best) rayOnUi(hand, _v3, _v2, best.dist, bp.mesh);
   for (const P of activePanels()) {
     const hov = (uiHit.right && uiHit.right.panel === P && uiHit.right.id) || (uiHit.left && uiHit.left.panel === P && uiHit.left.id) || null;
-    if (P.hover !== hov) { P.hover = hov; if (P === lobbyPanel) drawLobby(); else tutorial.redraw(); }
+    if (P.hover !== hov) { P.hover = hov; if (P.isLobby) drawLobby(); else tutorial.redraw(); }
   }
   // The tutorial card only takes over the controller while you point at one of its buttons, so it
   // never blocks shooting, selecting or ordering at ships seen past it.
@@ -2607,6 +2590,13 @@ function faceSeat(mesh) {
   const full = Math.atan2(seat.x - mesh.position.x, seat.z - mesh.position.z);
   mesh.rotation.set(0, clamp(full * PANEL_TURN, -PANEL_MAX_YAW, PANEL_MAX_YAW), 0);
 }
+LUI = createLayoutUI({
+  rig, seat, settings, stats, MODES, MODE_INFO, fmtNum, fmtTime, uiHit, tutorial, infoPanel, menuPanel, faceSeat, lobbyClick,
+  boxDims: () => { const sc = board.scale.x; return { x: board.position.x, y: board.position.y, z: board.position.z, hx: HB.x * sc, hy: HB.y * sc, hz: HB.z * sc }; },
+  best: () => Math.max(stats.bestScore, best), screen: () => fmtTime(stats.screen),
+  game: () => ({ state, score, wave, hostiles: enemies.length, mode: gameMode, msgOn: msgTime > 0, msgTitle, msgSub, intermission: intermission > 0 }),
+  menuAspect: menuCanvas.height / MENU_W, infoAspect: INFO_H / INFO_W,
+});
 function placeSide(mesh, side, widthM) {
   const sc = board.scale.x;
   mesh.position.set(board.position.x + side * (HB.x * sc + 0.07 + widthM / 2), board.position.y + 0.03, board.position.z + HB.z * sc * 0.55);
@@ -2640,14 +2630,15 @@ const menuHome = new THREE.Vector3(), menuFrom = new THREE.Vector3();
 const menuAnim = { t: 1, dur: 0.3, slide: false, closing: false };
 function placePanels() {
   const sc = board.scale.x, f = (v) => v.toFixed(4);
-  const key = [board.position.x, board.position.y, board.position.z, sc, HB.x, HB.y, HB.z, seat.x, seat.y, seat.z].map(f).join(',');
+  const key = [board.position.x, board.position.y, board.position.z, sc, HB.x, HB.y, HB.z, seat.x, seat.y, seat.z].map(f).join(',') + settings.layout;
   if (key !== panelKey) {
     panelKey = key;
-    placeSide(lobbyPanel.mesh, 1, lobbyPanel.widthM);
     placeTutCard(tutorial.card.mesh, tutorial.card.widthM);
     placeTutBelow(tutorial.big.mesh, (tutorial.big.widthM * tutorial.big.H) / tutorial.big.W);
     placeInfo();
     placeSide(menuPanel, -1, MENU_M);
+    menuPanel.scale.setScalar(1);
+    LUI.place();                                     // the layout moves what it owns
     menuHome.copy(menuPanel.position);
     panelMoves++;
   }
@@ -2656,7 +2647,7 @@ let panelMoves = 0;
 // Settings panel: opening from the lobby slides it in from the lobby panel (right) to its spot on the left
 // with a quick fade-in (0.3 s), so you see where it went; in a game it just fades in. Closing fades out.
 function animateMenu(dt) {
-  if (menuAnim.t >= 1 && !menuAnim.closing) { if (menuPanel.visible) { menuPanel.position.copy(menuHome); faceSeat(menuPanel); menuPanel.material.opacity = 1; } return; }
+  if (menuAnim.t >= 1 && !menuAnim.closing) { if (menuPanel.visible) { menuPanel.position.copy(menuHome); LUI.orientMenu(menuPanel); menuPanel.material.opacity = 1; } return; }
   menuAnim.t = Math.min(1, menuAnim.t + dt / menuAnim.dur);
   const u = menuAnim.t, e = 1 - Math.pow(1 - u, 3);          // ease-out
   if (menuAnim.closing) {
@@ -2668,7 +2659,7 @@ function animateMenu(dt) {
     menuPanel.position.lerpVectors(menuFrom, menuHome, e);
     menuPanel.position.z += Math.sin(u * Math.PI) * 0.12;      // a slight arc toward you, past the room
   } else menuPanel.position.copy(menuHome);
-  faceSeat(menuPanel);
+  LUI.orientMenu(menuPanel);
   menuPanel.material.opacity = Math.min(1, u * 1.6);
 }
 // The side board: just outside the room's right wall, about 30 degrees right of straight ahead (where the
@@ -2994,9 +2985,10 @@ function loop() {
   updateMusic();
   playerBullets.sync();
   enemyBullets.sync();
-  infoPanel.visible = state === 'playing' || state === 'gameover';
+  infoPanel.visible = (state === 'playing' || state === 'gameover') && settings.layout === 'table';
   updateSeat();
   placePanels();
+  LUI.frame(dt);
   animateMenu(dt);
   if (xr) updateRays(dt);
   { const tn = performance.now() / 1000; touch.left.update(tn); touch.right.update(tn); }
@@ -3016,7 +3008,7 @@ function loop() {
   fe.opacity = 0.7 + 0.3 * Math.min(1, framePulse);
 
   hudTimer -= dt;
-  if (hudTimer <= 0) { hudTimer = 0.1; drawHud(); if (infoPanel.visible) drawInfo(); }
+  if (hudTimer <= 0) { hudTimer = 0.1; drawHud(); if (infoPanel.visible) drawInfo(); LUI.drawGame(); }
 
   if (TEST) {
     statusTimer -= dt;
@@ -3051,7 +3043,7 @@ window.__game = {
   get steerMode() { return activeSteer(); },
   settings, setSetting, input, board, box, mirrorQ, bots, obstacles, groups,
   get mode() { return gameMode; }, get boxB() { return BOX_B; }, HB, get morphing() { return morphT < 1; }, AI, bestRound, damageBot, get msgTitle() { return msgTitle; }, get msgOn() { return msgTime > 0; }, infoBoxes, INFO_W, INFO_H, placeInfo, get msgSub() { return msgSub; }, get starsOn() { return starsOn; }, get starAlpha() { return starAlpha; }, startRound, infoPanel, hudPanel, get friends() { return friends; }, get squadEngaged() { return squadEngaged; },
-  lobbyPanel, tutorial, enterLobby, startTutorial, finishTutorial, stats, recordGame, leaveGame, grab, uiHit, placePanels, grabGain,
+  get lobbyPanel() { return LUI.mainPanel(); }, get LUI() { return LUI; }, gameOver, get msgTime() { return msgTime; }, SETTINGS_DEF, tutorial, enterLobby, startTutorial, finishTutorial, stats, recordGame, leaveGame, grab, uiHit, placePanels, grabGain,
   get simTime() { return simTime; }, menuLayout, get kills() { return kills; },
   get tutStage() { return tutStageName; }, get tutFreeze() { return tutFreeze; }, get shots() { return shotsFired; },
   tutorialDone, spawnTut, setTutStage: tutStage, applyBoard, drawMenu, touch, get hudVisible() { return hudPanel.visible; }, get menuCanvas() { return menuCanvas; }, MENU_TOP, MENU_ROW, MENU_ROWS,
