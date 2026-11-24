@@ -2,13 +2,13 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=26';
-import { createTouchController } from './controller.js?v=26';
-import { Sfx } from './audio.js?v=26';
-import { Panel, faceYaw, UI } from './ui.js?v=26';
-import { stats, saveStats, recordGame, fmtTime, fmtNum } from './stats.js?v=26';
-import { createTutorial } from './tutorial.js?v=26';
-import { createLayoutUI, LAYOUT_OPTS } from './layout.js?v=26';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=27';
+import { createTouchController } from './controller.js?v=27';
+import { Sfx } from './audio.js?v=27';
+import { UI } from './ui.js?v=27';
+import { stats, saveStats, recordGame, addPlayTime, fmtTime, fmtNum } from './stats.js?v=27';
+import { createTutorial } from './tutorial.js?v=27';
+import { createRingUI } from './ring.js?v=27';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
@@ -51,13 +51,12 @@ const SETTINGS_DEF = [
   { key: 'steerGain', label: 'Steering gain (Fighter)', opts: GAIN_OPTS },
   { key: 'steerGainSq', label: 'Steering gain (Squadron)', opts: GAIN_OPTS },
   { key: 'boxSize', label: 'Box size', opts: [['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']] },
-  { key: 'layout', label: 'Layout', opts: LAYOUT_OPTS },
   { key: 'musicVol', label: 'Music volume', opts: VOL_OPTS, slider: true },
   { key: 'sfxVol', label: 'Sound volume', opts: VOL_OPTS, slider: true },
   { key: '_box', label: 'Box position', opts: [], action: 'RESET' },     // actions, not stored settings
   { key: '_lobby', label: 'Leave game', opts: [], action: 'TO LOBBY' },
 ];
-const SETTINGS_DEFAULT = { mode: 'fighter', boxSize: 'medium', layout: 'table', steerGain: '2', steerGainSq: '3', musicVol: '6', sfxVol: '8' };
+const SETTINGS_DEFAULT = { mode: 'fighter', boxSize: 'medium', steerGain: '2', steerGainSq: '3', musicVol: '6', sfxVol: '8' };
 const BOX_SIZES = { small: 0.7, medium: 1.0, large: 1.3 };     // box width in metres
 const TURN_RATE = 2.8 * 2.6;                                   // turn rate of command points / autopilot (rad/s scale)
 const settings = { ...SETTINGS_DEFAULT };
@@ -147,12 +146,15 @@ const boxFrame = new THREE.Group();
 const FRAME_COLOR = new THREE.Color(0x2a86a8);
 {
   const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(2, 2, 2)),
-    new THREE.LineBasicMaterial({ color: FRAME_COLOR, transparent: true, opacity: 0.7 }));
+    new THREE.LineBasicMaterial({ color: FRAME_COLOR, transparent: true, opacity: 0.7, depthWrite: false }));
   boxFrame.userData.edges = edges;
   const floor = new THREE.GridHelper(2, 10, 0x15506a, 0x0d3344);
   floor.position.y = -1;
   floor.material.transparent = true;
   floor.material.opacity = 0.5;
+  floor.material.depthWrite = false;
+  // Drawn before the holo ring (ring.js), which then sits cleanly over the frame lines behind it.
+  edges.renderOrder = floor.renderOrder = -2;
   boxFrame.add(edges, floor);
   board.add(boxFrame);
 }
@@ -1590,6 +1592,14 @@ function applyMode(mode = settings.mode) {
 }
 function damagePlayer(bullet) {
   if (!player.alive || player.invuln > 0 || !combat()) return;
+  if (state === 'lobby') {                           // the Fighter backdrop's autopilot ship: no feedback to you
+    player.hp--; player.invuln = 1.0; player.flash = 0.25;
+    if (player.hp <= 0) {
+      player.alive = false; player.obj.visible = false; trail.visible = false; lobbyReviveT = 0;
+      explode(player.obj, PLAYER_COLOR, _v1.copy(player.fwd).multiplyScalar(player.speed), true);
+    }
+    return;
+  }
   sparks(player.obj.position, PLAYER_COLOR, 10);
   pulseFrame(ENEMY_COLOR, 0.6);
   if (bullet && bullet.vel.dot(player.fwd) > 0.3 * bullet.vel.length()) edgeFlash(0.7);   // hit from behind
@@ -1698,20 +1708,25 @@ function leaveGame() {
 
 // ---------------------------------------------------------------- lobby
 // Where you land after entering VR (once the tutorial is done) and a few seconds after each game.
-// A small blue squadron and red raiders skirmish round the stars; you can grab and resize the room;
-// the lobby panels (see layout.js: table, ring or pillars) pick the mode, start the game and show your stats.
+// The backdrop follows the selected mode: Squadron shows a blue squad skirmishing with red raiders round
+// the stars; Fighter shows a normal Fighter battle played bot-on-bots (one blue fighter on autopilot against
+// red ships with the real Fighter-mode behaviours, in a Fighter room, wave after wave). Changing the mode
+// cross-fades between them. You can grab and resize the room; the holo ring (ring.js) picks the mode,
+// starts the game and opens Settings / Stats.
 let lobbyT = 0, lobbySpawnT = 0, lobbyReviveT = 0, screenShown = '';
-let LUI = null;                                       // the panel layout (created once the panels exist)
+let lobbySim = 'squadron', lobbyWave = 0, lobbyGap = false;
+let ringUI = null;                                    // the holo ring (created once the panels exist)
 const MODE_INFO = { fighter: 'Fly one ship yourself', squadron: 'Lead 4 bot fighters - or split them into 2 pairs' };
 function drawLobby() {
   screenShown = fmtTime(stats.screen);
-  if (LUI) LUI.drawLobby();
+  if (ringUI) ringUI.drawLobby();
 }
 function lobbyClick(id) {
   if (id.startsWith('mode:')) { setSetting('mode', id.slice(5)); sfx.click(); }
   else if (id === 'start') startGame();
   else if (id === 'tutorial') startTutorial();
   else if (id === 'settings') toggleSettings();
+  else if (id === 'stats') ringUI.toggleStats();
   if (!id.startsWith('mode:')) sfx.click();
   log('lobby click ' + id);
 }
@@ -1727,23 +1742,116 @@ function enterLobby() {
   stateTimer = 0;
   tutorial.stop();
   tutFreeze = false;
-  clearBattle();
-  wave = 1;
-  setAI(2);
-  applyMode('squadron');
-  setShape(pickShape(_shapeTmp));
-  freshStars();
-  resetPlayer();
-  player.obj.visible = false;
-  trail.visible = false;
-  resetBots();
-  lobbyT = 0; lobbySpawnT = 1.0; lobbyReviveT = 0;
+  setupLobbySim(settings.mode, false);
+  simFade.v = 1; simFade.dir = 0;
   hideMessage();
   drawLobby();
   log('lobby');
 }
-// The ambient skirmish: the blue squadron's leader wanders round the room and engages anything near.
+// Set up the lobby backdrop for a mode. `smooth`: the room glides from its current shape to the new one.
+const _lobbyShape = new THREE.Vector3(), _lobbyDir = new THREE.Vector3();
+function setupLobbySim(mode, smooth) {
+  const f = _lobbyShape.copy(HB).divideScalar(BOX_B);   // current shape (as factors of the room size)
+  lobbySim = mode;
+  clearBattle();
+  wave = 1; lobbyWave = 0; lobbyGap = false;
+  setAI(2);
+  applyMode(mode);
+  const target = lobbyShape(_shapeTmp);
+  if (smooth) { setShape(f.multiplyScalar(BOX_B)); morphTo(target, 0.9); } else setShape(target);
+  freshStars();
+  resetPlayer();
+  if (mode === 'squadron') { player.obj.visible = false; trail.visible = false; }   // just the command point
+  resetBots();
+  lobbyT = 0; lobbySpawnT = 1.0; lobbyReviveT = 0;
+  log('lobby sim ' + mode);
+}
+// Lobby rooms are never taller than the cube, so the holo ring above them can stay put (no buttons
+// moving under your pointer when the room reshapes).
+function lobbyShape(out) { pickShape(out); out.y = Math.min(out.y, BOX_B); return out; }
+// Mode change in the lobby: fade the battle out, swap the sim, fade it back in (about 0.65 s in all).
+// The room's frame stays; everything inside it fades (material opacity, so the stars dim too).
+const simFade = { v: 1, dir: 0 };
+const SIM_FADE_HALF = 0.32;
+function updateLobbyFade(dt) {
+  if (state !== 'lobby') { if (simFade.v < 1 || simFade.dir) { simFade.v = 1; simFade.dir = 0; setSimOpacity(1); } return; }
+  if (settings.mode !== lobbySim && simFade.dir >= 0) simFade.dir = -1;
+  if (!simFade.dir) return;
+  simFade.v = clamp(simFade.v + (simFade.dir * dt) / SIM_FADE_HALF, 0, 1);
+  if (simFade.dir < 0 && simFade.v <= 0) { setupLobbySim(settings.mode, true); simFade.dir = 1; }
+  else if (simFade.dir > 0 && simFade.v >= 1) simFade.dir = 0;
+  setSimOpacity(simFade.v);
+}
+// Scale the opacity of everything in the room except its frame. Each material's own opacity (which the game
+// may change every frame, e.g. explosions) is re-read whenever it is not the value set here last time.
+function setSimOpacity(v) {
+  for (const o of board.children) {
+    if (o === boxFrame) continue;
+    o.traverse((m) => {
+      const mt = m.material;
+      if (!mt || Array.isArray(mt)) return;
+      const u = mt.userData;
+      if (u.fadeSet !== mt.opacity) u.fadeBase = mt.opacity;
+      mt.opacity = u.fadeBase * v;
+      u.fadeSet = mt.opacity;
+    });
+  }
+}
 function updateLobby(dt) {
+  if (lobbySim === 'fighter') updateLobbyFighter(dt); else updateLobbySquadron(dt);
+}
+// Fighter backdrop: one blue fighter on autopilot (chases the nearest red ship, leads it, fires when lined
+// up; it can be shot down and comes back after a moment) against the real Fighter-mode enemy waves 1-4 in
+// turn. When a wave is cleared the room reshapes and the next one comes in, as in a game.
+function updateLobbyFighter(dt) {
+  lobbyT += dt;
+  const p = player.obj.position;
+  if (player.alive) {
+    let near = null, nd = Infinity;
+    for (const e of enemies) { if (e.hp <= 0) continue; const d = e.obj.position.distanceTo(p); if (d < nd) { nd = d; near = e; } }
+    if (near) {
+      _lobbyDir.copy(near.obj.position).addScaledVector(near.fwd, near.speed * Math.min(1, nd / (7 * S)) * 0.6).sub(p).normalize();
+    } else {                                           // between waves: a lazy loop round the room
+      const t = lobbyT * 0.3;
+      _lobbyDir.set(Math.sin(t) * HB.x * 0.5, Math.sin(t * 1.7) * HB.y * 0.3, Math.cos(t * 0.8) * HB.z * 0.5).sub(p);
+      if (_lobbyDir.lengthSq() < 1e-6) _lobbyDir.copy(player.fwd); else _lobbyDir.normalize();
+    }
+    const turn = player.turn;
+    player.turn = 2.6;                                 // about an enemy fighter's agility: a fair fight
+    steer(player, _lobbyDir, dt);
+    player.turn = turn;
+    const targetSpeed = near && nd > 3 * S ? BOOST * 0.8 : CRUISE;
+    player.speed += (targetSpeed - player.speed) * Math.min(1, dt * 3);
+    player.vel.copy(player.fwd).multiplyScalar(player.speed);
+    p.addScaledVector(player.vel, dt);
+    if (wrapBox(p)) { resetTrail(); blink(p, PLAYER_COLOR); }
+    player.fireCd -= dt;
+    if (near && player.fireCd <= 0 && nd < 6 * S && player.fwd.angleTo(_v1.subVectors(near.obj.position, p)) < 0.3) {
+      fireShot(p);
+      player.fireCd = 0.2;
+    }
+    playerFx(dt);
+  } else if ((lobbyReviveT += dt) > 2.5) { resetPlayer(); lobbyReviveT = 0; }
+  updateEnemies(dt);
+  playerBullets.update(dt);
+  enemyBullets.update(dt);
+  updateCollisions();
+  if (!enemies.length) {
+    if (!lobbyGap) {
+      lobbyGap = true;
+      lobbySpawnT = lobbyWave ? 3.2 : 1.0;
+      if (lobbyWave) { morphTo(lobbyShape(_shapeTmp), 2.4); }   // wave cleared: the room reshapes
+    } else if ((lobbySpawnT -= dt) <= 0) {
+      lobbyWave = (lobbyWave % 4) + 1;
+      wave = lobbyWave;
+      setAI(lobbyWave);
+      for (const [role, count] of roster(lobbyWave, false)) spawnGroup(role, count, lobbyWave);
+      lobbyGap = false;
+    }
+  }
+}
+// Squadron backdrop: the blue squadron's leader wanders round the room and engages anything near.
+function updateLobbySquadron(dt) {
   lobbyT += dt;
   const t = lobbyT * 0.22, p = player.obj.position;
   const at = (k, out) => out.set(Math.sin(k) * HB.x * 0.55, Math.sin(k * 1.7) * HB.y * 0.35, Math.cos(k * 0.8) * HB.z * 0.5);
@@ -1833,77 +1941,22 @@ const hudCanvas = document.getElementById('hud');
 const hctx = hudCanvas.getContext('2d');
 const hudTex = new THREE.CanvasTexture(hudCanvas);
 hudTex.colorSpace = THREE.SRGBColorSpace;
-// ---------------------------------------------------------------- side board: announcements + score
-// An invisible board floating just right of the battle room (outside it, so it never covers the action):
-// announcements at the top, your score big below them, then the round. Nothing pops up in front of you.
-const INFO_W = 900, INFO_H = 680, INFO_M = 0.44;
-const infoCanvas = document.createElement('canvas');
-infoCanvas.width = INFO_W; infoCanvas.height = INFO_H;
-const ictx = infoCanvas.getContext('2d');
-const infoTex = new THREE.CanvasTexture(infoCanvas);
-infoTex.colorSpace = THREE.SRGBColorSpace;
-const infoPanel = new THREE.Mesh(new THREE.PlaneGeometry(INFO_M, (INFO_M * INFO_H) / INFO_W),
-  new THREE.MeshBasicMaterial({ map: infoTex, transparent: true, depthTest: false, depthWrite: false, fog: false }));
-infoPanel.renderOrder = 11;
-infoPanel.visible = false;
-rig.add(infoPanel);
+// ---------------------------------------------------------------- announcements
+// In VR they show on the holo ring (ring.js) with the score; on the desktop test page in a DOM overlay.
 const msgEl = document.getElementById('message');
-let msgTitle = '', msgSub = '', msgTime = 0, infoKey = '';
-const infoBoxes = [];                              // text extents (the tests check nothing overlaps)
-function infoText(str, x, y, size, bold, color, maxW = INFO_W - 2 * x) {
-  const g = ictx;
-  const font = (k) => `${bold ? 'bold ' : ''}${k}px monospace`;
-  g.font = font(size);
-  while (size > 12 && g.measureText(str).width > maxW) { size -= 2; g.font = font(size); }
-  g.fillStyle = color;
-  g.fillText(str, x, y);
-  if (str) infoBoxes.push({ str, x0: x, x1: x + g.measureText(str).width, y0: y - size * 0.78, y1: y + size * 0.22 });
-}
-function drawInfo(force = false) {
-  const on = msgTime > 0;
-  const a = !on ? 0 : msgTime > 9000 ? 1 : Math.min(1, msgTime / 0.4);
-  const hostiles = enemies.length;
-  const key = `${on}|${msgTitle}|${msgSub}|${a.toFixed(1)}|${score}|${wave}|${hostiles}|${state}|${intermission > 0}`;
-  if (!force && key === infoKey) return;
-  infoKey = key;
-  const g = ictx, W = INFO_W, x = 30;
-  g.clearRect(0, 0, W, INFO_H);
-  infoBoxes.length = 0;
-  // A barely-there backing so the text reads against the stars.
-  g.fillStyle = 'rgba(0,10,22,0.22)'; g.fillRect(0, 0, W, INFO_H);
-  g.textAlign = 'left'; g.textBaseline = 'alphabetic';
-  g.shadowColor = 'rgba(0,0,0,0.95)'; g.shadowBlur = 14;
-  if (a > 0) {
-    g.globalAlpha = a;
-    infoText(msgTitle, x, 86, 72, true, '#9ff');
-    msgSub.split('\n').slice(0, 4).forEach((line, i) => infoText(line, x, 152 + i * 50, 42, false, '#bfefff'));
-    g.globalAlpha = 1;
-  }
-  g.shadowBlur = 0;
-  g.fillStyle = 'rgba(80,220,255,0.35)'; g.fillRect(x, 348, W - 2 * x, 3);
-  g.shadowBlur = 14;
-  infoText('SCORE', x, 410, 38, true, '#5fa9bf');
-  infoText(fmtNum(score), x, 552, 150, true, '#7fe9ff');
-  const sub = state === 'gameover' ? `ROUND ${wave}` : intermission > 0 ? `ROUND ${wave} CLEARED`
-    : `ROUND ${wave}   ${hostiles} HOSTILE${hostiles === 1 ? '' : 'S'}`;
-  infoText(sub, x, 636, 46, false, '#bfefff');
-  g.shadowBlur = 0;
-  infoTex.needsUpdate = true;
-}
+let msgTitle = '', msgSub = '', msgTime = 0;
 
 function showMessage(title, sub = '', dur = 2) {
   msgTitle = title; msgSub = sub; msgTime = dur;
   msgEl.querySelector('.t').textContent = title;
   msgEl.querySelector('.s').textContent = sub;
   msgEl.classList.add('show');
-  drawInfo(true);
-  if (LUI) LUI.drawGame(true);
+  if (ringUI) ringUI.drawGame(true);
 }
 function hideMessage() {
   msgTime = 0;
   msgEl.classList.remove('show');
-  drawInfo(true);
-  if (LUI) LUI.drawGame(true);
+  if (ringUI) ringUI.drawGame(true);
 }
 
 const camFwd = new THREE.Vector3(), camPos = new THREE.Vector3();
@@ -2160,7 +2213,6 @@ renderer.xr.addEventListener('sessionstart', () => {
 });
 renderer.xr.addEventListener('sessionend', () => {
   document.body.classList.remove('in-vr');
-  infoPanel.visible = false;
   saveStats();   // keep the last seconds of screen time
   camera.position.set(0, HEAD_H, 0);
   log('xr sessionend');
@@ -2173,7 +2225,6 @@ function applySettings(changed) {
   if (changed === 'boxSize') { box.size = BOX_SIZES[settings.boxSize]; applyBoard(); saveBox(); }
   if (changed === 'mode' && settings.mode !== gameMode && (state === 'playing' || state === 'gameover')) startGame();
   if (changed === 'mode' && state === 'lobby') drawLobby();
-  if (changed === 'layout') { panelKey = ''; drawLobby(); if (LUI) LUI.drawGame(true); }
 }
 
 // ---------------------------------------------------------------- settings menu (VR panel + desktop overlay)
@@ -2265,10 +2316,9 @@ function toggleSettings(open = !menuOpen) {
   menuHover = -1;
   if (renderer.xr.isPresenting) {
     if (open) {
-      // Where the layout keeps it (never over the battle). From the lobby it slides out of the SETTINGS button.
+      // Left of the room (never over the battle). From the lobby it slides out of the ring's SETTINGS button.
       panelKey = ''; placePanels();
-      menuAnim.slide = state === 'lobby' && LUI.mainPanel().visible;
-      LUI.menuFrom(menuFrom);                       // from the lobby's SETTINGS button
+      menuAnim.slide = !!ringUI.menuFrom(menuFrom);
       menuAnim.t = 0; menuAnim.dur = menuAnim.slide ? 0.3 : 0.15; menuAnim.closing = false;
       menuPanel.material.opacity = 0;
       menuPanel.position.copy(menuAnim.slide ? menuFrom : menuHome);
@@ -2522,7 +2572,7 @@ function updateRays(dt) {
 }
 const uiHit = { left: null, right: null };
 const uiHeld = { left: false, right: false };          // a trigger press that clicked a button (not a shot)
-function activePanels() { return [...LUI.lobbyPanels(), tutorial.card, tutorial.big].filter((p) => p.visible); }
+function activePanels() { return [...ringUI.lobbyPanels(), tutorial.card, tutorial.big].filter((p) => p.visible); }
 function uiRay(hand, ctrl, trig, edge) {
   const line = hand === 'right' ? pointer : lPointer;
   ctrl.getWorldPosition(_v3);
@@ -2590,12 +2640,12 @@ function faceSeat(mesh) {
   const full = Math.atan2(seat.x - mesh.position.x, seat.z - mesh.position.z);
   mesh.rotation.set(0, clamp(full * PANEL_TURN, -PANEL_MAX_YAW, PANEL_MAX_YAW), 0);
 }
-LUI = createLayoutUI({
-  rig, seat, settings, stats, MODES, MODE_INFO, fmtNum, fmtTime, uiHit, tutorial, infoPanel, menuPanel, faceSeat, lobbyClick,
-  boxDims: () => { const sc = board.scale.x; return { x: board.position.x, y: board.position.y, z: board.position.z, hx: HB.x * sc, hy: HB.y * sc, hz: HB.z * sc }; },
+ringUI = createRingUI({
+  rig, seat, settings, stats, MODES, MODE_INFO, fmtNum, fmtTime, uiHit, faceSeat, lobbyClick, log,
+  placeSide: (mesh, side, w) => placeSide(mesh, side, w), click: () => sfx.click(),
+  boxDims: () => { const sc = board.scale.x; return { x: board.position.x, y: board.position.y, z: board.position.z, hx: HB.x * sc, hy: HB.y * sc, hz: HB.z * sc, cube: BOX_B * sc }; },
   best: () => Math.max(stats.bestScore, best), screen: () => fmtTime(stats.screen),
-  game: () => ({ state, score, wave, hostiles: enemies.length, mode: gameMode, msgOn: msgTime > 0, msgTitle, msgSub, intermission: intermission > 0 }),
-  menuAspect: menuCanvas.height / MENU_W, infoAspect: INFO_H / INFO_W,
+  game: () => ({ state, score, wave, hostiles: enemies.length, msgOn: msgTime > 0, msgTitle, msgSub, intermission: intermission > 0 }),
 });
 function placeSide(mesh, side, widthM) {
   const sc = board.scale.x;
@@ -2630,24 +2680,22 @@ const menuHome = new THREE.Vector3(), menuFrom = new THREE.Vector3();
 const menuAnim = { t: 1, dur: 0.3, slide: false, closing: false };
 function placePanels() {
   const sc = board.scale.x, f = (v) => v.toFixed(4);
-  const key = [board.position.x, board.position.y, board.position.z, sc, HB.x, HB.y, HB.z, seat.x, seat.y, seat.z].map(f).join(',') + settings.layout;
+  const key = [board.position.x, board.position.y, board.position.z, sc, HB.x, HB.y, HB.z, seat.x, seat.y, seat.z].map(f).join(',') + (state === 'lobby');
   if (key !== panelKey) {
     panelKey = key;
     placeTutCard(tutorial.card.mesh, tutorial.card.widthM);
     placeTutBelow(tutorial.big.mesh, (tutorial.big.widthM * tutorial.big.H) / tutorial.big.W);
-    placeInfo();
     placeSide(menuPanel, -1, MENU_M);
-    menuPanel.scale.setScalar(1);
-    LUI.place();                                     // the layout moves what it owns
+    ringUI.place();                                  // the ring, and the stats panel on the right
     menuHome.copy(menuPanel.position);
     panelMoves++;
   }
 }
 let panelMoves = 0;
-// Settings panel: opening from the lobby slides it in from the lobby panel (right) to its spot on the left
+// Settings panel: opening from the lobby slides it out of the ring's SETTINGS button to its spot on the left
 // with a quick fade-in (0.3 s), so you see where it went; in a game it just fades in. Closing fades out.
 function animateMenu(dt) {
-  if (menuAnim.t >= 1 && !menuAnim.closing) { if (menuPanel.visible) { menuPanel.position.copy(menuHome); LUI.orientMenu(menuPanel); menuPanel.material.opacity = 1; } return; }
+  if (menuAnim.t >= 1 && !menuAnim.closing) { if (menuPanel.visible) { menuPanel.position.copy(menuHome); faceSeat(menuPanel); menuPanel.material.opacity = 1; } return; }
   menuAnim.t = Math.min(1, menuAnim.t + dt / menuAnim.dur);
   const u = menuAnim.t, e = 1 - Math.pow(1 - u, 3);          // ease-out
   if (menuAnim.closing) {
@@ -2659,24 +2707,9 @@ function animateMenu(dt) {
     menuPanel.position.lerpVectors(menuFrom, menuHome, e);
     menuPanel.position.z += Math.sin(u * Math.PI) * 0.12;      // a slight arc toward you, past the room
   } else menuPanel.position.copy(menuHome);
-  LUI.orientMenu(menuPanel);
+  faceSeat(menuPanel);
   menuPanel.material.opacity = Math.min(1, u * 1.6);
 }
-// The side board: just outside the room's right wall, about 30 degrees right of straight ahead (where the
-// tutorial card sits), its top near the room's top, turned to face you and scaled with distance so the
-// text always reads the same size.
-function placeInfo() {
-  const sc = board.scale.x, h = (INFO_M * INFO_H) / INFO_W;
-  _v1.copy(seat);
-  const x0 = board.position.x + HB.x * sc + 0.05;
-  const near = board.position.z + HB.z * sc, far = board.position.z - HB.z * sc;
-  const z = clamp(_v1.z - Math.max(0.2, x0 + INFO_M / 2 - _v1.x) / Math.tan(0.56), far, near);
-  const k = clamp(Math.hypot(x0 + INFO_M / 2 - _v1.x, z - _v1.z) / 1.0, 0.8, 2.2);
-  infoPanel.scale.setScalar(k);
-  infoPanel.position.set(x0 + (INFO_M * k) / 2, Math.min(board.position.y + HB.y * sc, _v1.y + 0.1) - (h * k) / 2 + 0.04, z);
-  faceSeat(infoPanel);
-}
-
 function gatherInputDesktop() {
   // Look (head substitute): right-drag or arrow keys.
   const lookSpeed = 1.6 / 60;
@@ -2797,24 +2830,32 @@ function updatePlayer(dt) {
   player.fireCd -= dt;
   if (input.fire && player.fireCd <= 0 && combat() && !tutFreeze) {
     shotsFired++;
-    const dir = player.fwd.clone();
-    let bestE = null, bestA = 0.2;
-    for (const e of enemies) {
-      const to = _v3.subVectors(e.obj.position, p);
-      const a = player.fwd.angleTo(to);
-      if (a < bestA && to.length() < 7 * S) { bestA = a; bestE = e; }
-    }
-    if (bestE) {
-      const t = bestE.obj.position.distanceTo(p) / (7 * S);
-      const lead = _v3.copy(bestE.obj.position).addScaledVector(bestE.fwd, bestE.speed * t).sub(p).normalize();
-      dir.lerp(lead, 0.6).normalize();
-    }
-    playerBullets.spawn(_v3.copy(p).addScaledVector(player.fwd, 0.2 * S), dir.multiplyScalar(7 * S).addScaledVector(player.vel, 0.5), 1.6);
+    fireShot(p);
     sfx.laser(p);
     haptic('right', 0.25, 20);
     player.fireCd = 0.14;
   }
-
+  playerFx(dt);
+}
+// One shot from the player's ship, with gentle aim assist toward an enemy inside a narrow cone.
+function fireShot(p) {
+  const dir = player.fwd.clone();
+  let bestE = null, bestA = 0.2;
+  for (const e of enemies) {
+    const to = _v3.subVectors(e.obj.position, p);
+    const a = player.fwd.angleTo(to);
+    if (a < bestA && to.length() < 7 * S) { bestA = a; bestE = e; }
+  }
+  if (bestE) {
+    const t = bestE.obj.position.distanceTo(p) / (7 * S);
+    const lead = _v3.copy(bestE.obj.position).addScaledVector(bestE.fwd, bestE.speed * t).sub(p).normalize();
+    dir.lerp(lead, 0.6).normalize();
+  }
+  playerBullets.spawn(_v3.copy(p).addScaledVector(player.fwd, 0.2 * S), dir.multiplyScalar(7 * S).addScaledVector(player.vel, 0.5), 1.6);
+}
+// The ship's invulnerability blink, hit flash and engine trail.
+function playerFx(dt) {
+  const p = player.obj.position;
   // Invulnerability blink + hit flash.
   player.invuln = Math.max(0, player.invuln - dt);
   player.flash = Math.max(0, player.flash - dt);
@@ -2914,7 +2955,7 @@ function simStep(dt) {
     updateCollisions();
     if (state === 'tutorial') tutorial.update(dt);
     else if (state === 'playing') {
-      stats.time += dt;
+      addPlayTime(gameMode, dt);
       if ((statsSaveT += dt) > 15) { statsSaveT = 0; saveStats(); }
       if (enemies.length === 0) {
         if (intermission <= 0) {
@@ -2985,10 +3026,10 @@ function loop() {
   updateMusic();
   playerBullets.sync();
   enemyBullets.sync();
-  infoPanel.visible = (state === 'playing' || state === 'gameover') && settings.layout === 'table';
   updateSeat();
   placePanels();
-  LUI.frame(dt);
+  ringUI.frame(dt);
+  updateLobbyFade(dt);
   animateMenu(dt);
   if (xr) updateRays(dt);
   { const tn = performance.now() / 1000; touch.left.update(tn); touch.right.update(tn); }
@@ -3008,7 +3049,7 @@ function loop() {
   fe.opacity = 0.7 + 0.3 * Math.min(1, framePulse);
 
   hudTimer -= dt;
-  if (hudTimer <= 0) { hudTimer = 0.1; drawHud(); if (infoPanel.visible) drawInfo(); LUI.drawGame(); }
+  if (hudTimer <= 0) { hudTimer = 0.1; drawHud(); ringUI.drawGame(); }
 
   if (TEST) {
     statusTimer -= dt;
@@ -3042,12 +3083,12 @@ window.__game = {
   player, enemiesList: enemies, startGame, rig, camera, renderer, scene, shipArrow, pointer, reticle,
   get steerMode() { return activeSteer(); },
   settings, setSetting, input, board, box, mirrorQ, bots, obstacles, groups,
-  get mode() { return gameMode; }, get boxB() { return BOX_B; }, HB, get morphing() { return morphT < 1; }, AI, bestRound, damageBot, get msgTitle() { return msgTitle; }, get msgOn() { return msgTime > 0; }, infoBoxes, INFO_W, INFO_H, placeInfo, get msgSub() { return msgSub; }, get starsOn() { return starsOn; }, get starAlpha() { return starAlpha; }, startRound, infoPanel, hudPanel, get friends() { return friends; }, get squadEngaged() { return squadEngaged; },
-  get lobbyPanel() { return LUI.mainPanel(); }, get LUI() { return LUI; }, gameOver, get msgTime() { return msgTime; }, SETTINGS_DEF, tutorial, enterLobby, startTutorial, finishTutorial, stats, recordGame, leaveGame, grab, uiHit, placePanels, grabGain,
+  get mode() { return gameMode; }, get boxB() { return BOX_B; }, HB, get morphing() { return morphT < 1; }, AI, bestRound, damageBot, get msgTitle() { return msgTitle; }, get msgOn() { return msgTime > 0; }, get msgSub() { return msgSub; }, get starsOn() { return starsOn; }, get starAlpha() { return starAlpha; }, startRound, hudPanel, get friends() { return friends; }, get squadEngaged() { return squadEngaged; },
+  get lobbyPanel() { return ringUI.lobby; }, get ring() { return ringUI; }, get lobbySim() { return lobbySim; }, simFade, get trailVisible() { return trail.visible; }, gameOver, get msgTime() { return msgTime; }, SETTINGS_DEF, tutorial, enterLobby, startTutorial, finishTutorial, stats, recordGame, leaveGame, grab, uiHit, placePanels, grabGain,
   get simTime() { return simTime; }, menuLayout, get kills() { return kills; },
   get tutStage() { return tutStageName; }, get tutFreeze() { return tutFreeze; }, get shots() { return shotsFired; },
   tutorialDone, spawnTut, setTutStage: tutStage, applyBoard, drawMenu, touch, get hudVisible() { return hudPanel.visible; }, get menuCanvas() { return menuCanvas; }, MENU_TOP, MENU_ROW, MENU_ROWS,
-  startGameAt(mode, round) { settings.mode = mode; startGame(round); },
+  startGameAt(mode, round) { settings.mode = mode; startGame(round); }, damagePlayer,
   get enemyBullets() { return enemyBullets.list.length; }, get bullets() { return playerBullets.list.length; }, toggleSettings, get menuOpen() { return menuOpen; }, get menuHover() { return menuHover; }, menuPanel, seat, rayFx, get panelMoves() { return panelMoves; }, menuAnim,
   // v18
   get split() { return split; }, setSplit, get formation() { return formation; }, cycleFormation, cmdB, GA, GB, SQUAD, inputB,

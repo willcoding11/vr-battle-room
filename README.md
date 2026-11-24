@@ -46,59 +46,63 @@ lobby runs it again.
 ## Lobby
 
 After the tutorial, every time you enter VR, and a few seconds after a game ends, you are in the **lobby**.
-A blue-vs-red skirmish plays out around the stars in the room as a backdrop.
+A battle plays inside the room as a backdrop, and it follows the mode you pick:
+- **Fighter:** what a Fighter game looks like, played bot-on-bots: one blue fighter on autopilot against red
+  ships using the real Fighter-mode behaviours (waves 1-4 in turn), in a Fighter-sized room that reshapes
+  between waves. The blue ship can be shot down; it comes back a moment later.
+- **Squadron:** a blue squadron skirmishing with red raiders round the stars.
+
+Changing the mode **cross-fades** between them: the battle fades out, the room glides to its new shape and the
+other battle fades in (about 0.65 s). The room's frame stays put.
 
 - **Grip** (either hand) and drag to move the room; **grip + that hand's stick up/down** resizes it. A bigger
   room moves a little more per hand movement and a smaller one less (gain sqrt(size / medium), 0.7 - 1.6).
-- The **lobby menu** (where it sits depends on the Layout setting, see [Panel layouts](#panel-layouts); point
-  with either controller's ray, pull the trigger):
-  - **GAME MODE:** Fighter / Squadron, with a one-line description.
-  - **START**.
-  - **SETTINGS** and **TUTORIAL** (runs the tutorial again).
-- **Stats** (saved on the device): best round, games and last round for each mode, win streak (a "win" is a
-  game in which you cleared at least round 1; the streak counts wins in a row) and best streak, total kills,
-  games played, **time in battle** (time spent in games), **screen time** (all time in the headset: lobby,
-  tutorial and games; shown like `1h 05m`, saved every 15 s and when you leave VR) and best score.
 
-Settings (left **X + Y**, or the lobby **SETTINGS** button; press either again to close) open where the layout
-keeps them (see below). From the lobby the panel slides out of the SETTINGS button to its spot in about 0.3 s,
-fading in, so you can see where it went; closing is a quick fade. With Settings open:
-- **In the lobby** nothing stops: the skirmish keeps playing, and you can still grip-move and grip + stick resize
-  the room.
+### The holo ring
+
+The menu is a **curved holo band above the room**, facing you (point with either controller's ray, pull the
+trigger): **FIGHTER / SQUADRON**, **START**, **SETTINGS**, **STATS** and **TUTORIAL** on one row, everything
+within about 35 degrees of straight ahead. A short line above START shows your best score and the selected
+mode's best round. In a game the band shows the round and hostiles, the score in the middle and announcements
+on the right.
+
+**It never covers the battle:** the band's bottom edge is always above the room's top, so every sight line to
+it passes over the room (nothing in the room is behind it), and it is drawn with depth testing first, so any
+ship, shot or star between you and the band shows in front of it. It sits about 18 degrees above straight ahead
+for the default room (v26: 23 degrees). In the lobby rooms are never taller than the cube, so the band stays
+still while the room reshapes; in a game it rises with a tall room.
+
+**STATS** opens the stats panel to the **right** of the room (Settings opens on the left): it slides out of the
+STATS button with a quick fade (0.3 s), like Settings. Press STATS again, or CLOSE on the panel, to close it.
+It has one section per mode, each with that mode's own numbers (the selected mode is highlighted):
+- **FIGHTER** and **SQUADRON:** best round, games, last round, best score, kills, time played, win streak and
+  best streak (a "win" is a game in which you cleared at least round 1; the streak counts wins in a row).
+- **ENDLESS:** best distance, best score, outposts destroyed, games and time played (shown as dashes until
+  Endless mode arrives).
+- The header line has the totals: **screen time** (all time in the headset: lobby, tutorial and games; saved
+  every 15 s and when you leave VR), total kills and games.
+
+Per-mode best score, kills, time played and win streak are tracked from v27 on (older saves had only best
+round, games and last round per mode). Every number has thousands separators.
+
+Settings (left **X + Y**, or the ring's **SETTINGS** button; press either again to close) open on a panel to
+the **left** of the room. From the lobby the panel slides out of the SETTINGS button to its spot in about
+0.3 s, fading in, so you can see where it went; closing is a quick fade. With Settings open:
+- **In the lobby** nothing stops: the backdrop battle keeps playing, and you can still grip-move and
+  grip + stick resize the room.
 - **In a game** the battle is **paused** (so nothing can hit you while you read), and you can grip-move and
   grip + stick resize the room too. Close Settings to carry on.
 
 The two **volume sliders** (Music, Sound) work like the other rows: point at the bar and pull the trigger
 where you want the level.
 
-### Panel layouts
+| Lobby | Stats open | Settings open |
+|---|---|---|
+| ![](screenshots/v27-lobby.png) | ![](screenshots/v27-lobby-stats.png) | ![](screenshots/v27-lobby-settings.png) |
 
-**Settings > Layout** picks where the lobby menu, stats, Settings, the tutorial card and the in-game score and
-announcements live. It takes effect at once (Settings stays open and pointable, placed for the new layout) and
-is saved. Default: **Command table**.
-
-- **Command table.** A low holo table between you and the room, just in front of your knees. The lobby menu
-  card stands up toward you; the stats card lies on the table and stands up when you point at it; Settings
-  stands on the left of the table, the tutorial card in the middle, and in a game the score board (score, round,
-  hostiles, announcements) lies on the table. **Nothing on the table ever covers the room:** every card corner
-  is kept under the plane through your eye and the room's front-bottom edge (cards stand up less when needed),
-  and the table sits below that line and in front of the room's near face. It follows the room when you move
-  or resize it. Because the room is close to you, you look down at the table quite steeply (about 60-80
-  degrees below straight ahead) to read it.
-- **Holo ring.** A curved band above the room, facing you. Lobby: FIGHTER / SQUADRON, START, SETTINGS and
-  TUTORIAL on one row (everything within about 37 degrees of straight ahead), with one line of stats above it.
-  In a game: round and hostiles, score in the middle, announcements on the right. Settings and the tutorial
-  card stay in their usual spots beside the room.
-- **Twin pillars.** Two tall panels beside the room. Left: the menu (short labels: FIGHTER / SQUAD, START,
-  SETTINGS, TUTORIAL); right: stats. Settings opens in place of the menu pillar. In a game the right pillar
-  shows announcements (wrapped onto several lines), score, round and hostiles; the left one shows the mode,
-  round, best score and best round.
-
-| | Lobby + Settings | Game + announcement | Tutorial |
-|---|---|---|---|
-| Command table | ![](screenshots/v26-table-lobby.png) | ![](screenshots/v26-table-game.png) | ![](screenshots/v26-table-tutorial.png) |
-| Holo ring | ![](screenshots/v26-ring-lobby.png) | ![](screenshots/v26-ring-game.png) | ![](screenshots/v26-ring-tutorial.png) |
-| Twin pillars | ![](screenshots/v26-pillars-lobby.png) | ![](screenshots/v26-pillars-game.png) | ![](screenshots/v26-pillars-tutorial.png) |
+| Game + announcement | Fighter backdrop | Squadron backdrop |
+|---|---|---|
+| ![](screenshots/v27-game.png) | ![](screenshots/v27-lobby-fighter-sim.png) | ![](screenshots/v27-lobby-squadron-sim.png) |
 
 ## Rounds: every round is a fresh battle
 
@@ -227,14 +231,11 @@ and in battle a driving synth track (bass, arpeggio, drums, 112 BPM) whose layer
 enemies alive and your recent kills. Everything goes through a compressor and a limiter, so it never clips.
 Music and Sound volume are separate sliders in Settings.
 
-**The side board (both modes):** an invisible board floats just outside the room's **right** wall, about
-30 degrees right of straight ahead. **All announcements** appear at its top (round start and new enemy
-tactics, round cleared, ace, leader down, wingman down, split / formation, game over...), and your **score**
-is always shown big below them, with the round and the number of hostiles. Nothing ever pops up in front of
-the battle. Your **wrist** only shows your hull (Fighter) or your 4 bots' hull and the formation / split state
-(Squadron).
-
-![side board](screenshots/24-side-board.png)
+**Score and announcements (both modes)** are on the holo ring above the room: **all announcements** (round
+start and new enemy tactics, round cleared, ace, leader down, wingman down, split / formation, game over...) on
+its right, your **score** big in the middle, the round and the number of hostiles on its left. Nothing ever
+pops up in front of the battle. Your **wrist** only shows your hull (Fighter) or your 4 bots' hull and the
+formation / split state (Squadron).
 
 ## Controls
 
@@ -265,7 +266,6 @@ Right B and the right stick click do nothing. Steering is always this one style 
 | Steering gain (Fighter) | 1x / 1.5x / 2x / 2.5x / 3x / 3.5x | 2x |
 | Steering gain (Squadron) | 1x / 1.5x / 2x / 2.5x / 3x / 3.5x | 3x |
 | Box size | Small 0.7 m / Medium 1.0 m / Large 1.3 m | Medium |
-| Layout | Command table / Holo ring / Twin pillars | Command table |
 | Music volume | slider 0-10 | 6 |
 | Sound volume | slider 0-10 | 8 |
 | Box position | RESET puts the box back in its default spot | |
@@ -325,7 +325,7 @@ the left stick to put the box back in its default spot.
 - `js/ui.js` - VR panels (canvas text and buttons picked with a controller ray) and the animated controller icons
 - `js/controller.js` - the wireframe controller gizmos at your hands
 - `js/tutorial.js` - the step-by-step tutorial
-- `js/layout.js` - the panel layouts (command table, holo ring, twin pillars)
+- `js/ring.js` - the holo ring (lobby menu, in-game score and announcements) and the stats panel
 - `js/stats.js` - stats saved on the device (localStorage)
 - `js/models.js` - wireframe ship models (points joined by lines)
 - `js/audio.js` - synthesized 3D sound effects and the mix (WebAudio, no audio files)
@@ -342,17 +342,29 @@ of it shows behind or through a panel; the cursor ring sits 2 mm in front of the
 
 ![ui pointer](screenshots/26-ui-pointer-oblique.png)
 
-**Panels stay still.** Outside the command table, Settings, the tutorial card and the side board are placed beside the room
+**Panels stay still.** Settings, the stats panel and the tutorial card are placed beside the room
 and turned only part of the way toward where you sat when you entered VR: half-way between square to the
 room's front face and facing you, capped at 22 degrees, about the vertical axis only. They never follow your
 head; they are only re-placed when you move, resize or reshape the room (or re-centre with the Meta button).
 
 ![panels from the seat](screenshots/27-panels-seated.png)
 
+## Changes in v27
+
+- **Holo ring is the only layout:** the Layout setting, the command table, the twin pillars and the old side
+  board are gone.
+- The ring sits lower (about 18 degrees above straight ahead instead of 23 for the default room), its bottom
+  edge always above the room, and is depth-tested so ships in front of it show over it. In the lobby it stays
+  still when the room reshapes.
+- **STATS** button on the ring: a stats panel to the right of the room (slide + fade, like Settings on the
+  left), with Fighter, Squadron and Endless sections; per-mode best score, kills, time and win streak tracked.
+- **The lobby backdrop follows the selected mode:** Fighter shows a bot-on-bots Fighter battle (autopilot ship
+  vs real Fighter waves, Fighter room); Squadron the squad skirmish; switching cross-fades in about 0.65 s.
+
 ## Changes in v26
 
 - **Layout setting** with three panel layouts, switchable live and saved: **Command table** (default), **Holo
-  ring** and **Twin pillars** (see [Panel layouts](#panel-layouts)). The separate lobby panel beside the room is
+  ring** and **Twin pillars**. The separate lobby panel beside the room is
   replaced by the layout's menu.
 - Command table: cards stand up when pointed at or in use and are always kept under the eye-to-room-front-bottom
   line, so they never cover the battle; the table follows the room and never touches it.
