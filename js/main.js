@@ -2,12 +2,12 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=23';
-import { createTouchController } from './controller.js?v=23';
-import { Sfx } from './audio.js?v=23';
-import { Panel, faceYaw, UI } from './ui.js?v=23';
-import { stats, saveStats, recordGame, fmtTime } from './stats.js?v=23';
-import { createTutorial } from './tutorial.js?v=23';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=24';
+import { createTouchController } from './controller.js?v=24';
+import { Sfx } from './audio.js?v=24';
+import { Panel, faceYaw, UI } from './ui.js?v=24';
+import { stats, saveStats, recordGame, fmtTime, fmtNum } from './stats.js?v=24';
+import { createTutorial } from './tutorial.js?v=24';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
@@ -878,6 +878,7 @@ function updateEnemies(dt) {
   const tg = liveTargets();
   updateGroups(dt, tg);
   for (const e of enemies) {
+    if (e.hp <= 0) continue;                         // killed outside this loop; removed below
     const g = e.group, p = e.obj.position, goal = e.goal;
     let T = g.focus && g.focus.alive ? g.focus : nearestTo(p, tg);
     e.target = T;
@@ -1186,7 +1187,7 @@ function aceDown(e) {
   haptic('right', 1.0, 200); haptic('left', 1.0, 200);
   pulseFrame(ACE_COLOR, 1);
   burst(e.obj.position, 60, ACE_COLOR, 3.2 * S, 1.2);
-  showMessage('ACE DOWN!', `+${bonus} ace bonus`, 2.8);
+  showMessage('ACE DOWN!', `+${fmtNum(bonus)} ace bonus`, 2.8);
   log(`ace down bonus=${bonus}`);
 }
 
@@ -1715,11 +1716,11 @@ function drawLobby() {
   MODES.forEach((m, i) => {
     const y = 512 + i * 42, st = stats.modes[m];
     P.text(m.toUpperCase(), 36, y, { size: 26, color: settings.mode === m ? UI.gold : UI.text, maxW: 250 });
-    [st.best, st.games, st.last].forEach((v, k) => P.text(String(v), cols[k], y, { size: 28, bold: k === 0, color: k === 0 ? UI.title : UI.text, align: 'center', maxW: 170 }));
+    [st.best, st.games, st.last].forEach((v, k) => P.text(fmtNum(v), cols[k], y, { size: 28, bold: k === 0, color: k === 0 ? UI.title : UI.text, align: 'center', maxW: 170 }));
   });
   const rows = [
-    ['Win streak', `${stats.streak}   (best ${stats.bestStreak})`], ['Total kills', String(stats.kills)],
-    ['Games played', String(stats.games)], ['Time in battle', fmtTime(stats.time)], ['Screen time', (screenShown = fmtTime(stats.screen))], ['Best score', String(Math.max(stats.bestScore, best))],
+    ['Win streak', `${stats.streak}   (best ${stats.bestStreak})`], ['Total kills', fmtNum(stats.kills)],
+    ['Games played', fmtNum(stats.games)], ['Time in battle', fmtTime(stats.time)], ['Screen time', (screenShown = fmtTime(stats.screen))], ['Best score', fmtNum(Math.max(stats.bestScore, best))],
   ];
   rows.forEach(([l, v], i) => {
     const y = 628 + i * 40;
@@ -1909,7 +1910,7 @@ function drawInfo(force = false) {
   g.fillStyle = 'rgba(80,220,255,0.35)'; g.fillRect(x, 348, W - 2 * x, 3);
   g.shadowBlur = 14;
   infoText('SCORE', x, 410, 38, true, '#5fa9bf');
-  infoText(String(score), x, 552, 150, true, '#7fe9ff');
+  infoText(fmtNum(score), x, 552, 150, true, '#7fe9ff');
   const sub = state === 'gameover' ? `ROUND ${wave}` : intermission > 0 ? `ROUND ${wave} CLEARED`
     : `ROUND ${wave}   ${hostiles} HOSTILE${hostiles === 1 ? '' : 'S'}`;
   infoText(sub, x, 636, 46, false, '#bfefff');
@@ -2926,7 +2927,7 @@ function simStep(dt) {
           const bonus = 500 * wave;
           score += bonus;
           saveBest();
-          showMessage(`ROUND ${wave} CLEARED`, `+${bonus} round bonus - next: a fresh battle, full strength`, 2.8);
+          showMessage(`ROUND ${wave} CLEARED`, `+${fmtNum(bonus)} round bonus - next: a fresh battle, full strength`, 2.8);
           log(`round cleared mode=${gameMode} round=${wave} t=${simTime.toFixed(1)}`);
         } else {
           intermission -= dt;

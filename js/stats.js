@@ -36,6 +36,9 @@ export function recordGame(mode, round, score, kills) {
   saveStats();
 }
 
+// Scores and other counts with thousands separators: 18450 -> "18,450" (shared by every display).
+export function fmtNum(n) { return Math.round(n).toLocaleString('en-US'); }
+
 export function fmtTime(sec) {
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
   return h ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;

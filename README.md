@@ -322,6 +322,18 @@ head; they are only re-placed when you move, resize or reshape the room (or re-c
 
 ![panels from the seat](screenshots/27-panels-seated.png)
 
+## Changes in v24
+
+- **Thousands separators:** scores read like `18,450` everywhere: the side-board score in play and at game
+  over, the ace and round bonus announcements (also in the desktop `?test` message box), and the lobby's Best
+  score, Total kills, Games played and per-mode games. One shared formatter (`fmtNum` in `js/stats.js`).
+- **Fix:** an ace killed outside the enemy update (e.g. overkill in one frame) could briefly be treated as
+  still alive and announce "ACE IS RUNNING" over its "ACE DOWN!" bonus; dead enemies are now skipped.
+- Before / after pairs of every place a score appears: `screenshots/compare/<place>-before.png` and
+  `-after.png` (lobby-stats, sideboard-score, ace-bonus, round-bonus, game-over, desktop-message).
+
+![best score after](screenshots/compare/lobby-stats-after.png)
+
 ## Changes in v23
 
 - **Screen time:** a new stat that adds up every second spent in the headset (lobby, tutorial and battles).
