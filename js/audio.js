@@ -4,7 +4,7 @@
 //                             +-> master -> glue compressor -> limiter -> out
 //   music -> MUSIC volume -> duck (dips under big explosions) --/
 // Volumes are 0..1 from the settings sliders (squared, so the slider feels even).
-import { Music } from './music.js?v=30';
+import { Music } from './music.js?v=31';
 
 export class Sfx {
   constructor() {
@@ -162,14 +162,12 @@ export class Sfx {
   }
 
   // An outpost destroyed: a big boom, a long sub drop and a rolling second blast.
+  // (v31: quieter and shorter - a normal boom with a soft low drop under it.)
   blast(pos) {
     if (!this.ctx) return;
-    this.boom(pos, true);
+    this.boom(pos, false);
     const t = this.now(), out = this._out(pos);
-    this._osc(t, 'sine', 90, 22, 2.2, 0.7, out);
-    this._noise(t + 0.25, 'lowpass', 900, 80, 0.7, 0.4, 2.4, out, 0.3);
-    this._osc(t + 0.3, 'sawtooth', 220, 40, 1.2, 0.12, out);
-    this._duck(0.4, 0.6);
+    this._osc(t, 'sine', 110, 40, 0.8, 0.3, out);
   }
 
   // You are hit: a saw drop and a thump (not positional: it's your ship).

@@ -122,7 +122,7 @@ never pauses in Endless (only Settings pauses it).
   You start beside an ordinary star.
 - **Enemy outposts** are **red stars** with their ships huddled round them. They wake when you come close,
   roam near their star (they never chase you far), and go back to sleep if you leave. The further from home,
-  the higher the **tier**: more and tougher ships, and more points.
+  the higher the **tier** (one step every 36 units): more and tougher ships, and more points.
 - **Friendly outposts** are **green stars**, commoner near home. They are **safe zones**: enemies turn away
   from them and enemy shots fizzle out near them.
 - Outposts are closer together than in v28 (regions 26 units apart instead of 40).
@@ -130,18 +130,17 @@ never pauses in Endless (only Settings pauses it).
   nearest friendly outpost when a ship is hurt. Each arrow is a long shaft with two short prongs, and it
   turns slowly about its own axis. The ring also shows the next outpost's distance and tier.
 - **Asteroid fields** drift slowly and damage whatever hits them; they are commoner further out.
-- **Destroying an outpost** (every ship round it) gives 1,000 x its tier in points and credits. It ends with
-  a shockwave (two expanding rings), debris and sparks, a big boom and a short hit-stop. The red star
-  flickers, collapses and comes back grey.
-- **Landing:** fly onto a cleared outpost or a green star and you land: the ship (or the whole squadron)
-  settles on top of the star and waits there while the game keeps running. The choices show on the ring
-  (point + trigger):
+- **Destroying an outpost** (every ship round it) gives 1,000 x its tier in points and credits. A short effect
+  (1 s): one faint ring, a few sparks, a quieter boom, a very short hit-stop; the red star flickers gently,
+  shrinks and comes back grey. Then your ships **glide onto the star by themselves** (about 1 s) and land.
+- **Landed:** the ship (or the whole squadron) sits on top of the star while the game keeps running. Landed
+  ships can't be hurt and steering does nothing. A small panel appears **beside the star** (point + trigger):
   - **Cleared outpost:** an upgrade: **+1 wingman**, **+hull** (every ship, fully repaired) or **+fire rate**
-    (15%). The grey star pulses until you take it.
-  - **Friendly outpost:** **repair all** (300), **a new fighter** (1,500, +500 each time) and **+1 hull for every
-    ship** (1,200, +50% each time), paid with credits.
-  - To **take off**, steer away (turn about 40 degrees from your heading for half a second) or boost.
-    Pointing at the ring doesn't count as steering.
+    (15%).
+  - **Friendly outpost** (fly onto the green star to land): **repair all** (300), **a new fighter** (1,500,
+    +500 each time) and **+1 hull for every ship** (1,200, +50% each time), paid with credits.
+  - **LAUNCH** on the panel is the only way to take off. If you launch from a cleared outpost without
+    choosing, its grey star pulses and you can fly back onto it later.
 - You start as **one fighter** (Fighter controls). Kills earn credits. With a wingman you lead a squadron
   (Squadron controls, up to 4 ships).
 - A destroyed ship is gone for good. Lose them all and the run ends: you see your distance and score, then
@@ -156,9 +155,9 @@ so a busy tier-3 outpost fight costs about 0.5 ms of game logic per frame.
 |---|---|---|
 | ![](screenshots/v30-endless-start.png) | ![](screenshots/v30-endless-outpost.png) | ![](screenshots/v30-endless-asteroids.png) |
 
-| Outpost destroyed | Landed: upgrade on the ring | Landed on a friendly outpost |
+| Outpost destroyed (v31, toned down) | Landed: upgrade panel | Landed on a friendly outpost |
 |---|---|---|
-| ![](screenshots/v30-endless-destroy.png) | ![](screenshots/v30-endless-landed-upgrade.png) | ![](screenshots/v30-endless-landed-dock.png) |
+| ![](screenshots/v31-endless-destroy.png) | ![](screenshots/v31-endless-popup-enemy.png) | ![](screenshots/v31-endless-popup-friendly.png) |
 
 | Arrows (red: outpost, green: friendly) |
 |---|
@@ -303,7 +302,7 @@ formation / split state (Squadron).
 
 | Hand | Input | Fighter | Squadron |
 |---|---|---|---|
-| Right | **Point / turn the controller** | **Absolute forward:** hold the controller level, pointing at the room (away from you), and the ship flies straight into the box, whatever you did before. Turn away from that and the ship turns the same way, times the gain (default **2x**: 45° = 90°), in any direction including loops, without flipping. Turns past 180° stop at 180°. Wrist roll is ignored. No re-centring, no drift. | Same, for the squadron's heading (default gain **3x**) |
+| Right | **Point / turn the controller** | **Absolute forward:** point the controller along the room's front (level, straight away from you into the room) and the ship flies straight into the box, whatever you did before. This holds wherever the room is (even moved to the side), wherever your head is, and after a re-centre. Turn away from that and the ship turns the same way, times the gain (default **2x**: 45° = 90°). Left / right and up / down are both continuous: keep turning past straight back and the ship keeps turning round smoothly (no stop at 180°, no snap), and up over the top works the same way. Wrist roll is ignored. No re-centring, no drift. | Same, for the squadron's heading (default gain **3x**) |
 | Either | **Ray + trigger** on a panel | Press lobby, tutorial and settings buttons | Same |
 | Either | **Grip** (lobby and tutorial) | Drag to move the room; with that hand's **stick up/down**, resize it | Same |
 | Right | **Trigger** | Shoot (gentle aim assist) | **Hold = engage**, release = regroup |
@@ -404,12 +403,35 @@ of it shows behind or through a panel; the cursor ring sits 2 mm in front of the
 
 ![ui pointer](screenshots/26-ui-pointer-oblique.png)
 
-**Panels stay still.** Settings, the stats panel and the tutorial card are placed beside the room
-and turned only part of the way toward where you sat when you entered VR: half-way between square to the
-room's front face and facing you, capped at 22 degrees, about the vertical axis only. They never follow your
-head; they are only re-placed when you move, resize or reshape the room (or re-centre with the Meta button).
+**Panels stay still.** Settings, the stats panel and the tutorial card are placed beside the room and turned
+toward where you sat when you entered VR, about the vertical axis only, on a smooth curve:
+yaw = 42 degrees x tanh(angle to the seat / 41 degrees). At the usual spots beside the room that is about
+31 degrees (v22 - v30: half the angle, capped at 22). Small angles face you almost fully, and the turn
+approaches 42 degrees gently, with no hard stop. They never follow your head; they are only re-placed when you
+move, resize or reshape the room (or re-centre with the Meta button).
+
+| Before (v30: capped at 22 degrees) | After (v31) |
+|---|---|
+| ![](screenshots/v31-panels-before.png) | ![](screenshots/v31-panels-after.png) |
 
 ![panels from the seat](screenshots/27-panels-seated.png)
+
+## Changes in v31
+
+- **Steering:** forward is now the room's own front axis (level), so pointing the controller along it always
+  flies straight away, even with the room moved to the side, after head movement or a re-centre. (Before, the
+  neutral was the direction from the seat to the room, which drifted when the room was off-centre.) Yaw and
+  pitch are scaled separately with unwrapped angles, so turning is continuous all the way round: no 180-degree
+  clamp, no snap, no jitter.
+- **Side panels** turn more toward you on a smooth asymptotic curve (about 31 degrees at the usual spots, max 42).
+- **Endless:**
+  - Tiers (difficulty and reward) step every 36 units instead of 45 (about 25% steeper).
+  - The outpost destroy effect is toned down: one faint ring, fewer sparks, a gentle flicker, a quieter boom,
+    a very short hit-stop.
+  - After you clear an outpost, your ships glide onto the star by themselves (about 1 s) and land. A small panel
+    beside the star offers the upgrade. Friendly outposts work the same way: fly onto the green star and the
+    panel offers repair and buy. **LAUNCH** on the panel is the only way to take off; steering does nothing while
+    landed, landed ships can't be hurt, and the game never pauses.
 
 ## Changes in v30
 

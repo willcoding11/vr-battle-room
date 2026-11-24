@@ -2,14 +2,14 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=30';
-import { createTouchController } from './controller.js?v=30';
-import { Sfx } from './audio.js?v=30';
-import { UI } from './ui.js?v=30';
-import { stats, saveStats, recordGame, recordEndless, addPlayTime, fmtTime, fmtNum } from './stats.js?v=30';
-import { createTutorial } from './tutorial.js?v=30';
-import { createRingUI } from './ring.js?v=30';
-import { createEndless } from './endless.js?v=30';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=31';
+import { createTouchController } from './controller.js?v=31';
+import { Sfx } from './audio.js?v=31';
+import { UI } from './ui.js?v=31';
+import { stats, saveStats, recordGame, recordEndless, addPlayTime, fmtTime, fmtNum } from './stats.js?v=31';
+import { createTutorial } from './tutorial.js?v=31';
+import { createRingUI } from './ring.js?v=31';
+import { createEndless } from './endless.js?v=31';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
@@ -1558,6 +1558,7 @@ function updateBots(dt) {
   prevEngaged = squadEngaged;
 }
 function damageBot(b, bullet) {
+  if (landing.on && state === 'playing') return;      // Endless: landed ships can't be hurt
   if (!b.alive || b.invuln > 0 || !combat()) return;
   const sq = b.unit;
   if (state !== 'lobby') {
@@ -1618,6 +1619,7 @@ function applyMode(mode = settings.mode) {
   resetBots();
 }
 function damagePlayer(bullet) {
+  if (landing.on && state === 'playing') return;      // Endless: landed ships can't be hurt
   if (!player.alive || player.invuln > 0 || !combat()) return;
   if (state === 'lobby') {                           // the Fighter backdrop's autopilot ship: hit, never destroyed
     player.invuln = 0.6; player.flash = 0.25;
@@ -2215,47 +2217,70 @@ function updateShipArrow(xr) {
   shipArrow.visible = true;
 }
 
-// Mirror steering, all in quaternions (no Euler angles, so no pitch limit and no flip at vertical):
-//   rel   = neutral^-1 * controller            (controller rotation away from the fixed neutral, in its own frame)
-//   swing = rel with the twist about the controller's forward axis removed (wrist roll is ignored)
-//   swing -> axis-angle, angle x gain (capped at 180 deg), axis taken back to world space
-//   target ship orientation = scaledSwing * shipNeutral
-// The ship's up vector comes from that rotation, so it can loop over the top without snapping.
-// ABSOLUTE FORWARD: the neutral is fixed in the world - the controller held level, pointing from you
-// (the play-space origin) toward the battle room. Pointing that way always flies the ship (or squadron)
-// straight into the box, away from you, however the controller was held before. Nothing drifts and
-// there is no re-centre. Both hands use the same neutral.
-const mNeutralQ = new THREE.Quaternion();                  // fixed neutral controller orientation (see updateNeutral)
+// Mirror steering (v31). Everything is measured in the battle room's own frame: its front axis (-Z, level)
+// is the fixed neutral, so pointing the controller (its targetRay / pointer pose) along the room's front
+// always flies straight away into the room - whether the room is moved to the side, your head moves, the
+// seat is re-captured or you re-centre (the room and the controllers share one reference space).
+// (v30 and before used the direction from the seat to the room, which drifted when the room was off-centre.)
+//   The controller's pointing direction, in the room frame, is split into yaw (left / right) and pitch
+//   (up / down). Yaw is UNWRAPPED frame to frame, so it is continuous: turn the controller round past
+//   straight back and the ship keeps turning round, smoothly (no 180-degree clamp, no snap). Pitch is
+//   continuous over the top as well (pointing up and over the head is tracked as pitch past 90 degrees,
+//   not as a sudden half-turn of yaw). Both are scaled by the gain separately:
+//     ship = Ry(gain * yaw) * Rx(gain * pitch) * shipNeutral
+//   Wrist roll is ignored. Whole extra turns are dropped again whenever that can't move the ship (whole-number
+//   gains), so after a full spin, pointing forward is straight ahead again.
+const mNeutralQ = new THREE.Quaternion();                  // the room's front, level (see updateNeutral)
 const SHIP_NEUTRAL_Q = new THREE.Quaternion();             // ship orientation at neutral: into the box
 quatFromDir(new THREE.Vector3(0, 0, -1), SHIP_NEUTRAL_Q);
 const mirrorQ = SHIP_NEUTRAL_Q.clone();                    // target ship orientation (before cosmetic bank)
-const _mq = new THREE.Quaternion(), _mt = new THREE.Quaternion(), _ma = new THREE.Vector3();
+const _mq = new THREE.Quaternion(), _mt = new THREE.Quaternion(), _mi = new THREE.Quaternion(), _mf = new THREE.Vector3();
 const mirrorQB = new THREE.Quaternion();                    // group B (left hand) target orientation
-function setMirrorTarget(ctrlQ) { mirrorInto(ctrlQ, mNeutralQ, SHIP_NEUTRAL_Q, mirrorQ); }
-const YAXIS = new THREE.Vector3(0, 1, 0);
+// Unwrapped steering angles, one tracker per hand (right: main / group A; left: group B when split).
+const steerA = { init: false, raw: 0, yaw: 0, over: false, pitch: 0, lastPitch: 0 };
+const steerB = { init: false, raw: 0, yaw: 0, over: false, pitch: 0, lastPitch: 0 };
+function setMirrorTarget(ctrlQ) { mirrorInto(ctrlQ, mNeutralQ, SHIP_NEUTRAL_Q, mirrorQ, steerA); }
+const YAXIS = new THREE.Vector3(0, 1, 0), XAXIS = new THREE.Vector3(1, 0, 0);
 function updateNeutral() {
-  // Level direction from the play-space origin (where you sit) to the room's centre.
-  rig.getWorldPosition(_v1);
-  const dx = board.position.x - _v1.x, dz = board.position.z - _v1.z;
-  const yawN = Math.hypot(dx, dz) > 0.05 ? Math.atan2(-dx, -dz) : 0;
+  // The battle room's front axis (-Z), level. (The room only translates and scales, so this is its own
+  // facing in the shared reference space; it does not depend on where you sit or where the room is.)
+  board.getWorldQuaternion(_mi);
+  _mf.set(0, 0, -1).applyQuaternion(_mi);
+  const yawN = Math.hypot(_mf.x, _mf.z) > 1e-6 ? Math.atan2(-_mf.x, -_mf.z) : 0;
   mNeutralQ.setFromAxisAngle(YAXIS, yawN);
   SHIP_NEUTRAL_Q.copy(BOX_FWD_Q);
 }
-function mirrorInto(ctrlQ, mNeutralQ, SHIP_NEUTRAL_Q, mirrorQ) {
-  const g = Number(teamMode() ? settings.steerGainSq : settings.steerGain) || 2;
-  _mq.copy(mNeutralQ).invert().multiply(ctrlQ);
-  // Swing-twist decomposition about local Z (the controller points down -Z): rel = swing * twist.
-  const tl = Math.hypot(_mq.z, _mq.w);
-  if (tl > 1e-6) {
-    _mt.set(0, 0, _mq.z / tl, _mq.w / tl).invert();
-    _mq.multiply(_mt);                                    // swing = rel * twist^-1
+const TAU = Math.PI * 2;
+const wrapPi = (a) => a - Math.round(a / TAU) * TAU;
+function steerAngles(ctrlQ, nQ, tr) {
+  // Controller pointing direction (targetRay -Z) in the room frame.
+  _mf.set(0, 0, -1).applyQuaternion(ctrlQ).applyQuaternion(_mi.copy(nQ).invert());
+  const h = Math.hypot(_mf.x, _mf.z);
+  const pitch = Math.atan2(_mf.y, h);                 // -90 .. 90 degrees
+  if (h > 1e-4) {
+    let raw = Math.atan2(-_mf.x, -_mf.z) + (tr.over ? Math.PI : 0);
+    if (!tr.init) { tr.init = true; tr.raw = raw; tr.yaw = wrapPi(raw); tr.over = false; }
+    let d = wrapPi(raw - tr.raw);
+    // Through the vertical (over the top / under): the raw yaw flips by half a turn - that's pitch, not yaw.
+    if (Math.abs(d) > 2.2 && Math.abs(tr.lastPitch) > 1.0) { tr.over = !tr.over; raw += Math.PI; d = wrapPi(raw - tr.raw); }
+    tr.yaw += d;
+    tr.raw = raw;
+    // Drop whole extra turns when the controller is back near the front and that can't move the ship.
+    const g = steerGain(), k = Math.round((tr.yaw - wrapPi(raw)) / TAU);
+    if (k && !tr.over && Math.abs(wrapPi(raw)) < 0.8 && Math.abs(g * k - Math.round(g * k)) < 1e-9) tr.yaw -= k * TAU;
   }
-  if (_mq.w < 0) _mq.set(-_mq.x, -_mq.y, -_mq.z, -_mq.w); // shortest-arc form: angle in [0, 180]
-  const s = Math.hypot(_mq.x, _mq.y, _mq.z);
-  if (s < 1e-7) { mirrorQ.copy(SHIP_NEUTRAL_Q); return; }
-  const angle = Math.min(Math.PI, 2 * Math.atan2(s, _mq.w) * g);
-  _ma.set(_mq.x / s, _mq.y / s, _mq.z / s).applyQuaternion(mNeutralQ);  // axis in world space
-  mirrorQ.setFromAxisAngle(_ma, angle).multiply(SHIP_NEUTRAL_Q);
+  tr.lastPitch = pitch;
+  tr.pitch = tr.over ? (pitch >= 0 ? Math.PI - pitch : -Math.PI - pitch) : pitch;
+  return tr;
+}
+function steerGain() { return Number(teamMode() ? settings.steerGainSq : settings.steerGain) || 2; }
+function mirrorInto(ctrlQ, nQ, shipN, out, tr = steerA) {
+  const g = steerGain();
+  steerAngles(ctrlQ, nQ, tr);
+  _mq.setFromAxisAngle(YAXIS, g * tr.yaw);
+  _mt.setFromAxisAngle(XAXIS, g * tr.pitch);
+  // world = neutral * Ry * Rx * neutral^-1 * shipNeutral
+  out.copy(nQ).multiply(_mq).multiply(_mt).multiply(_mi.copy(nQ).invert()).multiply(shipN);
 }
 // ---------------------------------------------------------------- XR controllers
 const hands = { left: null, right: null }; // controller groups by handedness
@@ -2601,7 +2626,7 @@ function gatherInputVR(dt) {
     if (split && gameMode === 'squadron') {
       // SPLIT: the left hand commands the gold pair: its own mirror steering, trigger = engage, grip / stick = boost.
       L.getWorldQuaternion(_q);
-      mirrorInto(_q, mNeutralQ, SHIP_NEUTRAL_Q, mirrorQB);
+      mirrorInto(_q, mNeutralQ, SHIP_NEUTRAL_Q, mirrorQB, steerB);
       inputB.dir.set(0, 0, -1).applyQuaternion(_q);
       inputB.hasSteer = true;
       if (!menuOpen) inputB.fire = lt;
@@ -2725,12 +2750,19 @@ function updateSeat() {
   panelKey = '';
   log(`seat ${seat.x.toFixed(2)},${seat.y.toFixed(2)},${seat.z.toFixed(2)}`);
 }
-// Side panels only turn part of the way toward you: half-way between parallel to the room's front face
-// and facing the seat, capped at 22 degrees, so they read well without looking sharply angled.
-const PANEL_TURN = 0.5, PANEL_MAX_YAW = 22 * Math.PI / 180;
+// Side panels turn toward the seat on a smooth curve that approaches a maximum (no hard cap, no snap):
+// yaw = PANEL_MAX_YAW * tanh(angle to the seat / PANEL_YAW_S). At the usual spots beside the room (about
+// 40 degrees off) that is about 32 degrees; small angles face you almost fully. Vertical axis only, and
+// still fixed in place (no head tracking). (v22 - v30: half the angle, capped at 22 degrees.)
+const PANEL_MAX_YAW = 42 * Math.PI / 180, PANEL_YAW_S = 0.72;
+let panelYawLegacy = false;                          // (tests: the old curve, for before / after shots)
+function panelYaw(full) {
+  if (panelYawLegacy) return clamp(full * 0.5, -22 * Math.PI / 180, 22 * Math.PI / 180);
+  return PANEL_MAX_YAW * Math.tanh(full / PANEL_YAW_S);
+}
 function faceSeat(mesh) {
   const full = Math.atan2(seat.x - mesh.position.x, seat.z - mesh.position.z);
-  mesh.rotation.set(0, clamp(full * PANEL_TURN, -PANEL_MAX_YAW, PANEL_MAX_YAW), 0);
+  mesh.rotation.set(0, panelYaw(full), 0);
 }
 ringUI = createRingUI({
   rig, seat, settings, stats, MODES, MODE_INFO, fmtNum, fmtTime, uiHit, faceSeat, lobbyClick, log, menuOpen: () => menuOpen,
@@ -2756,27 +2788,28 @@ function setEndlessControls(m) {
 // Fly onto a green star (or a cleared outpost) and you land: your ship / squadron settles on top of it and
 // waits, the game keeps running, and the choices show on the ring. Take off by steering away (turn more than
 // about 40 degrees from where you were heading for half a second, while not pointing at the ring) or boost.
-const landing = { on: false, at: new THREE.Vector3(), c: new THREE.Vector3(), r: 0, fwd0: new THREE.Vector3(), t: 0, awayT: 0 };
-function landOn(c, r) {
+const landing = { on: false, at: new THREE.Vector3(), c: new THREE.Vector3(), r: 0, from: new THREE.Vector3(), t: 0, glide: 1, bfrom: new Map() };
+// Glide smoothly (eased, `glide` seconds) onto the top of the star at c.
+function landOn(c, r, glide = 1) {
   landing.on = true; landing.c.copy(c); landing.r = r;
   landing.at.copy(c).add(_v1.set(0, r + 0.3, 0));
-  landing.fwd0.copy(player.fwd); landing.t = 0; landing.awayT = 0;
+  landing.from.copy(player.obj.position); landing.t = 0; landing.glide = Math.max(0.05, glide);
+  landing.bfrom.clear();
+  for (const b of bots) if (b.alive) landing.bfrom.set(b, b.obj.position.clone());
   log('landed');
 }
+const landEase = () => { const k = clamp(landing.t / landing.glide, 0, 1); return k * k * (3 - 2 * k); };
 function takeOff() {
   if (!landing.on) return;
   landing.on = false;
   player.speed = CRUISE;
   log('take off');
 }
-// The command point / fighter settles onto the star. Returns true while still landed.
+// The command point / fighter glides onto the star and stays there (only LAUNCH takes off).
 function landedMove(p, dt) {
-  p.lerp(landing.at, Math.min(1, dt * 2.5));
-  player.speed = 0; player.vel.set(0, 0, 0);
   landing.t += dt;
-  const pointing = !!(uiHit.right || uiHit.left);
-  landing.awayT = !pointing && player.fwd.angleTo(landing.fwd0) > 0.7 ? landing.awayT + dt : 0;
-  if (landing.t > 1 && (landing.awayT > 0.5 || input.boost)) { takeOff(); return false; }
+  p.lerpVectors(landing.from, landing.at, landEase());
+  player.speed = 0; player.vel.set(0, 0, 0);
   return true;
 }
 // The squadron's ships sit in a little circle on top of the star.
@@ -2785,20 +2818,22 @@ function holdLanded(dt) {
   alive.forEach((b, k) => {
     const a = (k / Math.max(1, n)) * Math.PI * 2;
     _v1.set(Math.sin(a) * 0.45, landing.r + 0.12, Math.cos(a) * 0.45).add(landing.c);
-    b.obj.position.lerp(_v1, Math.min(1, dt * 2.5));
+    const f = landing.bfrom.get(b);
+    if (f && landing.t < landing.glide) b.obj.position.lerpVectors(f, _v1, landEase());
+    else b.obj.position.lerp(_v1, Math.min(1, dt * 3));   // (a ship bought while landed flies to its spot)
     b.speed = 0;
   });
 }
 // An outpost blows up: debris and sparks, a big boom and a short hit-stop.
 const BLAST_RED = new THREE.Color(0xff5544), BLAST_GREY = new THREE.Color(0xc8d0da);
+// (v31: toned down - fewer, slower sparks, a quieter boom, a very short hit-stop.)
 function outpostBlast(pos) {
-  burst(pos, 90, BLAST_RED, 3.2 * S, 1.5);
-  burst(pos, 50, BLAST_GREY, 1.6 * S, 2.2);
-  burst(pos, 30, HOT, 5 * S, 0.6);
-  if (state === 'lobby') { sfx.boom(pos, true); return; }   // (the lobby preview: a plain boom)
+  burst(pos, 34, BLAST_RED, 2.0 * S, 0.9);
+  burst(pos, 14, BLAST_GREY, 1.1 * S, 1.1);
+  if (state === 'lobby') { sfx.boom(pos, false); return; }   // (the lobby preview: a plain boom)
   sfx.blast(pos);
-  hitStop(0.2);
-  haptic('right', 1.0, 220); haptic('left', 1.0, 220);
+  hitStop(0.05);
+  haptic('right', 0.6, 100); haptic('left', 0.6, 100);
 }
 function startEndless() {
   tutorial.stop();
@@ -2840,19 +2875,17 @@ function exitEndless() {
   world.position.set(0, 0, 0);
 }
 E = createEndless({
-  world, board, rig, VC, obstacles, bots, player, enemies, stats, fmtNum, S, log, winDist,
+  world, board, rig, seat, VC, obstacles, bots, player, enemies, stats, fmtNum, S, log, winDist,
   BOX_B: () => BOX_B, gameMode: () => gameMode, playerMax: () => playerMax, botMax: () => botMax,
   score: () => score, kills: () => kills, addScore: (n) => { score += n; },
   setControls: setEndlessControls, syncSquad: () => syncSquadToPlayer(), placeBot: (b, k, m) => placeBot(SQUAD, b, k, m), refreshFriends,
   setUpgrades: (hull, fire) => { playerMax = MAX_HP + 2 * hull; botMax = BOT_HP + hull; fireMul = fire; },
   setArena: (c, half) => { ARENA_C.copy(c); AH = half; }, setAI, setWave: (n) => { wave = n; }, roster, spawnGroup,
   clearEnemies: () => { clearBattle(); }, showMessage, damagePlayer, damageBot, damageEnemy, obstInside,
-  land: landOn, landed: () => landing.on, landSlots: () => {}, blast: outpostBlast, ringGame: () => ringUI.game,
+  land: landOn, landed: () => landing.on, settled: () => landing.on && landing.t >= landing.glide, takeOff, landSlots: () => {}, blast: outpostBlast,
   playerBullets: () => playerBullets.list, enemyBullets: () => enemyBullets.list,
   recordEndless, chime: () => sfx.chime(true), click: () => sfx.click(), faceSeat, placeSide: (m, side, w) => placeSide(m, side, w),
 });
-ringUI.game.onClick = (id) => E.click(id);
-ringUI.game.redraw = () => ringUI.drawGame(true);   // hover highlight on the landed choices
 function placeSide(mesh, side, widthM) {
   const sc = board.scale.x;
   mesh.position.set(board.position.x + side * (HB.x * sc + 0.07 + widthM / 2), board.position.y + 0.03, board.position.z + HB.z * sc * 0.55);
@@ -2999,7 +3032,7 @@ function updatePlayer(dt) {
   lastFlyMode = mode;
   if (mode === 'mirror') {
     reticle.visible = false;
-    if (input.hasSteer && !(landing.on && (uiHit.right || uiHit.left))) flyMirror(dt);   // (landed: pointing at the ring doesn't steer)
+    if (input.hasSteer && !landing.on) flyMirror(dt);   // (landed: steering does nothing until LAUNCH)
   } else {
     const desired = _v1.copy(player.fwd);
     if (input.hasSteer) {
@@ -3015,7 +3048,7 @@ function updatePlayer(dt) {
       reticle.visible = true;
       if (renderer.xr.isPresenting && hands.right) pointer.scale.set(1, 1, 0.5);
     }
-    if (!(landing.on && (uiHit.right || uiHit.left))) steer(player, desired.clone(), dt);
+    if (!landing.on) steer(player, desired.clone(), dt);
   }
   if (landing.on && landedMove(p, dt)) {                    // Endless: sitting on a star
     if (gameMode === 'squadron') return;
@@ -3040,7 +3073,7 @@ function updatePlayer(dt) {
 
   // Shooting, with gentle aim assist toward an enemy inside a narrow cone.
   player.fireCd -= dt;
-  if (input.fire && player.fireCd <= 0 && combat() && !tutFreeze) {
+  if (input.fire && player.fireCd <= 0 && combat() && !tutFreeze && !landing.on) {
     shotsFired++;
     fireShot(p);
     sfx.laser(p);
@@ -3299,7 +3332,7 @@ window.__game = {
   get steerMode() { return activeSteer(); },
   settings, setSetting, input, board, box, mirrorQ, bots, obstacles, groups,
   get mode() { return gameMode; }, get boxB() { return BOX_B; }, HB, get morphing() { return morphT < 1; }, AI, bestRound, damageBot, get msgTitle() { return msgTitle; }, get msgOn() { return msgTime > 0; }, get msgSub() { return msgSub; }, get starsOn() { return starsOn; }, get starAlpha() { return starAlpha; }, startRound, hudPanel, get friends() { return friends; }, get squadEngaged() { return squadEngaged; },
-  get lobbyPanel() { return ringUI.lobby; }, get ring() { return ringUI; }, get lobbySim() { return lobbySim; }, simFade, lobbyEnd, boxFrame, landing, takeOff, get trailVisible() { return trail.visible; }, gameOver, get msgTime() { return msgTime; }, SETTINGS_DEF, tutorial, enterLobby, startTutorial, finishTutorial, stats, recordGame, leaveGame, grab, uiHit, placePanels, grabGain,
+  get lobbyPanel() { return ringUI.lobby; }, get ring() { return ringUI; }, get lobbySim() { return lobbySim; }, simFade, lobbyEnd, boxFrame, landing, takeOff, setPanelYawLegacy: (v) => { panelYawLegacy = v; panelKey = ''; placePanels(); }, panelYaw, seatPos: seat, get trailVisible() { return trail.visible; }, gameOver, get msgTime() { return msgTime; }, SETTINGS_DEF, tutorial, enterLobby, startTutorial, finishTutorial, stats, recordGame, leaveGame, grab, uiHit, placePanels, grabGain,
   get simTime() { return simTime; }, menuLayout, get kills() { return kills; },
   get tutStage() { return tutStageName; }, get tutFreeze() { return tutFreeze; }, get shots() { return shotsFired; },
   tutorialDone, spawnTut, setTutStage: tutStage, applyBoard, drawMenu, touch, get hudVisible() { return hudPanel.visible; }, get menuCanvas() { return menuCanvas; }, MENU_TOP, MENU_ROW, MENU_ROWS,
@@ -3308,5 +3341,5 @@ window.__game = {
   // v18
   get split() { return split; }, setSplit, get formation() { return formation; }, cycleFormation, cmdB, GA, GB, SQUAD, inputB,
   aces, spawnAce, sfx, perf, get hitStops() { return hitStops; }, get edgeFlashes() { return edgeFlashes; }, liveParticles,
-  get killHeat() { return killHeat; }, roster, eb: enemyBullets, pb: playerBullets, SL_X0, SL_X1, cycleSetting, mNeutralQ, mirrorQB, get xSplitPending() { return xDown; }, damageEnemy, get framePulse() { return framePulse; },
+  get killHeat() { return killHeat; }, roster, eb: enemyBullets, pb: playerBullets, SL_X0, SL_X1, cycleSetting, mNeutralQ, mirrorQB, steerA, steerB, get xSplitPending() { return xDown; }, damageEnemy, get framePulse() { return framePulse; },
 };

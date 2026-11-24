@@ -11,7 +11,7 @@
 // Panels are ui.js Panels (canvas + buttons picked by the ray's UV), so pointing, clicking and the beam /
 // cursor work the same on the curved band.
 import * as THREE from '../vendor/three.module.js';
-import { Panel, UI } from './ui.js?v=30';
+import { Panel, UI } from './ui.js?v=31';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const RR = 1.2;                    // ring radius around your seat (m)
@@ -162,7 +162,6 @@ export function createRingUI(G) {
   function drawEndless(d) {
     const P = game, g = P.g, e = d.endless;
     P.begin();
-    if (e.landed) { drawLanded(d, e.landed); return; }
     P.text(`DISTANCE ${N(e.dist)}`, 760, 100, { size: 60, bold: true, color: UI.title, align: 'center', maxW: 620 });
     P.text(e.active ? `TIER ${e.active} OUTPOST  ${e.hostiles} LEFT` : `FLEET ${e.fleet}   CREDITS ${N(e.credits)}`, 760, 172, { size: 42, color: e.active ? UI.gold : UI.text, align: 'center', maxW: 620 });
     g.fillStyle = UI.faint; g.fillRect(1090, 30, 3, 180); g.fillRect(1908, 30, 3, 180);
@@ -175,31 +174,6 @@ export function createRingUI(G) {
     } else if (e.next) {
       P.text('NEXT OUTPOST', 2240, 92, { size: 40, bold: true, color: UI.dim, align: 'center' });
       P.text(`${N(e.next.dist)}   TIER ${e.next.tier}`, 2240, 160, { size: 54, bold: true, color: '#ff8877', align: 'center', maxW: 640 });
-    }
-    P.end();
-  }
-
-  // Landed (Endless): what this star offers on the left, the score in the middle, the choices on the right
-  // (point + trigger; the game keeps running). Steer away to take off.
-  function drawLanded(d, L) {
-    const P = game, g = P.g;
-    const col = L.kind === 'dock' ? '#9fffc8' : L.kind === 'reward' ? UI.gold : UI.title;
-    P.text(L.title, 560, 88, { size: 54, bold: true, color: col, align: 'center', maxW: 1000 });
-    P.text(L.sub, 560, 150, { size: 40, color: UI.text, align: 'center', maxW: 1000 });
-    P.text('Steer away to take off', 560, 204, { size: 32, color: UI.dim, align: 'center', maxW: 1000 });
-    g.fillStyle = UI.faint; g.fillRect(1090, 30, 3, 180); g.fillRect(1908, 30, 3, 180);
-    P.text('SCORE', 1500, 62, { size: 40, bold: true, color: UI.dim, align: 'center' });
-    P.text(N(d.score), 1500, 200, { size: 140, bold: true, color: '#7fe9ff', align: 'center', maxW: 780 });
-    L.opts.forEach((o, i) => {
-      const x = 1932 + i * 352, y = 24, w = 336, h = 192;
-      if (o.ok) P.button(o.id, x, y, w, h, '', {});
-      else { g.strokeStyle = UI.faint; g.lineWidth = 2; g.strokeRect(x + 1, y + 1, w - 2, h - 2); }
-      P.text(o.label, x + w / 2, y + 84, { size: 46, bold: true, color: o.ok ? (L.kind === 'reward' ? UI.gold : UI.title) : UI.dim, align: 'center', maxW: w - 24 });
-      if (o.sub) P.text(o.sub, x + w / 2, y + 146, { size: 34, color: o.ok ? UI.text : UI.dim, align: 'center', maxW: w - 24 });
-    });
-    if (!L.opts.length && d.msgOn) {
-      P.text(d.msgTitle, 2440, 100, { size: 64, bold: true, color: UI.title, align: 'center', maxW: 1000 });
-      P.text(d.msgSub.split('\n')[0], 2440, 160, { size: 36, color: UI.gold, align: 'center', maxW: 1000 });
     }
     P.end();
   }
