@@ -2,12 +2,12 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=24';
-import { createTouchController } from './controller.js?v=24';
-import { Sfx } from './audio.js?v=24';
-import { Panel, faceYaw, UI } from './ui.js?v=24';
-import { stats, saveStats, recordGame, fmtTime, fmtNum } from './stats.js?v=24';
-import { createTutorial } from './tutorial.js?v=24';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=25';
+import { createTouchController } from './controller.js?v=25';
+import { Sfx } from './audio.js?v=25';
+import { Panel, faceYaw, UI } from './ui.js?v=25';
+import { stats, saveStats, recordGame, fmtTime, fmtNum } from './stats.js?v=25';
+import { createTutorial } from './tutorial.js?v=25';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
@@ -2565,14 +2565,21 @@ function uiRay(hand, ctrl, trig, edge) {
   return capture || uiHeld[hand];
 }
 // Lobby and the first tutorial step: hold a grip to move the room; push that hand's stick to resize it.
-const grab = { hand: null, start: new THREE.Vector3(), x: 0, y: 0, z: 0, moved: 0 };
+// The room moves by the hand's movement times a gentle size-based gain (a bigger room moves a bit more,
+// a smaller one less): sqrt(size / medium), kept to 0.7 - 1.6. It is applied frame by frame to the hand's
+// movement, so starting a grab (or resizing during one) never makes the room jump.
+const GRAB_GAIN_MIN = 0.7, GRAB_GAIN_MAX = 1.6;
+const grabGain = (size) => clamp(Math.sqrt(size / BOX_SIZES.medium), GRAB_GAIN_MIN, GRAB_GAIN_MAX);
+const grab = { hand: null, start: new THREE.Vector3(), prev: new THREE.Vector3(), x: 0, y: 0, z: 0, moved: 0 };
 function boxGrab(hand, ctrl, grip, sy, dt) {
   const allowed = state === 'lobby' || tutFreeze || menuOpen;
   if (!allowed || !grip) { if (grab.hand === hand) { grab.hand = null; saveBox(); } return; }
   ctrl.getWorldPosition(_v3);
-  if (grab.hand === null) { grab.hand = hand; grab.start.copy(_v3); grab.x = box.x; grab.y = box.y; grab.z = box.z; }
+  if (grab.hand === null) { grab.hand = hand; grab.start.copy(_v3); grab.prev.copy(_v3); grab.x = box.x; grab.y = box.y; grab.z = box.z; }
   if (grab.hand !== hand) return;
-  box.x = grab.x + _v3.x - grab.start.x; box.y = grab.y + _v3.y - grab.start.y; box.z = grab.z + _v3.z - grab.start.z;
+  const k = grabGain(box.size);
+  box.x += (_v3.x - grab.prev.x) * k; box.y += (_v3.y - grab.prev.y) * k; box.z += (_v3.z - grab.prev.z) * k;
+  grab.prev.copy(_v3);
   if (Math.abs(sy) > 0.15) box.size = clamp(box.size * Math.exp(-sy * dt * 0.9), 0.3, 2.0);
   grab.moved += _v3.distanceTo(grab.start) * dt;
   applyBoard();
@@ -3044,7 +3051,7 @@ window.__game = {
   get steerMode() { return activeSteer(); },
   settings, setSetting, input, board, box, mirrorQ, bots, obstacles, groups,
   get mode() { return gameMode; }, get boxB() { return BOX_B; }, HB, get morphing() { return morphT < 1; }, AI, bestRound, damageBot, get msgTitle() { return msgTitle; }, get msgOn() { return msgTime > 0; }, infoBoxes, INFO_W, INFO_H, placeInfo, get msgSub() { return msgSub; }, get starsOn() { return starsOn; }, get starAlpha() { return starAlpha; }, startRound, infoPanel, hudPanel, get friends() { return friends; }, get squadEngaged() { return squadEngaged; },
-  lobbyPanel, tutorial, enterLobby, startTutorial, finishTutorial, stats, recordGame, leaveGame, grab, uiHit, placePanels,
+  lobbyPanel, tutorial, enterLobby, startTutorial, finishTutorial, stats, recordGame, leaveGame, grab, uiHit, placePanels, grabGain,
   get simTime() { return simTime; }, menuLayout, get kills() { return kills; },
   get tutStage() { return tutStageName; }, get tutFreeze() { return tutFreeze; }, get shots() { return shotsFired; },
   tutorialDone, spawnTut, setTutStage: tutStage, applyBoard, drawMenu, touch, get hudVisible() { return hudPanel.visible; }, get menuCanvas() { return menuCanvas; }, MENU_TOP, MENU_ROW, MENU_ROWS,

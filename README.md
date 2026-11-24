@@ -48,7 +48,8 @@ lobby runs it again.
 After the tutorial, every time you enter VR, and a few seconds after a game ends, you are in the **lobby**.
 A blue-vs-red skirmish plays out around the stars in the room as a backdrop.
 
-- **Grip** (either hand) and drag to move the room; **grip + that hand's stick up/down** resizes it.
+- **Grip** (either hand) and drag to move the room; **grip + that hand's stick up/down** resizes it. A bigger
+  room moves a little more per hand movement and a smaller one less (gain sqrt(size / medium), 0.7 - 1.6).
 - The **panel on the right** of the room (point with either controller's ray, pull the trigger):
   - **GAME MODE:** Fighter / Squadron, with a one-line description.
   - **START**.
@@ -321,6 +322,12 @@ room's front face and facing you, capped at 22 degrees, about the vertical axis 
 head; they are only re-placed when you move, resize or reshape the room (or re-centre with the Meta button).
 
 ![panels from the seat](screenshots/27-panels-seated.png)
+
+## Changes in v25
+
+- **Grip-drag scales with the room size:** the room moves by your hand's movement times a gentle gain,
+  sqrt(size / medium size) kept to 0.7 - 1.6 (small 0.84, medium 1.0, large 1.14, biggest 1.41). It is
+  applied frame by frame, so a grab never jumps when it starts or when you resize during it.
 
 ## Changes in v24
 
