@@ -2,12 +2,12 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=22';
-import { createTouchController } from './controller.js?v=22';
-import { Sfx } from './audio.js?v=22';
-import { Panel, faceYaw, UI } from './ui.js?v=22';
-import { stats, saveStats, recordGame, fmtTime } from './stats.js?v=22';
-import { createTutorial } from './tutorial.js?v=22';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=23';
+import { createTouchController } from './controller.js?v=23';
+import { Sfx } from './audio.js?v=23';
+import { Panel, faceYaw, UI } from './ui.js?v=23';
+import { stats, saveStats, recordGame, fmtTime } from './stats.js?v=23';
+import { createTutorial } from './tutorial.js?v=23';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
@@ -1698,7 +1698,7 @@ function leaveGame() {
 // Where you land after entering VR (once the tutorial is done) and a few seconds after each game.
 // A small blue squadron and red raiders skirmish round the stars; you can grab and resize the room;
 // the panel on the right picks the mode, starts the game and shows your stats.
-let lobbyT = 0, lobbySpawnT = 0, lobbyReviveT = 0;
+let lobbyT = 0, lobbySpawnT = 0, lobbyReviveT = 0, screenShown = '';
 const lobbyPanel = new Panel(0.44, 880, 1040);
 rig.add(lobbyPanel.mesh);
 const MODE_INFO = { fighter: 'Fly one ship yourself', squadron: 'Lead 4 bot fighters - or split them into 2 pairs' };
@@ -1719,12 +1719,12 @@ function drawLobby() {
   });
   const rows = [
     ['Win streak', `${stats.streak}   (best ${stats.bestStreak})`], ['Total kills', String(stats.kills)],
-    ['Games played', String(stats.games)], ['Time played', fmtTime(stats.time)], ['Best score', String(Math.max(stats.bestScore, best))],
+    ['Games played', String(stats.games)], ['Time in battle', fmtTime(stats.time)], ['Screen time', (screenShown = fmtTime(stats.screen))], ['Best score', String(Math.max(stats.bestScore, best))],
   ];
   rows.forEach(([l, v], i) => {
-    const y = 632 + i * 44;
-    P.text(l, 36, y, { size: 25, color: UI.text, maxW: 380 });
-    P.text(v, W - 36, y, { size: 25, color: UI.title, align: 'right', maxW: 400 });
+    const y = 628 + i * 40;
+    P.text(l, 36, y, { size: 24, color: UI.text, maxW: 380 });
+    P.text(v, W - 36, y, { size: 24, color: UI.title, align: 'right', maxW: 400 });
   });
   P.button('tutorial', 30, 884, 400, 78, 'REDO TUTORIAL', { size: 28 });
   P.button('settings', W - 430, 884, 400, 78, 'SETTINGS', { size: 28 });
@@ -2185,6 +2185,7 @@ renderer.xr.addEventListener('sessionstart', () => {
 renderer.xr.addEventListener('sessionend', () => {
   document.body.classList.remove('in-vr');
   infoPanel.visible = false;
+  saveStats();   // keep the last seconds of screen time
   camera.position.set(0, HEAD_H, 0);
   log('xr sessionend');
 });
@@ -2956,6 +2957,7 @@ function updateMusic() {
 let hudTimer = 0, statusTimer = 0, frames = 0;
 let lastT = performance.now();
 const perf = { cpu: 0, render: 0, n: 0, fps: 0, cpuMs: 0, renderMs: 0 };
+let screenSaveT = 0;
 function loop() {
   const now = performance.now();
   const dt = Math.min((now - lastT) / 1000, 0.05);
@@ -2964,6 +2966,11 @@ function loop() {
   const xr = renderer.xr.isPresenting;
 
   if (xr) gatherInputVR(dt); else gatherInputDesktop();
+  if (xr) {   // screen time: every second spent in the headset, lobby and tutorial included
+    stats.screen += dt;
+    if ((screenSaveT += dt) > 15) { screenSaveT = 0; saveStats(); }
+    if (state === 'lobby' && fmtTime(stats.screen) !== screenShown) drawLobby();   // tick the lobby's Screen time row
+  }
   updateCameraRig(dt);
   camera.getWorldPosition(camPos);
   camera.getWorldDirection(camFwd);

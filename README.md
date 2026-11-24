@@ -54,10 +54,13 @@ A blue-vs-red skirmish plays out around the stars in the room as a backdrop.
   - **START**.
   - **Stats** (saved on the device): best round, games and last round for each mode, win streak (a "win" is a
     game in which you cleared at least round 1; the streak counts wins in a row) and best streak, total kills,
-    games played, time played and best score.
+    games played, **time in battle** (time spent in games), **screen time** (all time in the headset: lobby,
+    tutorial and games; shown like `1h 05m`, saved every 15 s and when you leave VR) and best score.
   - **REDO TUTORIAL** and **SETTINGS**.
 
 ![lobby](screenshots/14-lobby.png)
+
+![lobby stats](screenshots/28-lobby-stats.png)
 
 Settings (left **X + Y**, or the lobby **SETTINGS** button; press either again to close) open on a panel to
 the **left** of the room. From the lobby the panel slides over from the lobby panel to its spot in about 0.3 s,
@@ -318,6 +321,13 @@ room's front face and facing you, capped at 22 degrees, about the vertical axis 
 head; they are only re-placed when you move, resize or reshape the room (or re-centre with the Meta button).
 
 ![panels from the seat](screenshots/27-panels-seated.png)
+
+## Changes in v23
+
+- **Screen time:** a new stat that adds up every second spent in the headset (lobby, tutorial and battles).
+  It is saved every 15 s and when the VR session ends, and the lobby row ticks up live.
+- **Lobby stats:** "Time played" is now **Time in battle**, and a **Screen time** row is added. The six rows
+  are slightly tighter (40 px apart, 24 px text), so they still clear the REDO TUTORIAL / SETTINGS buttons.
 
 ## Changes in v22
 

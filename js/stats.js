@@ -3,7 +3,7 @@ const KEY = 'battleRoomStats1';
 const MODES = ['fighter', 'squadron'];
 
 function fresh() {
-  const s = { games: 0, kills: 0, time: 0, roundsCleared: 0, bestScore: 0, streak: 0, bestStreak: 0, modes: {} };
+  const s = { games: 0, kills: 0, time: 0, screen: 0, roundsCleared: 0, bestScore: 0, streak: 0, bestStreak: 0, modes: {} };
   for (const m of MODES) s.modes[m] = { best: 0, games: 0, last: 0 };
   return s;
 }
