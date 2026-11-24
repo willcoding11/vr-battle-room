@@ -2,12 +2,12 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=21';
-import { createTouchController } from './controller.js?v=21';
-import { Sfx } from './audio.js?v=21';
-import { Panel, faceYaw, UI } from './ui.js?v=21';
-import { stats, saveStats, recordGame, fmtTime } from './stats.js?v=21';
-import { createTutorial } from './tutorial.js?v=21';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=22';
+import { createTouchController } from './controller.js?v=22';
+import { Sfx } from './audio.js?v=22';
+import { Panel, faceYaw, UI } from './ui.js?v=22';
+import { stats, saveStats, recordGame, fmtTime } from './stats.js?v=22';
+import { createTutorial } from './tutorial.js?v=22';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
@@ -2027,13 +2027,18 @@ const BEAM_GEO = new THREE.BoxGeometry(0.0032, 0.0032, 1).translate(0, 0, -0.5);
 const CURSOR_GEO = new THREE.RingGeometry(0.0055, 0.0085, 32);
 const CURSOR_DOT = new THREE.CircleGeometry(0.0018, 12);
 function makeRayFx(line, color) {
-  const beam = new THREE.Mesh(BEAM_GEO, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+  // Draw order: panels (renderOrder 30, no depth test) -> ray line + beam (31) -> cursor (32). The rays skip the
+  // depth test too and end exactly at the hit point, so no part is ever hidden by or drawn under a panel.
+  line.material.depthTest = false; line.material.depthWrite = false;
+  line.renderOrder = 31;
+  const beam = new THREE.Mesh(BEAM_GEO, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false, fog: false }));
+  beam.renderOrder = 31;
   beam.visible = false;
-  line.add(beam);                                  // scales with the line's length
+  line.add(beam);                                  // scales with the line's length (= the hit distance)
   const cursor = new THREE.Group();
   const cm = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthTest: false, depthWrite: false, fog: false });
   const ring = new THREE.Mesh(CURSOR_GEO, cm), dot = new THREE.Mesh(CURSOR_DOT, cm);
-  ring.renderOrder = dot.renderOrder = 40;
+  ring.renderOrder = dot.renderOrder = 32;
   cursor.add(ring, dot);
   cursor.visible = false;
   rig.add(cursor);
@@ -2501,11 +2506,16 @@ const lPointer = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new TH
 lPointer.visible = false;
 const rayFx = { right: makeRayFx(pointer, 0x66eeff), left: makeRayFx(lPointer, 0xffd480) };
 // Called wherever a ray meets a panel this frame: where, and the panel's orientation (for the cursor).
+const _rn = new THREE.Vector3();
 function rayOnUi(hand, origin, dir, dist, mesh) {
   const f = rayFx[hand];
   f.hit = true;
-  f.point.copy(origin).addScaledVector(dir, dist - 0.002);
   mesh.getWorldQuaternion(f.quat);
+  // On the surface, lifted 2 mm along the panel's normal (toward the side the ray came from).
+  _rn.set(0, 0, 1).applyQuaternion(f.quat);
+  if (_rn.dot(dir) > 0) _rn.negate();
+  f.point.copy(origin).addScaledVector(dir, dist).addScaledVector(_rn, 0.002);
+  f.line.scale.set(1, 1, dist);                     // the beam stops exactly at the hit point
 }
 function updateRays(dt) {
   for (const hand of ['right', 'left']) {
@@ -2547,7 +2557,7 @@ function uiRay(hand, ctrl, trig, edge) {
   const showRay = capture || state === 'lobby';
   if (hand === 'left') line.visible = showRay;
   else if (showRay) line.visible = true;
-  line.scale.set(1, 1, capture ? best.dist : 0.5);
+  line.scale.set(1, 1, best ? best.dist : 0.5);
   if (edge && best && best.id) { uiHeld[hand] = true; haptic(hand, 0.3, 25); bp.onClick(best.id); }
   if (!trig) uiHeld[hand] = false;
   return capture || uiHeld[hand];
@@ -2581,10 +2591,17 @@ function updateSeat() {
   panelKey = '';
   log(`seat ${seat.x.toFixed(2)},${seat.y.toFixed(2)},${seat.z.toFixed(2)}`);
 }
+// Side panels only turn part of the way toward you: half-way between parallel to the room's front face
+// and facing the seat, capped at 22 degrees, so they read well without looking sharply angled.
+const PANEL_TURN = 0.5, PANEL_MAX_YAW = 22 * Math.PI / 180;
+function faceSeat(mesh) {
+  const full = Math.atan2(seat.x - mesh.position.x, seat.z - mesh.position.z);
+  mesh.rotation.set(0, clamp(full * PANEL_TURN, -PANEL_MAX_YAW, PANEL_MAX_YAW), 0);
+}
 function placeSide(mesh, side, widthM) {
   const sc = board.scale.x;
   mesh.position.set(board.position.x + side * (HB.x * sc + 0.07 + widthM / 2), board.position.y + 0.03, board.position.z + HB.z * sc * 0.55);
-  faceYaw(mesh, seat);
+  faceSeat(mesh);
 }
 function placeTutCard(mesh, widthM) {
   const sc = board.scale.x;
@@ -2593,7 +2610,7 @@ function placeTutCard(mesh, widthM) {
   const near = board.position.z + HB.z * sc, far = board.position.z - HB.z * sc;
   const z = clamp(_v1.z - Math.max(0.2, x - _v1.x) / Math.tan(0.56), far, near);
   mesh.position.set(x, Math.min(board.position.y, _v1.y - 0.12), z);
-  faceYaw(mesh, _v1);
+  faceSeat(mesh);
   mesh.scale.setScalar(clamp(mesh.position.distanceTo(_v1) / 1.05, 0.8, 2.4));
 }
 function placeTutBelow(mesh, heightM) {
@@ -2604,7 +2621,7 @@ function placeTutBelow(mesh, heightM) {
   const k = clamp(Math.hypot(_v1.z - z, _v1.y - (board.position.y - HB.y * sc)) / 1.0, 0.8, 2.2);
   mesh.scale.setScalar(k);
   mesh.position.set(board.position.x, board.position.y - HB.y * sc - 0.03 - (heightM * k) / 2, z);
-  faceYaw(mesh, _v1);
+  faceSeat(mesh);
   // Tilt it back so it faces your eyes.
   mesh.rotateX(-Math.atan2(_v1.y - mesh.position.y, Math.hypot(_v1.x - mesh.position.x, _v1.z - mesh.position.z)));
 }
@@ -2630,7 +2647,7 @@ let panelMoves = 0;
 // Settings panel: opening from the lobby slides it in from the lobby panel (right) to its spot on the left
 // with a quick fade-in (0.3 s), so you see where it went; in a game it just fades in. Closing fades out.
 function animateMenu(dt) {
-  if (menuAnim.t >= 1 && !menuAnim.closing) { if (menuPanel.visible) { menuPanel.position.copy(menuHome); faceYaw(menuPanel, seat); menuPanel.material.opacity = 1; } return; }
+  if (menuAnim.t >= 1 && !menuAnim.closing) { if (menuPanel.visible) { menuPanel.position.copy(menuHome); faceSeat(menuPanel); menuPanel.material.opacity = 1; } return; }
   menuAnim.t = Math.min(1, menuAnim.t + dt / menuAnim.dur);
   const u = menuAnim.t, e = 1 - Math.pow(1 - u, 3);          // ease-out
   if (menuAnim.closing) {
@@ -2642,7 +2659,7 @@ function animateMenu(dt) {
     menuPanel.position.lerpVectors(menuFrom, menuHome, e);
     menuPanel.position.z += Math.sin(u * Math.PI) * 0.12;      // a slight arc toward you, past the room
   } else menuPanel.position.copy(menuHome);
-  faceYaw(menuPanel, seat);
+  faceSeat(menuPanel);
   menuPanel.material.opacity = Math.min(1, u * 1.6);
 }
 // The side board: just outside the room's right wall, about 30 degrees right of straight ahead (where the
@@ -2657,7 +2674,7 @@ function placeInfo() {
   const k = clamp(Math.hypot(x0 + INFO_M / 2 - _v1.x, z - _v1.z) / 1.0, 0.8, 2.2);
   infoPanel.scale.setScalar(k);
   infoPanel.position.set(x0 + (INFO_M * k) / 2, Math.min(board.position.y + HB.y * sc, _v1.y + 0.1) - (h * k) / 2 + 0.04, z);
-  faceYaw(infoPanel, _v1);
+  faceSeat(infoPanel);
 }
 
 function gatherInputDesktop() {

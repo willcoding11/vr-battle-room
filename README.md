@@ -307,11 +307,27 @@ the left stick to put the box back in its default spot.
 card), the ray brightens into a slightly thicker beam and a small ring cursor shows where it meets the panel;
 both fade in and out in about 0.15 s.
 
-![ui pointer](screenshots/25-ui-pointer.png)
+The beam ends exactly at the cursor (its length is the hit distance) and is drawn after the panels, so no part
+of it shows behind or through a panel; the cursor ring sits 2 mm in front of the surface.
+
+![ui pointer](screenshots/26-ui-pointer-oblique.png)
 
 **Panels stay still.** The lobby panel, Settings, the tutorial card and the side board are placed beside the room
-and turned (about the vertical axis only) toward where you sat when you entered VR. They never follow your head;
-they are only re-placed when you move, resize or reshape the room (or re-centre with the Meta button).
+and turned only part of the way toward where you sat when you entered VR: half-way between square to the
+room's front face and facing you, capped at 22 degrees, about the vertical axis only. They never follow your
+head; they are only re-placed when you move, resize or reshape the room (or re-centre with the Meta button).
+
+![panels from the seat](screenshots/27-panels-seated.png)
+
+## Changes in v22
+
+- **Gentler panel angle:** the lobby panel, Settings, the tutorial card and the side board turn only half-way
+  toward your seat, capped at 22 degrees (was fully facing you, which looked sharply angled). Still fixed, vertical
+  axis only.
+- **Pointer beam in front of panels:** the panels are drawn on top of the room, and they used to be drawn over the
+  beam too, so the beam looked as if it went behind or through them. The beam and line are now drawn after the
+  panels and the cursor last. The beam stops exactly at the hit point, and the cursor sits just in front of the
+  surface.
 
 ## Changes in v21
 
