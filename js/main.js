@@ -2,14 +2,14 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=29';
-import { createTouchController } from './controller.js?v=29';
-import { Sfx } from './audio.js?v=29';
-import { UI } from './ui.js?v=29';
-import { stats, saveStats, recordGame, recordEndless, addPlayTime, fmtTime, fmtNum } from './stats.js?v=29';
-import { createTutorial } from './tutorial.js?v=29';
-import { createRingUI } from './ring.js?v=29';
-import { createEndless } from './endless.js?v=29';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=30';
+import { createTouchController } from './controller.js?v=30';
+import { Sfx } from './audio.js?v=30';
+import { UI } from './ui.js?v=30';
+import { stats, saveStats, recordGame, recordEndless, addPlayTime, fmtTime, fmtNum } from './stats.js?v=30';
+import { createTutorial } from './tutorial.js?v=30';
+import { createRingUI } from './ring.js?v=30';
+import { createEndless } from './endless.js?v=30';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
@@ -28,7 +28,7 @@ const HEAD_H = 1.2;                               // seated eye height (desktop)
 const ARENA_C = new THREE.Vector3(0, 0, 0);       // battle centre = centre of the box (game units)
 // Battle box half-size in game units. The box keeps its physical size in front of you, so a bigger
 // BOX_B = more room relative to the ships. Fighter: 2.8 (was 1.75). Squadron: zoomed out much further.
-const MODE_BOX = { fighter: 2.8, squadron: 5.0, endless: 4.0 };   // Endless: the view window round your ship
+const MODE_BOX = { fighter: 2.8, squadron: 5.0, endless: 6.5 };   // Endless: the view window round your ship (v30: wider)
 let BOX_B = MODE_BOX.fighter;                     // base half-size: sets the scale (ship size) for the mode
 // The room's actual half-extents per axis. Width, height and depth vary independently (long, flat,
 // tall or cube) with roughly the same volume as a BOX_B cube; they change each game and each wave.
@@ -2752,6 +2752,54 @@ function setEndlessControls(m) {
   setSplit(false, true);
   refreshFriends();
 }
+// ---------------------------------------------------------------- Endless landing (endless.js decides when)
+// Fly onto a green star (or a cleared outpost) and you land: your ship / squadron settles on top of it and
+// waits, the game keeps running, and the choices show on the ring. Take off by steering away (turn more than
+// about 40 degrees from where you were heading for half a second, while not pointing at the ring) or boost.
+const landing = { on: false, at: new THREE.Vector3(), c: new THREE.Vector3(), r: 0, fwd0: new THREE.Vector3(), t: 0, awayT: 0 };
+function landOn(c, r) {
+  landing.on = true; landing.c.copy(c); landing.r = r;
+  landing.at.copy(c).add(_v1.set(0, r + 0.3, 0));
+  landing.fwd0.copy(player.fwd); landing.t = 0; landing.awayT = 0;
+  log('landed');
+}
+function takeOff() {
+  if (!landing.on) return;
+  landing.on = false;
+  player.speed = CRUISE;
+  log('take off');
+}
+// The command point / fighter settles onto the star. Returns true while still landed.
+function landedMove(p, dt) {
+  p.lerp(landing.at, Math.min(1, dt * 2.5));
+  player.speed = 0; player.vel.set(0, 0, 0);
+  landing.t += dt;
+  const pointing = !!(uiHit.right || uiHit.left);
+  landing.awayT = !pointing && player.fwd.angleTo(landing.fwd0) > 0.7 ? landing.awayT + dt : 0;
+  if (landing.t > 1 && (landing.awayT > 0.5 || input.boost)) { takeOff(); return false; }
+  return true;
+}
+// The squadron's ships sit in a little circle on top of the star.
+function holdLanded(dt) {
+  const alive = bots.filter((b) => b.alive), n = alive.length;
+  alive.forEach((b, k) => {
+    const a = (k / Math.max(1, n)) * Math.PI * 2;
+    _v1.set(Math.sin(a) * 0.45, landing.r + 0.12, Math.cos(a) * 0.45).add(landing.c);
+    b.obj.position.lerp(_v1, Math.min(1, dt * 2.5));
+    b.speed = 0;
+  });
+}
+// An outpost blows up: debris and sparks, a big boom and a short hit-stop.
+const BLAST_RED = new THREE.Color(0xff5544), BLAST_GREY = new THREE.Color(0xc8d0da);
+function outpostBlast(pos) {
+  burst(pos, 90, BLAST_RED, 3.2 * S, 1.5);
+  burst(pos, 50, BLAST_GREY, 1.6 * S, 2.2);
+  burst(pos, 30, HOT, 5 * S, 0.6);
+  if (state === 'lobby') { sfx.boom(pos, true); return; }   // (the lobby preview: a plain boom)
+  sfx.blast(pos);
+  hitStop(0.2);
+  haptic('right', 1.0, 220); haptic('left', 1.0, 220);
+}
 function startEndless() {
   tutorial.stop();
   tutFreeze = false;
@@ -2774,11 +2822,13 @@ function startEndless() {
   stateTimer = 0;
   intermission = 0;
   wave = 1;
+  landing.on = false;
   E.start();
-  showMessage('ENDLESS', 'Fly out and raid red outposts for upgrades. Green rings: docks', 4);
+  showMessage('ENDLESS', 'Raid red stars for upgrades. Green stars: friendly, land to refit', 4);
   log('game start mode=endless');
 }
 function exitEndless() {
+  landing.on = false;
   if (!endless) return;
   E.stop();
   endless = false;
@@ -2797,9 +2847,12 @@ E = createEndless({
   setUpgrades: (hull, fire) => { playerMax = MAX_HP + 2 * hull; botMax = BOT_HP + hull; fireMul = fire; },
   setArena: (c, half) => { ARENA_C.copy(c); AH = half; }, setAI, setWave: (n) => { wave = n; }, roster, spawnGroup,
   clearEnemies: () => { clearBattle(); }, showMessage, damagePlayer, damageBot, damageEnemy, obstInside,
+  land: landOn, landed: () => landing.on, landSlots: () => {}, blast: outpostBlast, ringGame: () => ringUI.game,
   playerBullets: () => playerBullets.list, enemyBullets: () => enemyBullets.list,
   recordEndless, chime: () => sfx.chime(true), click: () => sfx.click(), faceSeat, placeSide: (m, side, w) => placeSide(m, side, w),
 });
+ringUI.game.onClick = (id) => E.click(id);
+ringUI.game.redraw = () => ringUI.drawGame(true);   // hover highlight on the landed choices
 function placeSide(mesh, side, widthM) {
   const sc = board.scale.x;
   mesh.position.set(board.position.x + side * (HB.x * sc + 0.07 + widthM / 2), board.position.y + 0.03, board.position.z + HB.z * sc * 0.55);
@@ -2946,7 +2999,7 @@ function updatePlayer(dt) {
   lastFlyMode = mode;
   if (mode === 'mirror') {
     reticle.visible = false;
-    if (input.hasSteer) flyMirror(dt);
+    if (input.hasSteer && !(landing.on && (uiHit.right || uiHit.left))) flyMirror(dt);   // (landed: pointing at the ring doesn't steer)
   } else {
     const desired = _v1.copy(player.fwd);
     if (input.hasSteer) {
@@ -2962,9 +3015,11 @@ function updatePlayer(dt) {
       reticle.visible = true;
       if (renderer.xr.isPresenting && hands.right) pointer.scale.set(1, 1, 0.5);
     }
-    steer(player, desired.clone(), dt);
+    if (!(landing.on && (uiHit.right || uiHit.left))) steer(player, desired.clone(), dt);
   }
-  if (gameMode === 'squadron') {
+  if (landing.on && landedMove(p, dt)) {                    // Endless: sitting on a star
+    if (gameMode === 'squadron') return;
+  } else if (gameMode === 'squadron') {
     // The command point: boost only while NOT engaging (the bots all boost with it); slow while engaged.
     const targetSpeed = input.fire ? CRUISE * 0.55 : input.boost ? BOOST : input.brake ? BRAKE : CRUISE;
     player.speed += (targetSpeed - player.speed) * Math.min(1, dt * 3);
@@ -2974,12 +3029,14 @@ function updatePlayer(dt) {
     obstPushOut(p, 0.15 * S);
     return;
   }
-  const targetSpeed = input.boost ? BOOST : input.brake ? BRAKE : CRUISE;
-  player.speed += (targetSpeed - player.speed) * Math.min(1, dt * 3);
-  player.vel.copy(player.fwd).multiplyScalar(player.speed);
-  p.addScaledVector(player.vel, dt);
-  if (wrapBox(p)) { resetTrail(); blink(p, PLAYER_COLOR); }
-  if (endless) obstPushOut(p, 0.12 * S);            // stars and rocks are solid
+  if (!landing.on) {
+    const targetSpeed = input.boost ? BOOST : input.brake ? BRAKE : CRUISE;
+    player.speed += (targetSpeed - player.speed) * Math.min(1, dt * 3);
+    player.vel.copy(player.fwd).multiplyScalar(player.speed);
+    p.addScaledVector(player.vel, dt);
+    if (wrapBox(p)) { resetTrail(); blink(p, PLAYER_COLOR); }
+    if (endless) obstPushOut(p, 0.12 * S);            // stars and rocks are solid
+  }
 
   // Shooting, with gentle aim assist toward an enemy inside a narrow cone.
   player.fireCd -= dt;
@@ -3104,6 +3161,7 @@ function simStep(dt) {
     if (gameMode === 'squadron') updateCmdB(dt);
     refreshFriends();
     if (gameMode === 'squadron') updateBots(dt);
+    if (landing.on && gameMode === 'squadron') holdLanded(dt);
     updateEnemies(dt);
     playerBullets.update(dt);
     enemyBullets.update(dt);
@@ -3241,7 +3299,7 @@ window.__game = {
   get steerMode() { return activeSteer(); },
   settings, setSetting, input, board, box, mirrorQ, bots, obstacles, groups,
   get mode() { return gameMode; }, get boxB() { return BOX_B; }, HB, get morphing() { return morphT < 1; }, AI, bestRound, damageBot, get msgTitle() { return msgTitle; }, get msgOn() { return msgTime > 0; }, get msgSub() { return msgSub; }, get starsOn() { return starsOn; }, get starAlpha() { return starAlpha; }, startRound, hudPanel, get friends() { return friends; }, get squadEngaged() { return squadEngaged; },
-  get lobbyPanel() { return ringUI.lobby; }, get ring() { return ringUI; }, get lobbySim() { return lobbySim; }, simFade, lobbyEnd, boxFrame, get trailVisible() { return trail.visible; }, gameOver, get msgTime() { return msgTime; }, SETTINGS_DEF, tutorial, enterLobby, startTutorial, finishTutorial, stats, recordGame, leaveGame, grab, uiHit, placePanels, grabGain,
+  get lobbyPanel() { return ringUI.lobby; }, get ring() { return ringUI; }, get lobbySim() { return lobbySim; }, simFade, lobbyEnd, boxFrame, landing, takeOff, get trailVisible() { return trail.visible; }, gameOver, get msgTime() { return msgTime; }, SETTINGS_DEF, tutorial, enterLobby, startTutorial, finishTutorial, stats, recordGame, leaveGame, grab, uiHit, placePanels, grabGain,
   get simTime() { return simTime; }, menuLayout, get kills() { return kills; },
   get tutStage() { return tutStageName; }, get tutFreeze() { return tutFreeze; }, get shots() { return shotsFired; },
   tutorialDone, spawnTut, setTutStage: tutStage, applyBoard, drawMenu, touch, get hudVisible() { return hudPanel.visible; }, get menuCanvas() { return menuCanvas; }, MENU_TOP, MENU_ROW, MENU_ROWS,

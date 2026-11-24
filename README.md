@@ -112,23 +112,38 @@ where you want the level.
 
 ## Endless
 
-No room walls: your ship (or your squadron's centre) stays in the middle of the usual room-sized window and
-space moves past it. Fly as far as you like; the space is generated from a fixed seed, so it is the same
-every run.
+No room walls: your ship (or your squadron's centre) stays in the middle of a view window and space moves
+past it. The window is wider than the room (radius 6.5 game units, 1.6x v28's), so you see more around you.
+Fly as far as you like; the space is generated from a fixed seed, so it is the same every run. The game
+never pauses in Endless (only Settings pauses it).
 
-- **Stars** everywhere, fading with distance; a bigger **home star** where you start, with a dock.
-- **Enemy outposts** (red): a cluster of ships round a star, far apart. They wake when you come close, roam
-  near their star (they never chase you far), and go back to sleep if you leave. The further from home, the
-  higher the **tier**: more and tougher ships, and more points. A faint red chevron at the window's edge
-  points to the nearest outpost (a green one to the nearest dock when you are hurt), and the ring shows the
-  outpost's distance and tier.
+- **Stars** everywhere, all the same size (the size stars are next to the ships in Squadron mode). Far stars
+  fade out gradually over a long band (from 30% of the window's radius to its edge), so nothing pops in.
+  You start beside an ordinary star.
+- **Enemy outposts** are **red stars** with their ships huddled round them. They wake when you come close,
+  roam near their star (they never chase you far), and go back to sleep if you leave. The further from home,
+  the higher the **tier**: more and tougher ships, and more points.
+- **Friendly outposts** are **green stars**, commoner near home. They are **safe zones**: enemies turn away
+  from them and enemy shots fizzle out near them.
+- Outposts are closer together than in v28 (regions 26 units apart instead of 40).
+- **Arrows** at the window's edge point the way: **red** to the next enemy outpost and **green** to the
+  nearest friendly outpost when a ship is hurt. Each arrow is a long shaft with two short prongs, and it
+  turns slowly about its own axis. The ring also shows the next outpost's distance and tier.
 - **Asteroid fields** drift slowly and damage whatever hits them; they are commoner further out.
-- **Docks** (green rings), commoner near home: fly into one with no enemies close by to dock. A panel on
-  your right offers **repair all** (300), **a new fighter** (1,500, +500 each time) and **+1 hull for every
-  ship** (1,200, +50% each time), paid with credits. **LAUNCH** to leave. The game waits while it is open.
-- You start as **one fighter** (Fighter controls). Kills earn credits; destroying an outpost gives 1,000 x its tier in points
-  and in credits, and an **upgrade choice**: **+1 wingman**, **+hull** (every ship, fully repaired) or **+fire rate** (15%).
-  With a wingman you lead a squadron (Squadron controls, up to 4 ships).
+- **Destroying an outpost** (every ship round it) gives 1,000 x its tier in points and credits. It ends with
+  a shockwave (two expanding rings), debris and sparks, a big boom and a short hit-stop. The red star
+  flickers, collapses and comes back grey.
+- **Landing:** fly onto a cleared outpost or a green star and you land: the ship (or the whole squadron)
+  settles on top of the star and waits there while the game keeps running. The choices show on the ring
+  (point + trigger):
+  - **Cleared outpost:** an upgrade: **+1 wingman**, **+hull** (every ship, fully repaired) or **+fire rate**
+    (15%). The grey star pulses until you take it.
+  - **Friendly outpost:** **repair all** (300), **a new fighter** (1,500, +500 each time) and **+1 hull for every
+    ship** (1,200, +50% each time), paid with credits.
+  - To **take off**, steer away (turn about 40 degrees from your heading for half a second) or boost.
+    Pointing at the ring doesn't count as steering.
+- You start as **one fighter** (Fighter controls). Kills earn credits. With a wingman you lead a squadron
+  (Squadron controls, up to 4 ships).
 - A destroyed ship is gone for good. Lose them all and the run ends: you see your distance and score, then
   the lobby.
 - **Score:** distance (10 points per unit of new distance), outposts and kills. Best distance and best score
@@ -137,13 +152,17 @@ every run.
 Only nearby things are simulated (outposts wake within a short range, stars and rocks come from small pools),
 so a busy tier-3 outpost fight costs about 0.5 ms of game logic per frame.
 
-| Start: home star and dock | Outpost (tier 1) | Asteroid field |
+| Start (wider view) | Outpost (tier 1) | Asteroid field |
 |---|---|---|
-| ![](screenshots/v28-endless-start.png) | ![](screenshots/v28-endless-outpost.png) | ![](screenshots/v28-endless-asteroids.png) |
+| ![](screenshots/v30-endless-start.png) | ![](screenshots/v30-endless-outpost.png) | ![](screenshots/v30-endless-asteroids.png) |
 
-| Upgrade choice | Docked | Further out |
+| Outpost destroyed | Landed: upgrade on the ring | Landed on a friendly outpost |
 |---|---|---|
-| ![](screenshots/v28-endless-upgrade.png) | ![](screenshots/v28-endless-dock.png) | ![](screenshots/v28-endless-fight.png) |
+| ![](screenshots/v30-endless-destroy.png) | ![](screenshots/v30-endless-landed-upgrade.png) | ![](screenshots/v30-endless-landed-dock.png) |
+
+| Arrows (red: outpost, green: friendly) |
+|---|
+| ![](screenshots/v30-endless-arrows.png) |
 
 ## Rounds: every round is a fresh battle
 
@@ -391,6 +410,17 @@ room's front face and facing you, capped at 22 degrees, about the vertical axis 
 head; they are only re-placed when you move, resize or reshape the room (or re-centre with the Meta button).
 
 ![panels from the seat](screenshots/27-panels-seated.png)
+
+## Changes in v30
+
+- Endless: there is no home star (you start beside an ordinary star), and every star is the same size.
+- Outposts are stars: red for enemy outposts and green for friendly ones (no rings). Green stars are safe
+  zones.
+- Destroying an outpost: shockwave, debris, the star flickers, collapses and turns grey, with a big boom and
+  a hit-stop. There is no pause any more: land on the star and pick the upgrade on the ring. Friendly outposts
+  work the same way (repair and buy on the ring). Take off by steering away.
+- The view window is wider (1.6x), far stars fade gradually, and outposts are closer together.
+- The direction arrows are now long-shaft arrows with two short prongs, slowly turning about their axis.
 
 ## Changes in v29
 
