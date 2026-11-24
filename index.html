@@ -22,7 +22,7 @@
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: monospace; color: #7fe9ff; }
   #app canvas { display: block; }
-  #hud { position: fixed; left: 12px; bottom: 12px; width: 384px; height: 192px; pointer-events: none; }
+  #hud { position: fixed; left: 12px; bottom: 12px; width: 384px; height: 120px; pointer-events: none; }
   body.in-vr #hud { display: none; }
   /* Messages: a small panel next to the HUD (bottom-left), never over the middle of the battle. */
   #message { position: fixed; left: 408px; bottom: 12px; width: 360px; box-sizing: border-box; padding: 10px 14px; text-align: left; pointer-events: none; opacity: 0; transition: opacity .25s; background: rgba(0,10,22,.62); border: 2px solid rgba(80,220,255,.7); text-shadow: 0 0 8px #0af; }
@@ -57,7 +57,7 @@
 </head>
 <body>
 <div id="app"></div>
-<canvas id="hud" width="512" height="256"></canvas>
+<canvas id="hud" width="512" height="160"></canvas>
 <div id="message"><div class="t"></div><div class="s"></div></div>
 <div id="flash"></div>
 <div id="crosshint">TEST MODE &middot; Enter start &middot; L lobby &middot; T tutorial &middot; N mode &middot; mouse steers &middot; click shoots &middot; Shift boost &middot; Tab settings</div>
@@ -75,6 +75,6 @@
     <p id="xrnote"></p>
   </div>
 </div>
-<script type="module" src="js/main.js?v=18"></script>
+<script type="module" src="js/main.js?v=19"></script>
 </body>
 </html>

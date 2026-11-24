@@ -4,7 +4,7 @@
 //                             +-> master -> glue compressor -> limiter -> out
 //   music -> MUSIC volume -> duck (dips under big explosions) --/
 // Volumes are 0..1 from the settings sliders (squared, so the slider feels even).
-import { Music } from './music.js?v=18';
+import { Music } from './music.js?v=19';
 
 export class Sfx {
   constructor() {
@@ -190,14 +190,6 @@ export class Sfx {
     if (!this.ctx || this._limited('whoosh', 0.35)) return;
     const t = this.now();
     this._noise(t, 'bandpass', 380, 2600, 1.4, 0.16 * vol, 0.5, this.sfxBus, 0.07);
-  }
-
-  // Barrel roll: two quick falling whooshes.
-  roll() {
-    if (!this.ctx) return;
-    const t = this.now();
-    this._noise(t, 'bandpass', 2400, 600, 1.6, 0.15, 0.22, this.sfxBus, 0.03);
-    this._noise(t + 0.14, 'bandpass', 2000, 500, 1.6, 0.1, 0.25, this.sfxBus, 0.03);
   }
 
   // Little tunes (all in D).

@@ -100,8 +100,7 @@ export function faceYaw(mesh, target) {
 // ---------------------------------------------------------------- animated icons
 // A side view of a Quest Touch Plus controller (front to the right): the head with the thumbstick and
 // two face buttons on top, the index trigger under the front of the head, and the grip on the front of
-// the handle. Drawn in the hand's colour (right = cyan, left = gold); the part to use pulses green,
-// exactly like the glowing part on the controller you hold in VR.
+// the handle. Drawn in the hand's colour (right = cyan, left = gold); the part to use pulses green.
 export const HAND_COLOR = { right: '#33ddff', left: '#ffcc66', either: '#bfefff' };
 export const HI = '#55ff99';
 const pulse = (t, f = 5) => 0.5 + 0.5 * Math.sin(t * f);
@@ -249,24 +248,6 @@ export function drawIcon(g, kind, x, y, s, t, hand = 'right') {
       ship(g, ex + s * 0.05, ey, s * 0.32, a * 2);
       break;
     }
-    case 'relative': {
-      const a = Math.sin(t * 1.2) * 0.35;
-      controller(g, cx, cy, cs, a, [], t, hand);
-      ring(g, ex, ey, s * 0.18, 'rgba(127,233,255,0.6)');
-      g.fillStyle = '#ffffff'; g.beginPath(); g.arc(ex + a * s * 0.4, ey, s * 0.04, 0, Math.PI * 2); g.fill();
-      break;
-    }
-    case 'point': {
-      const a = Math.sin(t * 1.2) * 0.3;
-      controller(g, cx, cy, cs, a, [], t, hand, s * 0.35);
-      ship(g, ex + s * 0.05, ey + Math.sin(a) * s * 0.5 - s * 0.05, s * 0.26, a);
-      break;
-    }
-    case 'stick': {
-      controller(g, cx, cy, cs, 0, ['stickCircle'], t, hand);
-      ship(g, ex + s * 0.05, ey, s * 0.32, Math.sin(t * 2) * 0.6);
-      break;
-    }
     case 'trigger': {
       controller(g, cx, cy, cs, 0, ['trigger'], t, hand);
       ship(g, ex - s * 0.08, ey, s * 0.24, 0);
@@ -315,20 +296,9 @@ export function drawIcon(g, kind, x, y, s, t, hand = 'right') {
       formation(g, ex + s * 0.05, ey, s * 0.45, sp);
       break;
     }
-    case 'roll': {
-      // A quick wrist twist, and the ship snap-rolls sideways.
-      const k = (t * 0.9) % 1, tw = k < 0.25 ? Math.sin((k / 0.25) * Math.PI) * 0.6 : 0;
-      controller(g, cx, cy, cs, 0, [], t, hand);
-      g.strokeStyle = HI; g.lineWidth = 3;
-      g.beginPath(); g.arc(cx + cs * 0.02, cy - cs * 0.2, cs * 0.34, -Math.PI * 0.8, -Math.PI * 0.8 + Math.PI * 0.6 * (0.3 + tw)); g.stroke();
-      const u = k < 0.5 ? k / 0.5 : 1, dx = Math.sin(u * Math.PI / 2) * s * 0.22;
-      g.save(); g.translate(ex - s * 0.12 + dx, ey); g.scale(1, Math.cos(u * Math.PI * 2)); ship(g, 0, 0, s * 0.3, -Math.PI / 2); g.restore();
-      arrow(g, ex - s * 0.12, ey + s * 0.25, ex + s * 0.14, ey + s * 0.25, 'rgba(255,255,255,0.6)');
-      break;
-    }
     case 'split': {
-      // Four ships part into a cyan pair (right hand) and a gold pair (left hand).
-      controller(g, cx, cy, cs, 0, ['stickClick'], t, hand);
+      // X: four ships part into a cyan pair (right hand) and a gold pair (left hand).
+      controller(g, cx, cy, cs, 0, ['btn1'], t, hand);
       const k = 0.5 + 0.5 * Math.sin(t * 1.6), off = s * 0.18 * k;
       for (let i = 0; i < 2; i++) dart(g, ex + (i - 0.5) * s * 0.14, ey - off - s * 0.02, s * 0.15, -Math.PI / 2 - 0.25 * k, '#33ddff');
       for (let i = 0; i < 2; i++) dart(g, ex + (i - 0.5) * s * 0.14, ey + off + s * 0.02, s * 0.15, -Math.PI / 2 + 0.25 * k, '#ffbb44');
@@ -342,15 +312,15 @@ export function drawIcon(g, kind, x, y, s, t, hand = 'right') {
       break;
     }
     case 'rejoin': {
-      controller(g, cx, cy, cs, 0, ['stickClick'], t, hand);
+      controller(g, cx, cy, cs, 0, ['btn1'], t, hand);
       const k = 0.5 + 0.5 * Math.sin(t * 1.6), off = s * 0.18 * (1 - k);
       dart(g, ex - s * 0.21, ey - off, s * 0.15, 0, '#33ddff'); dart(g, ex - s * 0.07, ey - off, s * 0.15, 0, '#33ddff');
       dart(g, ex + s * 0.07, ey + off, s * 0.15, 0, '#ffbb44'); dart(g, ex + s * 0.21, ey + off, s * 0.15, 0, '#ffbb44');
       break;
     }
     case 'formation': {
-      // B cycles line -> wedge -> ring.
-      controller(g, cx, cy, cs, 0, ['btn2'], t, hand);
+      // A cycles line -> wedge -> ring.
+      controller(g, cx, cy, cs, 0, ['btn1'], t, hand);
       const which = Math.floor(t * 0.8) % 3, sz = s * 0.13;
       const pts = which === 0 ? [[-1.5, 0], [-0.5, 0], [0.5, 0], [1.5, 0]]
         : which === 1 ? [[-1.2, 0.9], [-0.4, 0.3], [0.4, 0.3], [1.2, 0.9]]
