@@ -2,14 +2,14 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=28';
-import { createTouchController } from './controller.js?v=28';
-import { Sfx } from './audio.js?v=28';
-import { UI } from './ui.js?v=28';
-import { stats, saveStats, recordGame, recordEndless, addPlayTime, fmtTime, fmtNum } from './stats.js?v=28';
-import { createTutorial } from './tutorial.js?v=28';
-import { createRingUI } from './ring.js?v=28';
-import { createEndless } from './endless.js?v=28';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=29';
+import { createTouchController } from './controller.js?v=29';
+import { Sfx } from './audio.js?v=29';
+import { UI } from './ui.js?v=29';
+import { stats, saveStats, recordGame, recordEndless, addPlayTime, fmtTime, fmtNum } from './stats.js?v=29';
+import { createTutorial } from './tutorial.js?v=29';
+import { createRingUI } from './ring.js?v=29';
+import { createEndless } from './endless.js?v=29';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
@@ -228,8 +228,14 @@ function wrapDelta(a, b, out) {
   return out;
 }
 function outsideBox(p, m = 1) {
-  if (endless) return p.distanceTo(VC) > BOX_B * 1.15 * m;    // past the edge of the view window
+  if (endless) return winDist(p, VC) > BOX_B * (state === 'lobby' ? 1 : 1.15) * m;   // past the edge of the view window
   return Math.abs(p.x) > HB.x * m || Math.abs(p.y) > HB.y * m || Math.abs(p.z) > HB.z * m;
+}
+// Distance from the view centre for the Endless window: a sphere in a run; in the lobby preview, the
+// room's cube (the room's frame is hidden but the action stays in the same volume).
+function winDist(p, c) {
+  if (state === 'lobby') return Math.max(Math.abs(p.x - c.x), Math.abs(p.y - c.y), Math.abs(p.z - c.z));
+  return p.distanceTo(c);
 }
 // Wrap-around: leave through one face, come back in through the opposite face.
 function wrapBox(p) {
@@ -585,6 +591,7 @@ function starAvoidPoints() { return [new THREE.Vector3(0, 0, HB.z * 0.4)]; }
 // New random star positions for the current room shape: inside the walls, apart from each other,
 // and clear of both sides' start areas (best of many random tries for each star).
 function randomizeStars() {
+  if (endless) return;                              // (Endless has its own seeded stars)
   const avoid = starAvoidPoints(), placed = [];
   const n = new THREE.Vector3(), c = new THREE.Vector3(), bestN = new THREE.Vector3();
   for (const o of obstacles) {
@@ -1612,12 +1619,9 @@ function applyMode(mode = settings.mode) {
 }
 function damagePlayer(bullet) {
   if (!player.alive || player.invuln > 0 || !combat()) return;
-  if (state === 'lobby') {                           // the Fighter backdrop's autopilot ship: no feedback to you
-    player.hp--; player.invuln = 1.0; player.flash = 0.25;
-    if (player.hp <= 0) {
-      player.alive = false; player.obj.visible = false; trail.visible = false; lobbyReviveT = 0;
-      explode(player.obj, PLAYER_COLOR, _v1.copy(player.fwd).multiplyScalar(player.speed), true);
-    }
+  if (state === 'lobby') {                           // the Fighter backdrop's autopilot ship: hit, never destroyed
+    player.invuln = 0.6; player.flash = 0.25;
+    sparks(player.obj.position, PLAYER_COLOR, 6);
     return;
   }
   sparks(player.obj.position, PLAYER_COLOR, 10);
@@ -1765,54 +1769,59 @@ function enterLobby() {
   stateTimer = 0;
   tutorial.stop();
   tutFreeze = false;
-  setupLobbySim(simFor(settings.mode), false);
-  simFade.v = 1; simFade.dir = 0;
+  setupLobbySim(simFor(settings.mode));
+  simFade.v = 1; simFade.dir = 0; simFade.restart = false;
+  simFade.frame = true; setSimOpacity(1); simFade.frame = false;
   hideMessage();
   drawLobby();
   log('lobby');
 }
-// Set up the lobby backdrop for a mode. `smooth`: the room glides from its current shape to the new one.
-const _lobbyShape = new THREE.Vector3(), _lobbyDir = new THREE.Vector3();
-// Endless has no room, so its lobby backdrop is the Fighter one (a lone fighter against red raiders).
-function simFor(mode) { return mode === 'squadron' ? 'squadron' : 'fighter'; }
-function setupLobbySim(mode, smooth) {
-  const f = _lobbyShape.copy(HB).divideScalar(BOX_B);   // current shape (as factors of the room size)
+// Set up the lobby backdrop for a mode. The room is always the cube at the size you set (grip-resize):
+// no backdrop and no switch between them ever changes its size or shape. (Each mode's ship scale differs,
+// but the board scale makes up for it, so the room itself stays exactly where and how big it is.)
+const _lobbyDir = new THREE.Vector3();
+function simFor(mode) { return mode === 'squadron' || mode === 'endless' ? mode : 'fighter'; }
+function setupLobbySim(mode) {
   lobbySim = mode;
   clearBattle();
-  wave = 1; lobbyWave = 0; lobbyGap = false;
+  if (mode !== 'endless') exitEndless();
+  wave = mode === 'fighter' ? LOBBY_FIGHTER_WAVE : 1; lobbyWave = 0; lobbyGap = false;
   setAI(2);
-  applyMode(mode);
-  const target = lobbyShape(_shapeTmp);
-  if (smooth) { setShape(f.multiplyScalar(BOX_B)); morphTo(target, 0.9); } else setShape(target);
+  applyMode(mode === 'endless' ? 'squadron' : mode);  // (sets the cube room for the mode's scale)
+  if (mode === 'endless') setBoxB(MODE_BOX.endless);  // ships at their Endless size; same room size
   freshStars();
   resetPlayer();
-  if (mode === 'squadron') { player.obj.visible = false; trail.visible = false; }   // just the command point
+  if (mode !== 'fighter') { player.obj.visible = false; trail.visible = false; }   // just the command point
   resetBots();
   lobbyT = 0; lobbySpawnT = 1.0; lobbyReviveT = 0;
+  if (mode === 'endless') startLobbyEndless();
   log('lobby sim ' + mode);
 }
-// Lobby rooms are never taller than the cube, so the holo ring above them can stay put (no buttons
-// moving under your pointer when the room reshapes).
-function lobbyShape(out) { pickShape(out); out.y = Math.min(out.y, BOX_B); return out; }
 // Mode change in the lobby: fade the battle out, swap the sim, fade it back in (about 0.65 s in all).
 // The room's frame stays; everything inside it fades (material opacity, so the stars dim too).
-const simFade = { v: 1, dir: 0 };
+// The Endless preview has no walls, so going to or from it the room's frame fades too (`frame`).
+// `restart`: the Endless preview fades out and back in with a fresh group on its next route.
+const simFade = { v: 1, dir: 0, frame: false, restart: false };
 const SIM_FADE_HALF = 0.32;
 function updateLobbyFade(dt) {
-  if (state !== 'lobby') { if (simFade.v < 1 || simFade.dir) { simFade.v = 1; simFade.dir = 0; setSimOpacity(1); } return; }
+  if (state !== 'lobby') { if (simFade.v < 1 || simFade.dir) { simFade.v = 1; simFade.dir = 0; simFade.frame = true; setSimOpacity(1); simFade.frame = false; } return; }
   const want = simFor(settings.mode);
-  if (want !== lobbySim && simFade.dir >= 0) simFade.dir = -1;
+  if ((want !== lobbySim || simFade.restart) && simFade.dir >= 0) {
+    simFade.dir = -1;
+    if ((want === 'endless') !== (lobbySim === 'endless')) simFade.frame = true;
+  }
   if (!simFade.dir) return;
   simFade.v = clamp(simFade.v + (simFade.dir * dt) / SIM_FADE_HALF, 0, 1);
-  if (simFade.dir < 0 && simFade.v <= 0) { setupLobbySim(want, true); simFade.dir = 1; }
+  if (simFade.dir < 0 && simFade.v <= 0) { simFade.restart = false; setupLobbySim(want); simFade.dir = 1; }
   else if (simFade.dir > 0 && simFade.v >= 1) simFade.dir = 0;
   setSimOpacity(simFade.v);
+  if (!simFade.dir) simFade.frame = false;
 }
 // Scale the opacity of everything in the room except its frame. Each material's own opacity (which the game
 // may change every frame, e.g. explosions) is re-read whenever it is not the value set here last time.
 function setSimOpacity(v) {
   for (const o of board.children) {
-    if (o === boxFrame) continue;
+    if (o === boxFrame && !simFade.frame) continue;
     o.traverse((m) => {
       const mt = m.material;
       if (!mt || Array.isArray(mt)) return;
@@ -1824,11 +1833,11 @@ function setSimOpacity(v) {
   }
 }
 function updateLobby(dt) {
-  if (lobbySim === 'fighter') updateLobbyFighter(dt); else updateLobbySquadron(dt);
+  if (lobbySim === 'fighter') updateLobbyFighter(dt); else if (lobbySim === 'endless') updateLobbyEndless(dt); else updateLobbySquadron(dt);
 }
 // Fighter backdrop: one blue fighter on autopilot (chases the nearest red ship, leads it, fires when lined
-// up; it can be shot down and comes back after a moment) against the real Fighter-mode enemy waves 1-4 in
-// turn. When a wave is cleared the room reshapes and the next one comes in, as in a game.
+// up; it can't be destroyed) against a Fighter-mode enemy group. No rounds: when the group is shot down a
+// fresh one comes in a moment later, in the same room.
 function updateLobbyFighter(dt) {
   lobbyT += dt;
   const p = player.obj.position;
@@ -1865,16 +1874,69 @@ function updateLobbyFighter(dt) {
   if (!enemies.length) {
     if (!lobbyGap) {
       lobbyGap = true;
-      lobbySpawnT = lobbyWave ? 3.2 : 1.0;
-      if (lobbyWave) { morphTo(lobbyShape(_shapeTmp), 2.4); }   // wave cleared: the room reshapes
+      lobbySpawnT = lobbyWave ? 2.0 : 1.0;
     } else if ((lobbySpawnT -= dt) <= 0) {
-      lobbyWave = (lobbyWave % 4) + 1;
-      wave = lobbyWave;
-      setAI(lobbyWave);
-      for (const [role, count] of roster(lobbyWave, false)) spawnGroup(role, count, lobbyWave);
+      lobbyWave++;                                     // (counts groups; the round never changes)
+      wave = LOBBY_FIGHTER_WAVE;
+      setAI(LOBBY_FIGHTER_WAVE);
+      for (const [role, count] of roster(LOBBY_FIGHTER_WAVE, false)) spawnGroup(role, count, LOBBY_FIGHTER_WAVE);
       lobbyGap = false;
     }
   }
+}
+const LOBBY_FIGHTER_WAVE = 2;                       // the Fighter backdrop's enemy mix (round 2's)
+
+// Endless backdrop: no walls (the same room-sized window, invisible). A small blue group (3 fighters)
+// flies a seeded route: past an asteroid field, through the stars, to a red outpost, and fights it.
+// The ships can be lost; when the outpost is cleared or the group is gone, the preview fades to a fresh
+// group on the next route.
+const lobbyEnd = { route: 0, start: new THREE.Vector3(), pass: new THREE.Vector3(), outpost: new THREE.Vector3(), leg: 0, orbit: 0, doneT: 0 };
+function startLobbyEndless() {
+  endless = true;
+  boxFrame.visible = false;
+  obstacles.length = 0;
+  playerMax = MAX_HP; botMax = BOT_HP; fireMul = 1;
+  const r = E.demoRoute(lobbyEnd.route++);
+  lobbyEnd.start.copy(r.start); lobbyEnd.pass.copy(r.pass); lobbyEnd.outpost.copy(r.outpost);
+  lobbyEnd.leg = 0; lobbyEnd.orbit = 0; lobbyEnd.doneT = 0;
+  player.obj.position.copy(r.start);
+  player.fwd.subVectors(r.pass, r.start).normalize();
+  quatFromDir(player.fwd, player.obj.quaternion);
+  player.speed = CRUISE;
+  VC.copy(r.start);
+  resetBots();
+  const b3 = bots[BOT_N - 1]; b3.alive = false; b3.obj.visible = false;   // a small group: 3 fighters
+  refreshFriends();
+  E.start({ demo: true });
+}
+function updateLobbyEndless(dt) {
+  lobbyT += dt;
+  const p = player.obj.position, L = lobbyEnd, run = E.run;
+  let goal, spd = CRUISE * 1.5;
+  if (L.leg === 0 && p.distanceTo(L.pass) < 1.5) L.leg = 1;
+  if (L.leg === 1 && (run.active || p.distanceTo(L.outpost) < 5)) {
+    // At the outpost: circle it while the group fights.
+    L.orbit += dt * 0.3;
+    goal = _v2.set(Math.cos(L.orbit) * 2.6, Math.sin(L.orbit * 1.3) * 0.6, Math.sin(L.orbit) * 2.6).add(L.outpost);
+    spd = CRUISE;
+  } else goal = L.leg === 0 ? L.pass : L.outpost;
+  _lobbyDir.subVectors(goal, p);
+  if (_lobbyDir.lengthSq() > 1e-6) player.fwd.lerp(_lobbyDir.normalize(), Math.min(1, dt * 1.2)).normalize();
+  quatFromDir(player.fwd, player.obj.quaternion);
+  player.speed += (spd - player.speed) * Math.min(1, dt * 2);
+  p.addScaledVector(player.fwd, player.speed * dt);
+  refreshFriends();
+  syncSquadToPlayer();
+  SQUAD.engaged = squadEngaged = enemies.some((e) => e.obj.position.distanceTo(p) < 6);
+  updateSquad(SQUAD, dt);
+  separateFriends();
+  updateEnemies(dt);
+  playerBullets.update(dt);
+  enemyBullets.update(dt);
+  updateCollisions();
+  E.update(dt);
+  const lost = !bots.some((b) => b.alive);
+  if ((run.demoCleared || lost) && (L.doneT += dt) > (lost ? 2.5 : 3)) simFade.restart = true;
 }
 // Squadron backdrop: the blue squadron's leader wanders round the room and engages anything near.
 function updateLobbySquadron(dt) {
@@ -1974,6 +2036,7 @@ const msgEl = document.getElementById('message');
 let msgTitle = '', msgSub = '', msgTime = 0;
 
 function showMessage(title, sub = '', dur = 2) {
+  if (state === 'lobby') return;                     // the lobby backdrops never announce anything
   msgTitle = title; msgSub = sub; msgTime = dur;
   msgEl.querySelector('.t').textContent = title;
   msgEl.querySelector('.s').textContent = sub;
@@ -2356,6 +2419,7 @@ function toggleSettings(open = !menuOpen) {
   }
   document.getElementById('settings').classList.toggle('hidden', !(open && !renderer.xr.isPresenting));
   drawMenu();
+  if (state === 'lobby') drawLobby();                // the ring's SETTINGS button is lit while open
   log('settings ' + (open ? 'open' : 'closed'));
 }
 function updateMenuPointer(trigEdge) {
@@ -2669,7 +2733,7 @@ function faceSeat(mesh) {
   mesh.rotation.set(0, clamp(full * PANEL_TURN, -PANEL_MAX_YAW, PANEL_MAX_YAW), 0);
 }
 ringUI = createRingUI({
-  rig, seat, settings, stats, MODES, MODE_INFO, fmtNum, fmtTime, uiHit, faceSeat, lobbyClick, log,
+  rig, seat, settings, stats, MODES, MODE_INFO, fmtNum, fmtTime, uiHit, faceSeat, lobbyClick, log, menuOpen: () => menuOpen,
   placeSide: (mesh, side, w) => placeSide(mesh, side, w), click: () => sfx.click(),
   boxDims: () => { const sc = board.scale.x; return { x: board.position.x, y: board.position.y, z: board.position.z, hx: HB.x * sc, hy: HB.y * sc, hz: HB.z * sc, cube: BOX_B * sc }; },
   best: () => Math.max(stats.bestScore, best), screen: () => fmtTime(stats.screen),
@@ -2726,7 +2790,7 @@ function exitEndless() {
   world.position.set(0, 0, 0);
 }
 E = createEndless({
-  world, board, rig, VC, obstacles, bots, player, enemies, stats, fmtNum, S, log,
+  world, board, rig, VC, obstacles, bots, player, enemies, stats, fmtNum, S, log, winDist,
   BOX_B: () => BOX_B, gameMode: () => gameMode, playerMax: () => playerMax, botMax: () => botMax,
   score: () => score, kills: () => kills, addScore: (n) => { score += n; },
   setControls: setEndlessControls, syncSquad: () => syncSquadToPlayer(), placeBot: (b, k, m) => placeBot(SQUAD, b, k, m), refreshFriends,
@@ -3139,7 +3203,7 @@ function loop() {
   framePulse = Math.max(0, framePulse - dt * 2.5);
   const fe = boxFrame.userData.edges.material;
   fe.color.copy(FRAME_COLOR).lerp(framePulseCol, Math.min(1, framePulse));
-  fe.opacity = 0.7 + 0.3 * Math.min(1, framePulse);
+  fe.opacity = (0.7 + 0.3 * Math.min(1, framePulse)) * (simFade.frame ? simFade.v : 1);   // (fades with the lobby backdrop to / from Endless)
 
   hudTimer -= dt;
   if (hudTimer <= 0) { hudTimer = 0.1; drawHud(); ringUI.drawGame(); }
@@ -3177,7 +3241,7 @@ window.__game = {
   get steerMode() { return activeSteer(); },
   settings, setSetting, input, board, box, mirrorQ, bots, obstacles, groups,
   get mode() { return gameMode; }, get boxB() { return BOX_B; }, HB, get morphing() { return morphT < 1; }, AI, bestRound, damageBot, get msgTitle() { return msgTitle; }, get msgOn() { return msgTime > 0; }, get msgSub() { return msgSub; }, get starsOn() { return starsOn; }, get starAlpha() { return starAlpha; }, startRound, hudPanel, get friends() { return friends; }, get squadEngaged() { return squadEngaged; },
-  get lobbyPanel() { return ringUI.lobby; }, get ring() { return ringUI; }, get lobbySim() { return lobbySim; }, simFade, get trailVisible() { return trail.visible; }, gameOver, get msgTime() { return msgTime; }, SETTINGS_DEF, tutorial, enterLobby, startTutorial, finishTutorial, stats, recordGame, leaveGame, grab, uiHit, placePanels, grabGain,
+  get lobbyPanel() { return ringUI.lobby; }, get ring() { return ringUI; }, get lobbySim() { return lobbySim; }, simFade, lobbyEnd, boxFrame, get trailVisible() { return trail.visible; }, gameOver, get msgTime() { return msgTime; }, SETTINGS_DEF, tutorial, enterLobby, startTutorial, finishTutorial, stats, recordGame, leaveGame, grab, uiHit, placePanels, grabGain,
   get simTime() { return simTime; }, menuLayout, get kills() { return kills; },
   get tutStage() { return tutStageName; }, get tutFreeze() { return tutFreeze; }, get shots() { return shotsFired; },
   tutorialDone, spawnTut, setTutStage: tutStage, applyBoard, drawMenu, touch, get hudVisible() { return hudPanel.visible; }, get menuCanvas() { return menuCanvas; }, MENU_TOP, MENU_ROW, MENU_ROWS,

@@ -11,7 +11,7 @@
 //   - Score: kills + outposts + distance reached. A destroyed ship is gone; lose them all and it's over.
 // Only the sites and stars near you exist; meshes are pooled. G is the game API from main.js.
 import * as THREE from '../vendor/three.module.js';
-import { Panel, UI } from './ui.js?v=28';
+import { Panel, UI } from './ui.js?v=29';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const REG = 40;                 // region size (one site per region)
@@ -250,6 +250,7 @@ export function createEndless(G) {
     G.setAI(s.tier);
     G.setWave(s.tier);
     const sq = G.gameMode() === 'squadron';
+    if (run.demo) { G.setAI(2); G.spawnGroup('pincer', 2, 1); G.spawnGroup('flank', 1, 1); return; }   // lobby: a small outpost
     for (const [role, count] of G.roster(s.tier, sq)) G.spawnGroup(role, count, s.tier);
     G.showMessage(`OUTPOST - TIER ${s.tier}`, `${G.enemies.length} hostiles defend it`, 2.4);
     G.log(`endless outpost ${s.id} tier=${s.tier} enemies=${G.enemies.length}`);
@@ -281,8 +282,42 @@ export function createEndless(G) {
     return best;
   }
 
+  // ---------------------------------------------------------------- lobby preview routes
+  // Seeded routes for the lobby's Endless preview: start a little before an asteroid field, pass beside it,
+  // then on to a nearby outpost.
+  let routes = null;
+  function demoRoute(i) {
+    if (!routes) {
+      routes = [];
+      for (let I = -3; I <= 3; I++) for (let K = -3; K <= 3; K++) {
+        const f = site(I, K);
+        if (f.kind !== 'field') continue;
+        for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+          const o = site(I + a, K + b);
+          const d = o.kind === 'outpost' ? o.pos.distanceTo(f.pos) : 0;
+          if (d > 16 && d < 42) routes.push({ f, o, d });
+        }
+      }
+      routes.sort((x, y) => x.f.pos.length() + x.d - (y.f.pos.length() + y.d));
+    }
+    const out = { start: new V(), pass: new V(), outpost: new V() };
+    if (!routes.length) {                            // (never with this seed) home -> the first outpost
+      const o = site(0, -1);
+      out.start.set(0, 0, -3); out.pass.set(0, 0, -8); out.outpost.copy(o.pos);
+      return out;
+    }
+    const { f, o } = routes[i % routes.length];
+    const dir = new V(o.pos.x - f.pos.x, 0, o.pos.z - f.pos.z).normalize();
+    const perp = new V(-dir.z, 0, dir.x);
+    out.pass.copy(f.pos).addScaledVector(perp, 4.5);
+    out.start.copy(out.pass).addScaledVector(dir, -12);
+    out.outpost.copy(o.pos);
+    return out;
+  }
+
   // ---------------------------------------------------------------- per frame
   const WIN = () => G.BOX_B();
+  const WD = (p, c) => G.winDist(p, c);            // window distance (a cube in the lobby preview)
   const _a = new V();
   function fadeShip(obj, d) {
     const a = clamp((WIN() * 1.02 - d) / (WIN() * 0.22), 0, 1);
@@ -299,11 +334,12 @@ export function createEndless(G) {
     buildObstacles();
     // Distance: score for every new 0.1 unit further from home than before.
     const d = c.length();
-    if (d > run.maxDist) { G.addScore(Math.floor(d * DIST_K) - Math.floor(run.maxDist * DIST_K)); run.maxDist = d; }
+    if (d > run.maxDist && !run.demo) { G.addScore(Math.floor(d * DIST_K) - Math.floor(run.maxDist * DIST_K)); run.maxDist = d; }
     // Outposts: wake the nearest one when you come close; its ships go home if you leave.
     if (run.active) {
       const sd = run.active.pos.distanceTo(c);
-      if (G.enemies.length === 0) {
+      if (G.enemies.length === 0 && run.demo) { run.destroyed.add(run.active.id); run.active = null; run.demoCleared = true; }
+      else if (G.enemies.length === 0) {
         const s = run.active, bonus = 1000 * s.tier;
         run.destroyed.add(s.id); run.outposts++; run.active = null;
         G.addScore(bonus); run.credits += bonus;
@@ -321,7 +357,7 @@ export function createEndless(G) {
     const dk = nearestDock(c, 1);
     const dockR = dk ? dk.r + 1.7 : 0;
     if (dk && run.latch && dk.pos.distanceTo(c) > dockR + 1.5) run.latch = false;
-    if (dk && !run.latch && !run.docked && !run.choice && dk.pos.distanceTo(c) < dockR && !G.enemies.some((e) => e.obj.position.distanceTo(c) < 10)) {
+    if (dk && !run.demo && !run.latch && !run.docked && !run.choice && dk.pos.distanceTo(c) < dockR && !G.enemies.some((e) => e.obj.position.distanceTo(c) < 10)) {
       run.docked = dk; showPanel(true);
       G.chime();
       G.showMessage('DOCKED', 'Repair and refit on your right', 2.5);
@@ -339,14 +375,14 @@ export function createEndless(G) {
     // Shots stop at stars and rocks (Squadron controls already do this in main.js).
     if (G.gameMode() !== 'squadron') for (const L of [G.playerBullets(), G.enemyBullets()]) for (const b of L) if (!b.dead && G.obstInside(b.pos)) b.dead = true;
     // Ships fade out at the edge of the view window.
-    for (const e of G.enemies) fadeShip(e.obj, e.obj.position.distanceTo(c));
-    for (const b of G.bots) if (b.alive) fadeShip(b.obj, b.obj.position.distanceTo(c));
+    for (const e of G.enemies) fadeShip(e.obj, WD(e.obj.position, c));
+    for (const b of G.bots) if (b.alive) fadeShip(b.obj, WD(b.obj.position, c));
     draw(c);
   }
   // Pooled meshes for what is inside the view window, faded at its edge.
   function draw(c) {
     const W = WIN();
-    const fade = (p, r) => clamp((W - (p.distanceTo(c) - r)) / (W * 0.25), 0, 1);
+    const fade = (p, r) => clamp((W - (WD(p, c) - r)) / (W * 0.25), 0, 1);
     let si = 0, ri = 0, gi = 0;
     const putStar = (p, r, col) => {
       const a = fade(p, r);
@@ -377,7 +413,7 @@ export function createEndless(G) {
     for (let i = ri; i < rockPool.length; i++) rockPool[i].visible = false;
     for (let i = gi; i < ringPool.length; i++) ringPool[i].visible = false;
     // Hints: next outpost (red), and the nearest dock (green) when a ship is damaged.
-    const targets = [run.active ? null : nearestOutpost(c), hurt() ? nearestDock(c) : null];
+    const targets = [run.active ? null : nearestOutpost(c), !run.demo && hurt() ? nearestDock(c) : null];
     hints.forEach((h, i) => {
       const t = targets[i];
       if (!t || t.pos.distanceTo(c) < W * 0.9) { h.visible = false; return; }
@@ -391,7 +427,8 @@ export function createEndless(G) {
   }
 
   return {
-    start() {
+    start(opts = {}) {
+      run.demo = !!opts.demo; run.demoCleared = false;   // demo: the lobby preview (no score, panel or messages)
       run.on = true; run.credits = 0; run.maxDist = 0; run.outposts = 0; run.hullUps = 0; run.fireUps = 0; run.bought = 0;
       run.destroyed = new Set(); run.active = null; run.latch = true; run.docked = null; run.choice = false; run.t = 0;
       G.setUpgrades(0, 1);
@@ -426,6 +463,7 @@ export function createEndless(G) {
     },
     record() { G.recordEndless(Math.round(run.maxDist * DIST_K), G.score(), G.kills(), run.outposts); },
     endLine() { return `Distance ${N(Math.round(run.maxDist * DIST_K))}, ${N(run.outposts)} outpost${run.outposts === 1 ? '' : 's'}  (best ${N(G.stats.modes.endless.bestDist)})`; },
+    demoRoute,
     // tests
     get run() { return run; }, site, cellStars, nearestOutpost, nearestDock, hash, get near() { return near; }, panel, click,
   };

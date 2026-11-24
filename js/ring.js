@@ -11,7 +11,7 @@
 // Panels are ui.js Panels (canvas + buttons picked by the ray's UV), so pointing, clicking and the beam /
 // cursor work the same on the curved band.
 import * as THREE from '../vendor/three.module.js';
-import { Panel, UI } from './ui.js?v=28';
+import { Panel, UI } from './ui.js?v=29';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const RR = 1.2;                    // ring radius around your seat (m)
@@ -123,7 +123,7 @@ export function createRingUI(G) {
       G.MODES.forEach((m, i) => P.button('mode:' + m, 220 + i * 310, 40, 295, 160, m.toUpperCase(), { active: mode === m, size: 46 }));
       P.button('start', 1160, 22, 680, 196, 'START', { big: true, size: 104 });
       [['settings', 'SETTINGS'], ['stats', 'STATS'], ['tutorial', 'TUTORIAL']].forEach(([id, l], i) =>
-        P.button(id, 1870 + i * 310, 40, 290, 160, l, { size: 46, active: id === 'stats' && statsOpen() }));
+        P.button(id, 1870 + i * 310, 40, 290, 160, l, { size: 46, active: (id === 'stats' && statsOpen()) || (id === 'settings' && G.menuOpen()) }));
       P.end(); }
     { const P = key, W = P.W;
       P.begin();

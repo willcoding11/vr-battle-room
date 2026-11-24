@@ -48,14 +48,18 @@ lobby runs it again.
 
 After the tutorial, every time you enter VR, and a few seconds after a game ends, you are in the **lobby**.
 A battle plays inside the room as a backdrop, and it follows the mode you pick:
-- **Fighter:** what a Fighter game looks like, played bot-on-bots: one blue fighter on autopilot against red
-  ships using the real Fighter-mode behaviours (waves 1-4 in turn), in a Fighter-sized room that reshapes
-  between waves. The blue ship can be shot down; it comes back a moment later.
+- **Fighter:** one blue fighter on autopilot against red ships using the real Fighter-mode behaviours. No
+  rounds: when the red group is shot down a fresh one comes in a moment later. The blue ship can't be
+  destroyed, and nothing is announced.
 - **Squadron:** a blue squadron skirmishing with red raiders round the stars.
-- **Endless:** the Fighter backdrop.
+- **Endless:** a real Endless preview. The room's walls are hidden, but everything stays inside the same
+  room-sized volume (an invisible window, as in Endless itself). A small blue group of 3 fighters drifts through
+  the seeded stars, passes an asteroid field, finds a small red outpost and fights it. The blue ships can be
+  lost; when the outpost is cleared or the group is gone, the preview fades to a fresh group on the next route.
 
-Changing the mode **cross-fades** between them: the battle fades out, the room glides to its new shape and the
-other battle fades in (about 0.65 s). The room's frame stays put.
+**The room never changes size or shape in the lobby:** it is always the cube, at the size you set. Only your own
+grip-resize changes it. Changing the mode **cross-fades** between the backdrops (about 0.65 s): the battle
+fades out and the other fades in. Going to or from Endless, the room's frame fades too.
 
 - **Grip** (either hand) and drag to move the room; **grip + that hand's stick up/down** resizes it. A bigger
   room moves a little more per hand movement and a smaller one less (gain sqrt(size / medium), 0.7 - 1.6).
@@ -71,8 +75,8 @@ on the right.
 **It never covers the battle:** the band's bottom edge is always above the room's top, so every sight line to
 it passes over the room (nothing in the room is behind it), and it is drawn with depth testing first, so any
 ship, shot or star between you and the band shows in front of it. It sits about 18 degrees above straight ahead
-for the default room (v26: 23 degrees). In the lobby rooms are never taller than the cube, so the band stays
-still while the room reshapes; in a game it rises with a tall room.
+for the default room (v26: 23 degrees). In the lobby the room is always the cube, so the band stays still; in
+a game it rises with a tall room.
 
 **STATS** opens the stats panel to the **right** of the room (Settings opens on the left): it slides out of the
 STATS button with a quick fade (0.3 s), like Settings. Press STATS again, or CLOSE on the panel, to close it.
@@ -87,7 +91,8 @@ Per-mode best score, kills, time played and win streak are tracked from v27 on (
 round, games and last round per mode). Every number has thousands separators.
 
 Settings (left **X + Y**, or the ring's **SETTINGS** button; press either again to close) open on a panel to
-the **left** of the room. From the lobby the panel slides out of the SETTINGS button to its spot in about
+the **left** of the room. While Settings are open the ring's SETTINGS button is lit, as STATS is while the stats
+panel is open. From the lobby the panel slides out of the SETTINGS button to its spot in about
 0.3 s, fading in, so you can see where it went; closing is a quick fade. With Settings open:
 - **In the lobby** nothing stops: the backdrop battle keeps playing, and you can still grip-move and
   grip + stick resize the room.
@@ -97,13 +102,13 @@ the **left** of the room. From the lobby the panel slides out of the SETTINGS bu
 The two **volume sliders** (Music, Sound) work like the other rows: point at the bar and pull the trigger
 where you want the level.
 
-| Lobby | Stats open | Settings open |
+| Fighter backdrop | Squadron backdrop | Endless backdrop |
 |---|---|---|
-| ![](screenshots/v27-lobby.png) | ![](screenshots/v27-lobby-stats.png) | ![](screenshots/v27-lobby-settings.png) |
+| ![](screenshots/v29-lobby-fighter-sim.png) | ![](screenshots/v29-lobby-squadron-sim.png) | ![](screenshots/v29-lobby-endless-sim.png) |
 
-| Game + announcement | Fighter backdrop | Squadron backdrop |
+| Settings open (SETTINGS lit) | Stats open | Game + announcement |
 |---|---|---|
-| ![](screenshots/v27-game.png) | ![](screenshots/v27-lobby-fighter-sim.png) | ![](screenshots/v27-lobby-squadron-sim.png) |
+| ![](screenshots/v29-lobby-settings-open.png) | ![](screenshots/v27-lobby-stats.png) | ![](screenshots/v27-game.png) |
 
 ## Endless
 
@@ -386,6 +391,15 @@ room's front face and facing you, capped at 22 degrees, about the vertical axis 
 head; they are only re-placed when you move, resize or reshape the room (or re-centre with the Meta button).
 
 ![panels from the seat](screenshots/27-panels-seated.png)
+
+## Changes in v29
+
+- The ring's **SETTINGS** button is lit while Settings are open (like STATS).
+- **Fighter backdrop:** no rounds, the room never changes, enemies just respawn, the blue ship can't be
+  destroyed, no announcements.
+- **The lobby room never changes size or shape**, in any backdrop or when switching; only your grip-resize does.
+- **Endless backdrop:** a real preview (no walls, same volume): a small blue group explores, passes an asteroid
+  field, fights a small red outpost; it can be lost and comes back as a fresh group. Cross-fades like the others.
 
 ## Changes in v28
 

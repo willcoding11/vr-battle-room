@@ -3,7 +3,7 @@
 // Each step waits for you to do it, shows a check mark for a moment, then fades into the next.
 // Info steps go on with NEXT. Three parts: the room, flying, the squadron; then the lobby.
 // G is the game API from main.js.
-import { Panel, drawIcon, UI } from './ui.js?v=28';
+import { Panel, drawIcon, UI } from './ui.js?v=29';
 
 const READ = 1.2;          // seconds before an action counts (time to read the card)
 const NICE = 1.5;          // the "NICE!" beat
