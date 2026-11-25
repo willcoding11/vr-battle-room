@@ -119,7 +119,9 @@ never pauses in Endless (only Settings pauses it).
 
 - **Stars** everywhere, all the same size (the size stars are next to the ships in Squadron mode). Far stars
   fade out gradually over a long band (from 30% of the window's radius to its edge), so nothing pops in.
-  You start beside an ordinary star.
+  You start beside an ordinary star. Stars never overlap: no two are closer than 3 units centre to centre,
+  and none is within 5 units of an outpost (chosen from the seeded candidates alone, so the sky is the same
+  whichever way you fly).
 - **Enemy outposts** are **red stars** with their ships huddled round them. They wake when you come close,
   roam near their star (they never chase you far), and go back to sleep if you leave. The further from home,
   the higher the **tier** (one step every 36 units): more and tougher ships, and more points.
@@ -132,17 +134,26 @@ never pauses in Endless (only Settings pauses it).
 - **Asteroid fields** drift slowly and damage whatever hits them; they are commoner further out.
 - **Destroying an outpost** (every ship round it) gives 1,000 x its tier in points and credits. A short effect
   (1 s): one faint ring, a few sparks, a quieter boom, a very short hit-stop; the red star flickers gently,
-  shrinks and comes back grey. Then your ships **glide onto the star by themselves** (about 1 s) and land.
+  shrinks and comes back grey. Then your ships **land on the star by themselves**: the view glides over to
+  the star (about 1 s) while every ship flies a real approach - it carries on along its own heading, curves
+  in, lines up with the squadron and comes down onto its own spot on the star at a shallow angle, slowing as
+  it touches down, then levels out. Nothing slides sideways. A split squadron rejoins first.
 - **Landed:** the ship (or the whole squadron) sits on top of the star while the game keeps running. Landed
-  ships can't be hurt and steering does nothing. A small panel appears **beside the star** (point + trigger):
+  ships can't be hurt, steering does nothing and X does not split. A small panel appears **beside the star**
+  (point + trigger), on its right - or on its left or above it when that side has a clearer view (no star or
+  rock in between). It is depth-correct: a star in front of it hides it (the pointer still draws on top):
   - **Cleared outpost:** an upgrade: **+1 wingman**, **+hull** (every ship, fully repaired) or **+fire rate**
     (15%).
   - **Friendly outpost** (fly onto the green star to land): **repair all** (300), **a new fighter** (1,500,
-    +500 each time) and **+1 hull for every ship** (1,200, +50% each time), paid with credits.
+    +500 each time, no fleet limit) and **+1 hull for every ship** (1,200, +50% each time), paid with credits.
   - **LAUNCH** on the panel is the only way to take off. If you launch from a cleared outpost without
     choosing, its grey star pulses and you can fly back onto it later.
 - You start as **one fighter** (Fighter controls). Kills earn credits. With a wingman you lead a squadron
-  (Squadron controls, up to 4 ships).
+  (Squadron controls). There is no fleet limit in Endless: formations grow to fit (a line becomes rows of up
+  to 6, a wedge chevrons of up to 7 one behind the other, a ring widens), and 15 ships in a tier-3 fight still
+  cost about 0.6 ms of game logic per frame.
+- **Split** (X): the view centre follows both pairs, weighted 60 / 40 toward the blue pair, and eases over
+  when you split or rejoin (no jump).
 - A destroyed ship is gone for good. Lose them all and the run ends: you see your distance and score, then
   the lobby.
 - **Score:** distance (10 points per unit of new distance), outposts and kills. Best distance and best score
@@ -162,6 +173,14 @@ so a busy tier-3 outpost fight costs about 0.5 ms of game logic per frame.
 | Arrows (red: outpost, green: friendly) |
 |---|
 | ![](screenshots/v30-endless-arrows.png) |
+
+| v32: a fighter flying its landing approach | 14 ships landed on a friendly outpost | Split view (60 / 40) |
+|---|---|---|
+| ![](screenshots/v32-landing-fighter.png) | ![](screenshots/v32-fleet-landed.png) | ![](screenshots/v32-split-view.png) |
+
+| A star in front of the popup (depth-correct) | The popup moved to the clear side |
+|---|---|
+| ![](screenshots/v32-popup-star-in-front-depth.png) | ![](screenshots/v32-popup-moved.png) |
 
 ## Rounds: every round is a fresh battle
 
@@ -324,10 +343,10 @@ Right B and the right stick click do nothing. Steering is always this one style 
 | Game mode | Fighter / Squadron | Fighter |
 | Steering gain (Fighter) | 1x / 1.5x / 2x / 2.5x / 3x / 3.5x | 2x |
 | Steering gain (Squadron) | 1x / 1.5x / 2x / 2.5x / 3x / 3.5x | 3x |
-| Box size | Small 0.7 m / Medium 1.0 m / Large 1.3 m | Medium |
+| Box size | Small 0.7 m / Medium 1.0 m / Large 1.3 m | Small (v32; Medium before) |
 | Music volume | slider 0-10 | 6 |
 | Sound volume | slider 0-10 | 8 |
-| Box position | RESET puts the box back in its default spot | |
+| Box position | RESET puts the box back in its default spot (centred 0.85 m ahead, centre 1.0 m up) at your Box size | |
 | Leave game | TO LOBBY ends the current game and goes back to the lobby | |
 
 Changing the mode during a game restarts in the new mode.
@@ -415,6 +434,23 @@ move, resize or reshape the room (or re-centre with the Meta button).
 | ![](screenshots/v31-panels-before.png) | ![](screenshots/v31-panels-after.png) |
 
 ![panels from the seat](screenshots/27-panels-seated.png)
+
+## Changes in v32
+
+- **Default layout** from the user's headset photo: new players start with the **Small** box at the default
+  spot, with the ring, Settings and Stats placed around it as in the photo. Saved box settings are kept;
+  Box position RESET returns to the default spot. Rendered from a similar leaned-back seat, and again with
+  the photo's outlines (box, ring, panels) traced on top in pink:
+
+  ![default vs photo](screenshots/v32-default-vs-photo.png)
+
+- **START** with Settings and / or Stats open closes them (their normal fade) and starts the game.
+- **Split:** the blue pair (right hand) is now the ships on the **right** of the heading and the gold pair the
+  left (v31 and before had it the wrong way round, so the pairs crossed over). An odd ship goes to blue.
+- **Endless:** stars never overlap; landing is a real flight (approach, line-up, touch-down) while the view
+  glides; a split squadron rejoins to land; X does nothing while landed; no fleet limit (formations scale);
+  the split view centre is weighted 60 / 40 toward blue; the outpost popup is depth-correct and picks the side
+  with a clear view.
 
 ## Changes in v31
 

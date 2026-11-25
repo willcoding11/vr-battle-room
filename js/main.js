@@ -2,14 +2,14 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=31';
-import { createTouchController } from './controller.js?v=31';
-import { Sfx } from './audio.js?v=31';
-import { UI } from './ui.js?v=31';
-import { stats, saveStats, recordGame, recordEndless, addPlayTime, fmtTime, fmtNum } from './stats.js?v=31';
-import { createTutorial } from './tutorial.js?v=31';
-import { createRingUI } from './ring.js?v=31';
-import { createEndless } from './endless.js?v=31';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=32';
+import { createTouchController } from './controller.js?v=32';
+import { Sfx } from './audio.js?v=32';
+import { UI } from './ui.js?v=32';
+import { stats, saveStats, recordGame, recordEndless, addPlayTime, fmtTime, fmtNum } from './stats.js?v=32';
+import { createTutorial } from './tutorial.js?v=32';
+import { createRingUI } from './ring.js?v=32';
+import { createEndless } from './endless.js?v=32';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
@@ -63,7 +63,7 @@ const SETTINGS_DEF = [
   { key: '_box', label: 'Box position', opts: [], action: 'RESET' },     // actions, not stored settings
   { key: '_lobby', label: 'Leave game', opts: [], action: 'TO LOBBY' },
 ];
-const SETTINGS_DEFAULT = { mode: 'fighter', boxSize: 'medium', steerGain: '2', steerGainSq: '3', musicVol: '6', sfxVol: '8' };
+const SETTINGS_DEFAULT = { mode: 'fighter', boxSize: 'small', steerGain: '2', steerGainSq: '3', musicVol: '6', sfxVol: '8' };
 const BOX_SIZES = { small: 0.7, medium: 1.0, large: 1.3 };     // box width in metres
 const TURN_RATE = 2.8 * 2.6;                                   // turn rate of command points / autopilot (rad/s scale)
 const settings = { ...SETTINGS_DEFAULT };
@@ -1243,14 +1243,20 @@ function makeSquad(name, color) {
     name, kind: 'squad', color: new THREE.Color(color), bots: [], anchor: new THREE.Vector3(), fwd: new THREE.Vector3(0, 0, -1),
     q: new THREE.Quaternion(), right: new THREE.Vector3(1, 0, 0), speed: CRUISE, engaged: false, tgtT: 0,
   };
-  for (let i = 0; i < BOT_N; i++) {
-    const obj = shrink(buildPlayerShip(sq.color.getHex()));
-    obj.visible = false;
-    world.add(obj);
-    sq.bots.push({ i, unit: sq, grp: sq, obj, fwd: new THREE.Vector3(0, 0, -1), bank: 0, turn: 3.4, speed: CRUISE, hp: BOT_HP, alive: false, flash: 0, invuln: 0, fireCd: rand(0, 0.3), target: null, aim: null, side: i % 2 ? 1 : -1, radius: 0 });
-  }
+  for (let i = 0; i < BOT_N; i++) makeBot(sq);
   return sq;
 }
+function makeBot(sq) {
+  const i = sq.bots.length;
+  const obj = shrink(buildPlayerShip(sq.color.getHex()));
+  obj.visible = false;
+  world.add(obj);
+  const b = { i, unit: sq, grp: sq, obj, fwd: new THREE.Vector3(0, 0, -1), bank: 0, turn: 3.4, speed: CRUISE, hp: BOT_HP, alive: false, flash: 0, invuln: 0, fireCd: rand(0, 0.3), target: null, aim: null, side: i % 2 ? 1 : -1, radius: 0 };
+  sq.bots.push(b);
+  return b;
+}
+// Endless: a fleet can grow past 4 (each extra ship is made once and then reused).
+function newBot() { const b = makeBot(SQUAD); b.grp = split ? GA : SQUAD; if (split) GA.bots.push(b); return b; }
 const SQUAD = makeSquad('SQUAD', 0x33ddff);          // Squadron mode
 const bots = SQUAD.bots;
 function makeGroup(name, color) {
@@ -1310,8 +1316,11 @@ function setSplit(on, quiet = false) {
     const alive = bots.filter((b) => b.alive);
     if (gameMode !== 'squadron' || alive.length < 2) { if (!quiet) showMessage('CAN\'T SPLIT', 'You need at least 2 ships', 1.4); return; }
     syncSquadToPlayer();
-    alive.sort((a, b) => _bS.subVectors(b.obj.position, SQUAD.anchor).dot(SQUAD.right) - _v1.subVectors(a.obj.position, SQUAD.anchor).dot(SQUAD.right));
-    const h = Math.ceil(alive.length / 2);
+    // v32: by each ship's side of the heading. (SQUAD.right is the ship's local +X, which points to the LEFT
+    // of the way it flies - v31 and before handed the blue pair the LEFT ships, so the pairs crossed over.)
+    const side = (b) => -_bS.subVectors(b.obj.position, SQUAD.anchor).dot(SQUAD.right);   // + = right of the heading
+    alive.sort((a, b) => side(b) - side(a));
+    const h = Math.ceil(alive.length / 2);                // an odd one goes to the blue (right) side
     GA.bots = alive.slice(0, h); GB.bots = alive.slice(h);
     for (const b of GA.bots) b.grp = GA;
     for (const b of GB.bots) b.grp = GB;
@@ -1326,12 +1335,15 @@ function setSplit(on, quiet = false) {
     cmdB.obj.visible = true;
     GA.tgtT = GB.tgtT = 0;
     split = true;
+    if (endless) E.rebaseView();
     sfx.split();
     haptic('left', 0.5, 50); haptic('right', 0.5, 50);
-    if (!quiet) showMessage('SQUADRON SPLIT', 'Right hand: cyan pair - left hand: gold pair', 2.2);
+    const w = alive.length > 4 ? 'group' : 'pair';
+    if (!quiet) showMessage('SQUADRON SPLIT', `Right hand: cyan ${w} - left hand: gold ${w}`, 2.2);
   } else {
     for (const b of bots) b.grp = SQUAD;
     split = false;
+    if (endless) E.rebaseView();
     cmdB.obj.visible = false;
     SQUAD.tgtT = 0;
     if (!quiet) { sfx.join(); haptic('left', 0.4, 40); showMessage('SQUADRON REJOINED', 'One formation again', 1.6); }
@@ -1349,15 +1361,22 @@ function cycleFormation() {
 }
 // Formation slot k of m around the group's command point.
 const _bU = new THREE.Vector3();
+// v32: any number of ships - a line is rows of up to 6 (more rows behind), a wedge is chevrons of up to 7
+// (one behind the other), and a ring grows so the ships keep their spacing. Up to 6 / 7 ships: as before.
+const LINE_ROW = 6, WEDGE_ROW = 7;
 function slotPos(sq, k, m, out) {
-  const c = k - (m - 1) / 2;
   out.copy(sq.anchor);
-  if (formation === 'wedge') out.addScaledVector(sq.right, c * BOT_SPACING * 0.9).addScaledVector(sq.fwd, -Math.abs(c) * BOT_SPACING * 0.9);
-  else if (formation === 'ring' && m > 1) {
-    const a = (k / m) * Math.PI * 2, r = BOT_SPACING * (m > 2 ? 0.95 : 0.6);
+  if (formation === 'wedge') {
+    const row = Math.floor(k / WEDGE_ROW), mm = Math.min(WEDGE_ROW, m - row * WEDGE_ROW), c = (k % WEDGE_ROW) - (mm - 1) / 2;
+    out.addScaledVector(sq.right, c * BOT_SPACING * 0.9).addScaledVector(sq.fwd, -(Math.abs(c) * 0.9 + row * 1.7) * BOT_SPACING);
+  } else if (formation === 'ring' && m > 1) {
+    const a = (k / m) * Math.PI * 2, r = Math.max(BOT_SPACING * (m > 2 ? 0.95 : 0.6), (m * BOT_SPACING * 0.8) / (Math.PI * 2));
     _bU.crossVectors(sq.right, sq.fwd).normalize();
     out.addScaledVector(sq.right, Math.cos(a) * r).addScaledVector(_bU, Math.sin(a) * r);
-  } else out.addScaledVector(sq.right, c * BOT_SPACING);
+  } else {
+    const row = Math.floor(k / LINE_ROW), mm = Math.min(LINE_ROW, m - row * LINE_ROW), c = (k % LINE_ROW) - (mm - 1) / 2;
+    out.addScaledVector(sq.right, c * BOT_SPACING).addScaledVector(sq.fwd, -row * BOT_SPACING * 1.1);
+  }
   return out;
 }
 // v18 smart targets: enemies near the group, ranked by distance but favouring the ones ahead of the
@@ -1399,8 +1418,9 @@ function assignTargets(sq, alive, foes, leash, dt) {
 }
 function resetSquad(sq, on) {
   sq.bots.forEach((b, k) => {
-    b.alive = on; b.hp = botMax; b.flash = 0; b.invuln = 0; b.speed = CRUISE; b.bank = 0;
-    b.obj.visible = on;
+    b.alive = on && k < BOT_N;                         // (extra Endless ships stay parked)
+    b.hp = botMax; b.flash = 0; b.invuln = 0; b.speed = CRUISE; b.bank = 0;
+    b.obj.visible = b.alive;
     placeBot(sq, b, k, BOT_N);
   });
 }
@@ -1751,7 +1771,12 @@ function drawLobby() {
 }
 function lobbyClick(id) {
   if (id.startsWith('mode:')) { setSetting('mode', id.slice(5)); sfx.click(); }
-  else if (id === 'start') startGame();
+  else if (id === 'start') {
+    // START with Settings / Stats open: both close with their normal fade, and the game starts.
+    if (menuOpen) toggleSettings(false);
+    if (ringUI.statsOpen) ringUI.toggleStats(false);
+    startGame();
+  }
   else if (id === 'tutorial') startTutorial();
   else if (id === 'settings') toggleSettings();
   else if (id === 'stats') ringUI.toggleStats();
@@ -2073,15 +2098,17 @@ function drawHud() {
   if (gameMode === 'squadron') {
     // One box per ship, filled by its hull, in its pair's colour; lost ships are crossed out.
     hctx.fillText(split ? 'SPLIT' : 'SQUAD', 20, 64);
-    bots.forEach((b, i) => {
-      const x = 150 + i * 78 + (split && b.grp === GB ? 18 : 0), col = '#' + b.grp.color.getHexString();
+    const shown = bots.filter((b, i) => i < BOT_N || b.alive);
+    const step = Math.min(78, (W - 170) / Math.max(1, shown.length)), bw = Math.max(8, step - 14);
+    shown.forEach((b, i) => {
+      const x = 150 + i * step + (split && b.grp === GB ? 18 : 0), col = '#' + b.grp.color.getHexString();
       hctx.strokeStyle = b.alive ? col : '#ff5566';
-      hctx.strokeRect(x, 30, 64, 42);
+      hctx.strokeRect(x, 30, bw, 42);
       if (b.alive) {
         hctx.fillStyle = b.hp <= 1 ? '#ff5566' : col;
-        hctx.fillRect(x + 4, 34, (56 * b.hp) / botMax, 34);
+        hctx.fillRect(x + 4, 34, ((bw - 8) * Math.min(b.hp, botMax)) / botMax, 34);
       } else {
-        hctx.beginPath(); hctx.moveTo(x + 6, 36); hctx.lineTo(x + 58, 66); hctx.moveTo(x + 58, 36); hctx.lineTo(x + 6, 66); hctx.stroke();
+        hctx.beginPath(); hctx.moveTo(x + 6, 36); hctx.lineTo(x + bw - 6, 66); hctx.moveTo(x + bw - 6, 36); hctx.lineTo(x + 6, 66); hctx.stroke();
       }
     });
     const f = formation.toUpperCase();
@@ -2519,7 +2546,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Tab') { e.preventDefault(); if (!e.repeat) toggleSettings(); }
   if (e.code === 'Escape' && menuOpen) toggleSettings(false);
   if (e.code === 'KeyN' && !e.repeat) setSetting('mode', nextMode());
-  if (e.code === 'KeyG' && !e.repeat && gameMode === 'squadron' && (state === 'playing' || state === 'tutorial')) setSplit(!split);
+  if (e.code === 'KeyG' && !e.repeat && gameMode === 'squadron' && (state === 'playing' || state === 'tutorial') && !landing.on) setSplit(!split);
   if (e.code === 'KeyB' && !e.repeat && gameMode === 'squadron' && (state === 'playing' || state === 'tutorial')) cycleFormation();
   if (e.code === 'Space') e.preventDefault();
 });
@@ -2615,7 +2642,7 @@ function gatherInputVR(dt) {
     if (xDown && (by || menuOpen)) xWithY = true;
     if (!bx && xDown) {
       xDown = false;
-      if (!xWithY && !by && gameMode === 'squadron' && live) setSplit(!split);
+      if (!xWithY && !by && gameMode === 'squadron' && live && !landing.on) setSplit(!split);   // (landed: X does nothing)
     }
     const lt = btn(0);
     const onUi = uiRay('left', L, lt, lt && !prevLTrig);
@@ -2785,44 +2812,129 @@ function setEndlessControls(m) {
   refreshFriends();
 }
 // ---------------------------------------------------------------- Endless landing (endless.js decides when)
-// Fly onto a green star (or a cleared outpost) and you land: your ship / squadron settles on top of it and
-// waits, the game keeps running, and the choices show on the ring. Take off by steering away (turn more than
-// about 40 degrees from where you were heading for half a second, while not pointing at the ring) or boost.
-const landing = { on: false, at: new THREE.Vector3(), c: new THREE.Vector3(), r: 0, from: new THREE.Vector3(), t: 0, glide: 1, bfrom: new Map() };
-// Glide smoothly (eased, `glide` seconds) onto the top of the star at c.
+// Fly onto a green star (or a cleared outpost) and you land: the view glides over to the star (eased, `glide`
+// seconds) while every ship flies a real approach (v32): from where it is, along its own heading, it curves
+// in, lines up with the squadron's approach and comes down onto its spot on the star at a shallow angle,
+// slowing as it touches down, then levels out. A split squadron rejoins first. Only LAUNCH takes off.
+const landing = { on: false, at: new THREE.Vector3(), c: new THREE.Vector3(), r: 0, from: new THREE.Vector3(), view: new THREE.Vector3(), t: 0, glide: 1, shipT: 0, flights: new Map(), h: new THREE.Vector3() };
+const LAND_SLOPE = 0.5;                  // the final approach comes down at about 27 degrees
+function landSlot(k, n, out) {
+  // Spots on the star's upper side, tilted toward the side you come in from, spread evenly (any number).
+  if (n <= 1) return out.set(0, 1, 0);
+  const cap = Math.min(1.15, 0.45 + 0.07 * n);
+  const z = 1 - ((k + 0.5) / n) * (1 - Math.cos(cap)), rr = Math.sqrt(Math.max(0, 1 - z * z)), a = k * 2.39996;
+  return out.set(rr * Math.cos(a), z, rr * Math.sin(a));
+}
+function planFlight(obj, fwd, speed, slot, k) {
+  const f = landing.flights.get(obj) || { p0: new THREE.Vector3(), b1: new THREE.Vector3(), b2: new THREE.Vector3(), p3: new THREE.Vector3(), d1: new THREE.Vector3(), T: 1, bank: 0, fwd: null };
+  f.fwd = fwd; f.p0.copy(obj.position); f.p3.copy(slot);
+  const dist = f.p0.distanceTo(f.p3);
+  const v = Math.max(speed, CRUISE);
+  f.T = clamp(0.8 + dist / (v * 1.6), 1.3, 3.2) + k * 0.06;          // (a slight stagger, nobody lands at once)
+  // Final approach: along the squadron's heading to the star, coming down.
+  f.d1.copy(landing.h).multiplyScalar(1).add(_v1.set(0, -LAND_SLOPE, 0)).normalize();
+  const L1 = clamp(dist * 0.4, 0.6, 3.5);
+  f.b2.copy(f.p3).addScaledVector(f.d1, -L1);
+  // Leave along its own heading (time is eased, so the start speed is 2x the handle / T x 3).
+  f.b1.copy(f.p0).addScaledVector(fwd, Math.min((v * f.T) / 6, dist * 0.6 + 0.3));
+  // Keep clear of the star: if the way to the line-up point cuts through it, go over the top.
+  const cl = landing.r + 0.5;
+  if (segPointDist(f.b1, f.b2, landing.c) < cl) f.b1.y = Math.max(f.b1.y, landing.c.y + cl + 0.4);
+  if (segPointDist(f.p0, f.b1, landing.c) < cl) f.b1.y = Math.max(f.b1.y, landing.c.y + cl + 0.4);
+  f.bank = 0;
+  landing.flights.set(obj, f);
+  landing.shipT = Math.max(landing.shipT, f.T + 0.35);
+}
+const _lb = new THREE.Vector3(), _lt = new THREE.Vector3(), _lq = new THREE.Quaternion();
+function bez(f, u, out, tan) {
+  const a = 1 - u;
+  out.copy(f.p0).multiplyScalar(a * a * a).addScaledVector(f.b1, 3 * a * a * u).addScaledVector(f.b2, 3 * a * u * u).addScaledVector(f.p3, u * u * u);
+  tan.copy(f.b1).sub(f.p0).multiplyScalar(3 * a * a).addScaledVector(_v3.subVectors(f.b2, f.b1), 6 * a * u).addScaledVector(_v2.subVectors(f.p3, f.b2), 3 * u * u);
+  return out;
+}
+// One ship along its flight at landing time t.
+function flyFlight(obj, f, t, dt) {
+  const tau = clamp(t / f.T, 0, 1), u = 1 - (1 - tau) * (1 - tau);    // eased: slows to a stop at the spot
+  bez(f, u, obj.position, _lt);
+  if (_lt.lengthSq() < 1e-10) _lt.copy(f.d1);
+  _lt.normalize();
+  // Level out over the last part (touch-down), facing along the approach.
+  const lev = smoothstep(0.7, 1, tau);
+  _lb.copy(landing.h).lerp(_lt, 1 - lev).normalize();
+  const prev = _v2.copy(f.fwd);
+  f.fwd.copy(_lb);
+  const yawRate = (prev.z * f.fwd.x - prev.x * f.fwd.z) / Math.max(dt, 1e-4);
+  f.bank += (clamp(-yawRate * 0.35, -0.9, 0.9) * (1 - lev) - f.bank) * Math.min(1, dt * 6);
+  quatFromDir(f.fwd, obj.quaternion);
+  obj.quaternion.multiply(_lq.setFromAxisAngle(ZAXIS, f.bank));
+}
+function smoothstep(a, b, x) { const k = clamp((x - a) / (b - a), 0, 1); return k * k * (3 - 2 * k); }
 function landOn(c, r, glide = 1) {
+  if (split) { setSplit(false, true); showMessage('SQUADRON REJOINED', 'Landing together', 1.4); }
   landing.on = true; landing.c.copy(c); landing.r = r;
   landing.at.copy(c).add(_v1.set(0, r + 0.3, 0));
-  landing.from.copy(player.obj.position); landing.t = 0; landing.glide = Math.max(0.05, glide);
-  landing.bfrom.clear();
-  for (const b of bots) if (b.alive) landing.bfrom.set(b, b.obj.position.clone());
+  landing.from.copy(endless ? VC : player.obj.position); landing.view.copy(landing.from);
+  landing.t = 0; landing.glide = Math.max(0.05, glide); landing.shipT = 0;
+  landing.flights.clear();
+  // The approach heading: from the ships to the star, level.
+  const ships = gameMode === 'squadron' ? bots.filter((b) => b.alive) : [player];
+  centroid(ships.map((b) => b === player ? player : b), _v2);
+  landing.h.subVectors(c, _v2).setY(0);
+  if (landing.h.lengthSq() < 1e-6) landing.h.copy(player.fwd).setY(0);
+  if (landing.h.lengthSq() < 1e-6) landing.h.set(0, 0, -1);
+  landing.h.normalize();
+  // Spots: the cap tilts toward the side you come in from (rotate "up" back toward -h).
+  _lq.setFromUnitVectors(UP, _v1.copy(UP).addScaledVector(landing.h, -0.45).normalize());
+  if (gameMode === 'squadron') {
+    ships.forEach((b, k) => {
+      landSlot(k, ships.length, _v1).applyQuaternion(_lq).multiplyScalar(r + 0.12).add(c);
+      planFlight(b.obj, b.fwd, b.speed, _v1, k);
+    });
+  } else planFlight(player.obj, player.fwd, player.speed, landing.at, 0);
   log('landed');
 }
 const landEase = () => { const k = clamp(landing.t / landing.glide, 0, 1); return k * k * (3 - 2 * k); };
+const landSettled = () => landing.on && landing.t >= Math.max(landing.glide, landing.shipT);
 function takeOff() {
   if (!landing.on) return;
   landing.on = false;
   player.speed = CRUISE;
+  // Leave along the way the ships are facing (level), the controller then takes over again.
+  if (gameMode !== 'squadron') { quatFromDir(player.fwd, player.mq); player.bank = 0; }
+  for (const b of bots) if (b.alive) { b.speed = CRUISE; b.bank = 0; }
   log('take off');
 }
-// The command point / fighter glides onto the star and stays there (only LAUNCH takes off).
+// The view (and the invisible command point) glides onto the star; a fighter flies its approach.
 function landedMove(p, dt) {
   landing.t += dt;
-  p.lerpVectors(landing.from, landing.at, landEase());
+  landing.view.lerpVectors(landing.from, landing.at, landEase());
+  if (gameMode === 'squadron') p.copy(landing.view);
+  else {
+    const f = landing.flights.get(player.obj);
+    if (f) flyFlight(player.obj, f, landing.t, dt);
+  }
   player.speed = 0; player.vel.set(0, 0, 0);
   return true;
 }
-// The squadron's ships sit in a little circle on top of the star.
+// The squadron's ships fly their approach, then sit on their spots on the star.
+const _ls1 = new THREE.Vector3();
 function holdLanded(dt) {
-  const alive = bots.filter((b) => b.alive), n = alive.length;
-  alive.forEach((b, k) => {
-    const a = (k / Math.max(1, n)) * Math.PI * 2;
-    _v1.set(Math.sin(a) * 0.45, landing.r + 0.12, Math.cos(a) * 0.45).add(landing.c);
-    const f = landing.bfrom.get(b);
-    if (f && landing.t < landing.glide) b.obj.position.lerpVectors(f, _v1, landEase());
-    else b.obj.position.lerp(_v1, Math.min(1, dt * 3));   // (a ship bought while landed flies to its spot)
+  const alive = bots.filter((b) => b.alive);
+  for (const b of alive) {
+    let f = landing.flights.get(b.obj);
+    if (!f) {
+      // A ship bought while landed: it flies in to a free spot as well.
+      const k = landing.flights.size, n = Math.max(k + 1, alive.length);
+      _lq.setFromUnitVectors(UP, _v1.copy(UP).addScaledVector(landing.h, -0.45).normalize());
+      landSlot(k, n, _ls1).applyQuaternion(_lq).multiplyScalar(landing.r + 0.12).add(landing.c);
+      const t0 = landing.t;
+      planFlight(b.obj, b.fwd, CRUISE, _ls1, 0);
+      f = landing.flights.get(b.obj); f.t0 = t0;
+      landing.shipT = Math.max(landing.shipT, t0 + f.T + 0.35);
+    }
+    flyFlight(b.obj, f, landing.t - (f.t0 || 0), dt);
     b.speed = 0;
-  });
+  }
 }
 // An outpost blows up: debris and sparks, a big boom and a short hit-stop.
 const BLAST_RED = new THREE.Color(0xff5544), BLAST_GREY = new THREE.Color(0xc8d0da);
@@ -2882,10 +2994,17 @@ E = createEndless({
   setUpgrades: (hull, fire) => { playerMax = MAX_HP + 2 * hull; botMax = BOT_HP + hull; fireMul = fire; },
   setArena: (c, half) => { ARENA_C.copy(c); AH = half; }, setAI, setWave: (n) => { wave = n; }, roster, spawnGroup,
   clearEnemies: () => { clearBattle(); }, showMessage, damagePlayer, damageBot, damageEnemy, obstInside,
-  land: landOn, landed: () => landing.on, settled: () => landing.on && landing.t >= landing.glide, takeOff, landSlots: () => {}, blast: outpostBlast,
+  land: landOn, landed: () => landing.on, settled: landSettled, takeOff, newBot, viewTarget, landSlots: () => {}, blast: outpostBlast,
   playerBullets: () => playerBullets.list, enemyBullets: () => enemyBullets.list,
   recordEndless, chime: () => sfx.chime(true), click: () => sfx.click(), faceSeat, placeSide: (m, side, w) => placeSide(m, side, w),
 });
+// Endless view centre: your ship / command point; split, 60 / 40 between the blue and gold command points;
+// landed, the glide onto the star.
+function viewTarget(out) {
+  if (landing.on) return out.copy(landing.view);
+  if (split && gameMode === 'squadron') return out.copy(player.obj.position).multiplyScalar(0.6).addScaledVector(cmdB.obj.position, 0.4);
+  return out.copy(player.obj.position);
+}
 function placeSide(mesh, side, widthM) {
   const sc = board.scale.x;
   mesh.position.set(board.position.x + side * (HB.x * sc + 0.07 + widthM / 2), board.position.y + 0.03, board.position.z + HB.z * sc * 0.55);
@@ -3193,8 +3312,7 @@ function simStep(dt) {
     updatePlayer(dt);
     if (gameMode === 'squadron') updateCmdB(dt);
     refreshFriends();
-    if (gameMode === 'squadron') updateBots(dt);
-    if (landing.on && gameMode === 'squadron') holdLanded(dt);
+    if (gameMode === 'squadron') { if (landing.on) holdLanded(dt); else updateBots(dt); }
     updateEnemies(dt);
     playerBullets.update(dt);
     enemyBullets.update(dt);
@@ -3332,7 +3450,7 @@ window.__game = {
   get steerMode() { return activeSteer(); },
   settings, setSetting, input, board, box, mirrorQ, bots, obstacles, groups,
   get mode() { return gameMode; }, get boxB() { return BOX_B; }, HB, get morphing() { return morphT < 1; }, AI, bestRound, damageBot, get msgTitle() { return msgTitle; }, get msgOn() { return msgTime > 0; }, get msgSub() { return msgSub; }, get starsOn() { return starsOn; }, get starAlpha() { return starAlpha; }, startRound, hudPanel, get friends() { return friends; }, get squadEngaged() { return squadEngaged; },
-  get lobbyPanel() { return ringUI.lobby; }, get ring() { return ringUI; }, get lobbySim() { return lobbySim; }, simFade, lobbyEnd, boxFrame, landing, takeOff, setPanelYawLegacy: (v) => { panelYawLegacy = v; panelKey = ''; placePanels(); }, panelYaw, seatPos: seat, get trailVisible() { return trail.visible; }, gameOver, get msgTime() { return msgTime; }, SETTINGS_DEF, tutorial, enterLobby, startTutorial, finishTutorial, stats, recordGame, leaveGame, grab, uiHit, placePanels, grabGain,
+  get lobbyPanel() { return ringUI.lobby; }, get ring() { return ringUI; }, get lobbySim() { return lobbySim; }, simFade, lobbyEnd, boxFrame, landing, takeOff, setPanelYawLegacy: (v) => { panelYawLegacy = v; panelKey = ''; placePanels(); }, panelYaw, seatPos: seat, resetBox, BOX_DEFAULT, viewTarget, newBot, slotPos, get formationName() { return formation; }, setFormation: (f) => { formation = f; }, get trailVisible() { return trail.visible; }, gameOver, get msgTime() { return msgTime; }, SETTINGS_DEF, tutorial, enterLobby, startTutorial, finishTutorial, stats, recordGame, leaveGame, grab, uiHit, placePanels, grabGain,
   get simTime() { return simTime; }, menuLayout, get kills() { return kills; },
   get tutStage() { return tutStageName; }, get tutFreeze() { return tutFreeze; }, get shots() { return shotsFired; },
   tutorialDone, spawnTut, setTutStage: tutStage, applyBoard, drawMenu, touch, get hudVisible() { return hudPanel.visible; }, get menuCanvas() { return menuCanvas; }, MENU_TOP, MENU_ROW, MENU_ROWS,

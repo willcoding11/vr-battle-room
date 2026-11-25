@@ -11,7 +11,7 @@
 // Panels are ui.js Panels (canvas + buttons picked by the ray's UV), so pointing, clicking and the beam /
 // cursor work the same on the curved band.
 import * as THREE from '../vendor/three.module.js';
-import { Panel, UI } from './ui.js?v=31';
+import { Panel, UI } from './ui.js?v=32';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const RR = 1.2;                    // ring radius around your seat (m)
@@ -232,7 +232,8 @@ export function createRingUI(G) {
     const inLobby = st === 'lobby';
     lobby.visible = key.visible = inLobby;
     game.visible = st === 'playing' || st === 'gameover';
-    if (!inLobby && (anim.open || statsP.visible)) { anim.open = false; anim.closing = false; statsP.visible = false; }
+    // Leaving the lobby (START) closes the stats panel with its normal fade-out.
+    if (!inLobby && anim.open) toggleStats(false);
     animateStats(dt);
   }
   // The settings panel slides out of the ring's SETTINGS button (lobby only).
