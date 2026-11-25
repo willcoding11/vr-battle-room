@@ -3,7 +3,7 @@
 // Each step waits for you to do it, shows a check mark for a moment, then fades into the next.
 // Info steps go on with NEXT. Three parts: the room, flying, the squadron; then the lobby.
 // G is the game API from main.js.
-import { Panel, drawIcon, UI } from './ui.js?v=32';
+import { Panel, drawIcon, UI } from './ui.js?v=33';
 
 const READ = 1.2;          // seconds before an action counts (time to read the card)
 const NICE = 1.5;          // the "NICE!" beat
@@ -20,7 +20,7 @@ export function createTutorial(G) {
   const moved = () => (box0 ? Math.hypot(G.box.x - box0.x, G.box.y - box0.y, G.box.z - box0.z) : 0);
   const steps = [
     // The room
-    { id: 'welcome', stage: 'box', title: 'YOUR BATTLE ROOM', line: 'Your battles happen in this box', icon: 'room', info: true },
+    { id: 'welcome', stage: 'box', title: 'YOUR COMMAND ROOM', line: 'Your battles happen in this box', icon: 'room', info: true },
     { id: 'move', hand: 'either', title: 'MOVE THE ROOM', line: 'Hold grip + move hand', icon: 'gripMove', manual: true,
       enter: () => { box0 = { ...G.box }; }, check: () => moved() > 0.08 },
     { id: 'resize', hand: 'either', title: 'RESIZE THE ROOM', line: 'Hold grip + push stick', icon: 'gripResize', manual: true,

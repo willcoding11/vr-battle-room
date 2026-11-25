@@ -11,10 +11,14 @@
 //     turns grey; then your ships glide onto it and land, and a small panel beside the star offers an
 //     upgrade: +1 wingman, +hull, +fire rate. Friendly (green) stars: fly onto one to land; the panel offers
 //     repair / buy. The game never pauses; landed ships can't be hurt; only LAUNCH takes off.
-//   - Score: kills + outposts + distance reached. A destroyed ship is gone; lose them all and it's over.
+//   - v33: score is earned only (kills, outposts by tier, bounties, the treasure ship, combos); distance is a
+//     stat (best distance) and has milestones. Outposts are tougher (more ships, smarter from tier 2),
+//     patrols roam between outposts, a treasure ship sometimes flees past, kills drop credit pickups.
+//     Cleared outposts offer 3 upgrade cards from a big pool (Common / Rare / Epic / Legendary), each paid
+//     with credits. A destroyed ship is gone (unless rebuilt); lose them all and it's over.
 // Only the sites and stars near you exist; meshes are pooled. G is the game API from main.js.
 import * as THREE from '../vendor/three.module.js';
-import { Panel, UI } from './ui.js?v=32';
+import { Panel, UI } from './ui.js?v=33';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const smooth = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
@@ -34,6 +38,34 @@ const DIE_T = 1.0;              // outpost destruction animation (s); then the s
 const LAND_GLIDE = 1.0;         // glide onto a cleared outpost (s)
 const DOCK_GLIDE = 0.7;         // ...and onto a green star
 const TIER_D = 36;              // distance per difficulty / reward tier (v30: 45, so about 25% steeper)
+const PATROL_T = [38, 62];      // a patrol turns up every 38 - 62 s while you are between outposts
+const TREASURE_T = [70, 120];   // a treasure ship flees past every 70 - 120 s
+const MILESTONE = 100;          // distance milestone every 100 units (1,000 shown)
+const COMBO_T = 2.5;
+const THREAT_T = 120;           // the threat rises one level every 2 minutes of a run            // kills within this many seconds chain into a combo
+const TREASURE_COL = new THREE.Color(0xffe066);
+// Upgrades (v33): a pool of cards in four rarities. A cleared outpost offers 3; buy any of them with credits.
+const RARITY = {
+  common: { name: 'COMMON', col: '#d5dee8' }, rare: { name: 'RARE', col: '#4da6ff' },
+  epic: { name: 'EPIC', col: '#c77dff' }, legendary: { name: 'LEGENDARY', col: '#ffb84d' },
+};
+const POOL = [
+  { id: 'hull', name: '+HULL', rar: 'common', cost: 800, max: 6, desc: 'Every ship +1 hull, repaired', code: 'HUL' },
+  { id: 'fire', name: '+FIRE RATE', rar: 'common', cost: 900, max: 6, desc: 'Every ship fires 15% faster', code: 'FIR' },
+  { id: 'engine', name: 'ENGINE BOOST', rar: 'common', cost: 700, max: 4, desc: 'Ships fly 12% faster', code: 'ENG' },
+  { id: 'bspeed', name: 'BULLET SPEED', rar: 'common', cost: 600, max: 3, desc: 'Shots fly 25% faster', code: 'BLT' },
+  { id: 'credits', name: 'CREDIT BONUS', rar: 'common', cost: 700, max: 5, desc: '+20% credits from everything', code: 'CR' },
+  { id: 'magnet', name: 'MAGNET', rar: 'rare', cost: 2200, max: 2, desc: 'Credit pickups fly to your ships', code: 'MAG' },
+  { id: 'damage', name: '+DAMAGE', rar: 'rare', cost: 2600, max: 4, desc: 'Shots hit 40% harder', code: 'DMG' },
+  { id: 'wingman', name: '+1 WINGMAN', rar: 'rare', cost: 2400, max: 6, desc: 'Another fighter joins you', code: 'WNG' },
+  { id: 'drone', name: 'REPAIR DRONE', rar: 'rare', cost: 3000, max: 3, desc: 'Slowly repairs your most damaged ship', code: 'DRN' },
+  { id: 'spread', name: 'SPREAD SHOT', rar: 'epic', cost: 6500, max: 1, desc: 'Every shot is a fan of 3', code: 'SPR' },
+  { id: 'pierce', name: 'PIERCING SHOTS', rar: 'epic', cost: 6000, max: 2, desc: 'Shots go through one more ship', code: 'PRC' },
+  { id: 'shield', name: 'SHIELDS', rar: 'epic', cost: 7000, max: 2, desc: 'Each ship blocks a hit, recharges', code: 'SHD' },
+  { id: 'homing', name: 'HOMING MISSILES', rar: 'legendary', cost: 14000, max: 2, desc: 'A missile at the nearest enemy every 3 s', code: 'MSL' },
+  { id: 'rebuild', name: 'REBUILD', rar: 'legendary', cost: 16000, max: 3, desc: 'The next ship destroyed is rebuilt', code: 'REB' },
+];
+const POOL_BY = Object.fromEntries(POOL.map((u) => [u.id, u]));
 const STAR_SEP = 3.0;           // stars never closer than this (centre to centre): they never overlap
 const SITE_CLEAR = 5;           // ...and keep this far from red / green outposts (8 from asteroid fields)
 
@@ -70,18 +102,22 @@ export function createEndless(G) {
       const d = pos.length();
       const pDock = clamp(0.32 - d / 350, 0.06, 0.32);
       const u = r();
-      let kind = u < pDock ? 'dock' : u < pDock + 0.55 ? 'outpost' : r() < clamp(0.25 + d / 200, 0.25, 0.8) ? 'field' : 'none';
+      // v33: asteroid fields are much commoner (about 1 site in 5 near home, more further out).
+      let kind = u < pDock ? 'dock' : u < pDock + 0.5 ? 'outpost' : r() < clamp(0.55 + d / 200, 0.55, 0.9) ? 'field' : 'none';
       if (I === 0 && K === -1) kind = 'outpost';     // always one straight ahead of the start
       if (I === 1 && K === 0) kind = 'dock';         // and a friendly one close by
-      s = { id: key, kind, pos, r: kind === 'outpost' || kind === 'dock' ? STAR_R : 0, tier: Math.min(9, 1 + Math.floor(d / TIER_D)), dock: kind === 'dock' };
+      if (I === -1 && K === -1) kind = 'field';      // and an asteroid field you can see early on
+      s = { id: key, kind, pos, r: kind === 'outpost' || kind === 'dock' ? STAR_R : 0, tier: Math.min(12, 1 + Math.floor(d / TIER_D)), dock: kind === 'dock' };
+      // About 1 outpost in 7 is a gold BOUNTY outpost: tougher, double rewards, rarer cards.
+      s.bounty = kind === 'outpost' && !(I === 0 && K === -1) && hash(I, 5, K, 23) % 100 < 14;
       if (kind === 'field') {
-        const n = Math.min(34, 12 + Math.floor(d / 18));
+        const n = Math.min(36, 16 + Math.floor(d / 16));
         s.rocks = [];
         s.drift = new V(r() - 0.5, (r() - 0.5) * 0.3, r() - 0.5).normalize();
         s.phase = r() * 6.28;
         for (let i = 0; i < n; i++) {
           const a = r() * 6.28, rad = Math.sqrt(r()) * 5;
-          s.rocks.push({ off: new V(Math.cos(a) * rad, (r() - 0.5) * 4, Math.sin(a) * rad), r: 0.15 + r() * r() * 0.35, geo: Math.floor(r() * 3), spin: (r() - 0.5) * 0.6, pos: new V() });
+          s.rocks.push({ off: new V(Math.cos(a) * rad, (r() - 0.5) * 4, Math.sin(a) * rad), r: 0.2 + r() * r() * 0.4, geo: Math.floor(r() * 3), spin: (r() < 0.5 ? -1 : 1) * (0.25 + r() * 0.5), pos: new V() });
         }
       }
     }
@@ -150,7 +186,7 @@ export function createEndless(G) {
     for (let i = 0; i < n; i++) { const m = new THREE.LineSegments(Array.isArray(geo) ? geo[0] : geo, lineMat(color)); m.visible = false; world.add(m); list.push(m); }
     return list;
   }
-  const starPool = pool(64, ico, 0x9fb8dd), rockPool = pool(64, rockGeos, 0xb08a66);
+  const starPool = pool(64, ico, 0x9fb8dd), rockPool = pool(96, rockGeos, 0xc49a70);
   {
     // Invisible, depth-only balls inside each star / rock. renderOrder 25: after every ship and line, just
     // before the popup (30), so they only hide the popup where a star or rock is in front of it.
@@ -163,7 +199,19 @@ export function createEndless(G) {
   for (let i = 0; i < 48; i++) { const a = (i / 48) * Math.PI * 2, b = ((i + 1) / 48) * Math.PI * 2; ringPts.push(new V(Math.cos(a), 0, Math.sin(a)), new V(Math.cos(b), 0, Math.sin(b))); }
   const ringGeo = new THREE.BufferGeometry().setFromPoints(ringPts);
   const shockPool = pool(1, ringGeo, 0xffb08a);
-  const STAR_COL = { star: 0x9fb8dd, outpost: 0xff5544, dock: 0x55ff88, dead: 0xb8c2cc };
+  const STAR_COL = { star: 0x9fb8dd, outpost: 0xff5544, dock: 0x55ff88, dead: 0xb8c2cc, bounty: 0xffcc33 };
+  // Credit pickups (v33): little gold sparks that drift out of destroyed ships; fly through them (or have a
+  // magnet) to collect.
+  const PICK_N = 120;
+  const pickGeo = new THREE.BufferGeometry();
+  const pickArr = new Float32Array(PICK_N * 3);
+  pickGeo.setAttribute('position', new THREE.BufferAttribute(pickArr, 3).setUsage(THREE.DynamicDrawUsage));
+  pickGeo.setDrawRange(0, 0);
+  const pickMesh = new THREE.Points(pickGeo, new THREE.PointsMaterial({ color: 0xffd54a, size: 0.22, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending }));
+  pickMesh.frustumCulled = false;
+  world.add(pickMesh);
+  let picks = [];
+  const _ws = new THREE.Vector3();
   // Direction hints: an arrow (long shaft, two short prongs at the head) slowly turning about its own axis,
   // at the edge of the view: red to the next outpost, green to the nearest friendly outpost when a ship is
   // hurt.
@@ -177,7 +225,9 @@ export function createEndless(G) {
   // ---------------------------------------------------------------- run state
   // landed: the site you are sitting on (a green star, or a cleared outpost with an upgrade waiting).
   // latch: a site you just took off from (no re-landing until you have flown clear of it).
-  const run = { on: false, credits: 0, maxDist: 0, outposts: 0, hullUps: 0, fireUps: 0, bought: 0, destroyed: new Set(), reward: new Set(), active: null, landed: null, latch: null, t: 0, dying: [] };
+  const run = { on: false, credits: 0, maxDist: 0, outposts: 0, hullUps: 0, fireUps: 0, bought: 0, destroyed: new Set(), reward: new Set(), active: null, landed: null, latch: null, t: 0, dying: [],
+    ups: {}, offers: new Map(), patrolT: 0, treasureT: 0, combo: 0, comboT: 0, mile: 0, droneT: 0, mslT: 0, rebuild: 0, landT: 0, bounties: 0, treasures: 0, patrols: 0 };
+  const lv = (id) => run.ups[id] || 0;
   let near = { stars: [], sites: [], at: new V(1e9, 0, 0), t: 0 };
   const obstPool = [];
   function obst(i) { if (!obstPool[i]) obstPool[i] = { type: 'sphere', c: new V(), r: 0, R: 0, hazard: false, ref: null }; return obstPool[i]; }
@@ -216,18 +266,18 @@ export function createEndless(G) {
   // ---------------------------------------------------------------- landing: upgrades and the friendly shop
   function fleet() { return G.gameMode() === 'squadron' ? G.bots.filter((b) => b.alive).length : 1; }
   function hurt() { return G.gameMode() === 'squadron' ? G.bots.some((b) => b.alive && b.hp < G.botMax()) : G.player.hp < G.playerMax(); }
-  const cost = { repair: () => 300, fighter: () => 1500 + 500 * run.bought, hull: () => Math.round(1200 * (1 + 0.5 * run.hullUps)) };
+  const cost = { repair: () => 300, fighter: () => Math.round((1500 * Math.pow(1.3, run.bought)) / 50) * 50, hull: () => Math.round(1200 * (1 + 0.5 * run.hullUps)) };
   // The choices shown on the ring while you are landed (ids are the ring buttons).
   function options() {
     const s = run.landed;
     if (!s) return null;
     if (s.kind === 'outpost') {
-      if (!run.reward.has(s.id)) return { kind: 'cleared', title: 'CLEARED OUTPOST', sub: 'Upgrade taken - LAUNCH when ready', opts: [] };
-      return { kind: 'reward', title: 'OUTPOST DESTROYED', sub: 'Pick an upgrade', opts: [
-        { id: 'wingman', label: '+1 WINGMAN', sub: fleet() === 1 ? 'A wingman joins: Squadron controls' : 'Another fighter joins the squadron', ok: true },
-        { id: 'hull', label: '+HULL', sub: 'Every ship +1 hull, fully repaired', ok: true },
-        { id: 'fire', label: '+FIRE RATE', sub: 'Every ship fires 15% faster', ok: true },
-      ] };
+      if (!run.reward.has(s.id)) return { kind: 'cleared', title: 'CLEARED OUTPOST', sub: 'Upgrades taken - LAUNCH when ready', opts: [] };
+      const of = run.offers.get(s.id) || { ids: [], bought: new Set() };
+      return { kind: 'reward', title: s.bounty ? 'BOUNTY CLEARED' : 'OUTPOST DESTROYED', sub: `Credits ${N(run.credits)} - buy any (up to 3)`, opts: of.ids.map((id) => {
+        const u = POOL_BY[id], c = upCost(u), owned = of.bought.has(id);
+        return { id: 'up:' + id, label: u.name, sub: id === 'wingman' && fleet() === 1 ? 'A wingman joins: Squadron controls' : u.desc, rar: u.rar, cost: c, owned, ok: !owned && run.credits >= c };
+      }) };
     }
     const row = (id, label, c, can, why) => ({ id, label, sub: can ? N(c) : why, ok: can && run.credits >= c });
     return { kind: 'dock', title: 'FRIENDLY OUTPOST', sub: `Credits ${N(run.credits)}   Fleet ${fleet()}`, opts: [
@@ -235,6 +285,47 @@ export function createEndless(G) {
       row('fighter', 'NEW FIGHTER', cost.fighter(), true, ''),
       row('hull', 'HULL +1', cost.hull(), true, ''),
     ] };
+  }
+  // ---------------------------------------------------------------- upgrades (v33)
+  function upCost(u) { return Math.round((u.cost * (1 + 0.5 * lv(u.id))) / 50) * 50; }
+  function available(u) { return lv(u.id) < u.max; }
+  function rollOffers(s) {
+    // Rarer cards roll less often, but more often at higher tiers (and bounty outposts count as +2 tiers).
+    const t = s.tier + (s.bounty ? 2 : 0);
+    const w = { common: Math.max(20, 70 - 7 * t), rare: 22 + 3 * t, epic: 6 + 2.5 * t, legendary: 1 + 1.2 * t };
+    const ids = [];
+    for (let k = 0; k < 3; k++) {
+      const left = POOL.filter((u) => available(u) && !ids.includes(u.id));
+      if (!left.length) break;
+      const rars = Object.keys(w).filter((r) => left.some((u) => u.rar === r));
+      let x = Math.random() * rars.reduce((a, r) => a + w[r], 0), rar = rars[0];
+      for (const r of rars) { x -= w[r]; if (x <= 0) { rar = r; break; } }
+      const cand = left.filter((u) => u.rar === rar);
+      ids.push(cand[Math.floor(Math.random() * cand.length)].id);
+    }
+    run.offers.set(s.id, { ids, bought: new Set() });
+  }
+  // What the upgrades do (main.js reads G.mods: damage, bullet speed, spread, piercing, speed, shields, magnet).
+  function applyMods() {
+    const m = G.mods;
+    m.dmg = 1 + 0.4 * lv('damage'); m.bspeed = 1 + 0.25 * lv('bspeed'); m.spread = lv('spread') > 0;
+    m.pierce = lv('pierce'); m.speed = 1 + 0.12 * lv('engine'); m.shield = lv('shield'); m.magnet = lv('magnet');
+    G.setUpgrades(run.hullUps, Math.pow(0.85, run.fireUps));
+  }
+  function buyUp(id) {
+    run.ups[id] = lv(id) + 1;
+    if (id === 'hull') hullUp();
+    else if (id === 'fire') run.fireUps++;
+    else if (id === 'wingman') addWingman();
+    else if (id === 'rebuild') run.rebuild++;
+    applyMods();
+  }
+  const credit = (n) => Math.round(n * (1 + 0.2 * lv('credits')));
+  function upgradeLine() {
+    const parts = [];
+    for (const u of POOL) { const n = lv(u.id); if (n && u.id !== 'wingman' && u.id !== 'rebuild') parts.push(u.code + (u.max > 1 ? n : '')); }
+    if (run.rebuild) parts.push('REB' + run.rebuild);
+    return parts.join(' ');
   }
   function addWingman() {
     if (G.gameMode() !== 'squadron') {
@@ -259,7 +350,7 @@ export function createEndless(G) {
     G.player.hp = Math.max(G.player.hp, G.playerMax());
     for (const b of G.bots) if (b.alive) b.hp = G.botMax();
   }
-  function hullUp() { run.hullUps++; G.setUpgrades(run.hullUps, Math.pow(0.85, run.fireUps)); repairAll(); }
+  function hullUp() { run.hullUps++; applyMods(); repairAll(); }
   function click(id) {
     const s = run.landed, o = options();
     if (!s || !o) return;
@@ -272,13 +363,13 @@ export function createEndless(G) {
     const opt = o.opts.find((x) => x.id === id);
     if (!opt || !opt.ok) return;
     if (o.kind === 'reward') {
-      if (id === 'wingman') addWingman();
-      else if (id === 'credits') run.credits += 1000;
-      else if (id === 'hull') hullUp();
-      else if (id === 'fire') { run.fireUps++; G.setUpgrades(run.hullUps, Math.pow(0.85, run.fireUps)); }
-      run.reward.delete(s.id);
-      G.chime(); G.log('endless upgrade ' + id);
-      G.showMessage('UPGRADE', { wingman: 'A new fighter joins you', credits: '+1,000 credits', hull: 'Hull +1, all ships repaired', fire: 'Fire rate +15%' }[id], 2.2);
+      const uid = id.slice(3), of = run.offers.get(s.id);
+      run.credits -= opt.cost;
+      of.bought.add(uid);
+      buyUp(uid);
+      if (of.bought.size >= of.ids.length) run.reward.delete(s.id);
+      G.chime(); G.log(`endless upgrade ${uid} cost=${opt.cost}`);
+      G.showMessage(RARITY[opt.rar].name + ' UPGRADE', POOL_BY[uid].name, 2.2);
       drawPopup();
       return;
     }
@@ -307,13 +398,18 @@ export function createEndless(G) {
     if (o) {
       const col = o.kind === 'dock' ? '#9fffc8' : o.kind === 'reward' ? UI.gold : UI.title;
       P.text(o.title, W / 2, 62, { size: 44, bold: true, color: col, align: 'center', maxW: W - 40 });
-      P.text(o.sub, W / 2, 110, { size: 28, color: UI.text, align: 'center', maxW: W - 40 });
+      P.text(o.sub, W / 2, 104, { size: 26, color: UI.text, align: 'center', maxW: W - 40 });
       o.opts.forEach((r, i) => {
         if (o.kind === 'reward') {
-          const y = 136 + i * 122;
-          P.button(r.id, 30, y, W - 60, 108, '', {});
-          P.text(r.label, W / 2, y + 48, { size: 40, bold: true, color: UI.gold, align: 'center', maxW: W - 100 });
-          P.text(r.sub, W / 2, y + 88, { size: 26, color: UI.text, align: 'center', maxW: W - 100 });
+          // A card per upgrade, framed in its rarity colour.
+          const y = 128 + i * 124, R = RARITY[r.rar];
+          if (r.ok) P.button(r.id, 30, y, W - 60, 114, '', {});
+          P.g.strokeStyle = R.col; P.g.globalAlpha = r.owned ? 0.4 : 1; P.g.lineWidth = r.rar === 'common' ? 2 : 4;
+          P.g.strokeRect(36, y + 6, W - 72, 102); P.g.globalAlpha = 1;
+          P.text(R.name, 54, y + 32, { size: 20, bold: true, color: R.col, maxW: 300 });
+          P.text(r.label, 54, y + 70, { size: 36, bold: true, color: r.owned ? UI.dim : R.col, maxW: 420 });
+          P.text(r.sub, 54, y + 100, { size: 22, color: r.owned ? UI.dim : UI.text, maxW: 460 });
+          P.text(r.owned ? 'OWNED' : N(r.cost), W - 54, y + 70, { size: 32, bold: true, color: r.owned ? UI.dim : r.ok ? UI.gold : UI.red, align: 'right', maxW: 180 });
         } else {
           const y = 140 + i * 104;
           if (r.ok) P.button(r.id, 30, y, W - 60, 88, '', {});
@@ -401,20 +497,123 @@ export function createEndless(G) {
   }
 
   // ---------------------------------------------------------------- outposts
+  // v33: the enemy level of an outpost - higher than its tier (more ships, smarter tactics from tier 2).
+  // Plus the THREAT: one more level for every 2 minutes of the run (and more hull, more ships), so even a fully
+  // upgraded fleet is worn down.
+  function level(t, bounty) { const x = t + (bounty ? 1 : 0); return G.easy ? x : Math.round(x * 1.4 + 0.6) + threat(); }
+  const threat = () => Math.floor(run.t / THREAT_T);
+  const threatHp = () => 1 + 0.2 * threat();   // and 20% more hull per threat step, so no fleet holds out for ever
+  const hitDmg = () => (G.easy ? 1 : 1 + Math.floor(threat() / 4));   // from 8 minutes in, hits cost 2 hull (3 from 16)
+  const tierAt = (c) => Math.min(12, 1 + Math.floor(c.length() / TIER_D));
+  function tagNew(tag) { for (const e of G.enemies) if (!e.home && !e.patrol && !e.treasure) Object.assign(e, tag); }
   function activate(s) {
     run.active = s;
     G.setArena(s.pos, ROAM);
-    G.setAI(s.tier);
-    G.setWave(s.tier);
     const sq = G.gameMode() === 'squadron';
-    if (run.demo) { G.setAI(2); G.spawnGroup('pincer', 2, 1); G.spawnGroup('flank', 1, 1); return; }   // lobby: a small outpost
-    for (const [role, count] of G.roster(s.tier, sq)) G.spawnGroup(role, count, s.tier);
-    G.showMessage(`OUTPOST - TIER ${s.tier}`, `${G.enemies.length} hostiles defend it`, 2.4);
-    G.log(`endless outpost ${s.id} tier=${s.tier} enemies=${G.enemies.length}`);
+    if (run.demo) { G.setAI(2); G.spawnGroup('pincer', 2, 1); G.spawnGroup('flank', 1, 1); tagNew({ home: s }); return; }   // lobby: a small outpost
+    const L = level(s.tier, s.bounty);
+    G.setAI(L);
+    G.setWave(L);
+    for (const [role, count] of G.roster(L, sq)) G.spawnGroup(role, count, L);
+    // A bigger fleet meets a bigger defence: an extra pair for every 2 ships past 2 (so the fleet never snowballs).
+    // The THREAT adds more on top as the run goes on (one more pair every 4 minutes).
+    const extra = G.easy ? 0 : Math.min(5, Math.floor(Math.max(0, fleet() - 2) / 2)) + Math.min(5, Math.floor(threat() / 2));
+    for (let i = 0; i < extra; i++) G.spawnGroup(i % 3 === 2 ? 'hunter' : i % 2 ? 'pincer' : 'flank', 2, L);
+    if (!G.easy) for (const e of G.enemies) if (!e.home && !e.patrol && !e.treasure) { e.hp = e.maxHp = Math.ceil(e.maxHp * (1 + 0.12 * (s.tier - 1) + (s.bounty ? 0.25 : 0)) * threatHp()); }
+    tagNew({ home: s });
+    const n = G.enemies.filter((e) => e.home === s).length;
+    G.showMessage(s.bounty ? `BOUNTY OUTPOST - TIER ${s.tier}` : `OUTPOST - TIER ${s.tier}`, s.bounty ? `${n} hostiles - double rewards` : `${n} hostiles defend it`, 2.4);
+    G.log(`endless outpost ${s.id} tier=${s.tier} level=${L} bounty=${!!s.bounty} enemies=${n}`);
   }
   function deactivate() {
-    G.clearEnemies();
+    for (const e of G.enemies) if (e.home === run.active) { e.hp = 0; e.escaped = true; }
     run.active = null;
+  }
+  // Patrols (v33): a few ships that roam between outposts and come after you.
+  function spawnPatrol(c) {
+    const t = tierAt(c), L = level(t, false), sq = G.gameMode() === 'squadron';
+    const n = Math.min(10, 2 + Math.floor(t / 2) + (sq ? 1 : 0) + Math.floor(fleet() / 3));
+    G.setArena(c, PATROL_ROAM);
+    G.setAI(Math.max(L, 2)); G.setWave(L);
+    if (t >= 3) { G.spawnGroup('pincer', 2, L); if (n > 2) G.spawnGroup(t >= 5 ? 'hunter' : 'flank', n - 2, L); } else G.spawnGroup('flank', n, L);
+    if (!G.easy) for (const e of G.enemies) if (!e.home && !e.patrol && !e.treasure) e.hp = e.maxHp = Math.ceil(e.maxHp * threatHp());
+    tagNew({ patrol: true });
+    run.patrols++;
+    G.showMessage('PATROL', `${n} hostiles inbound`, 1.8);
+    G.log(`endless patrol tier=${t} n=${n}`);
+  }
+  function spawnTreasure(c) {
+    const t = tierAt(c), L = level(t, false);
+    G.setArena(c, PATROL_ROAM);
+    const g = G.spawnGroup('flank', 1, L);
+    const e = g.members[0];
+    Object.assign(e, { treasure: true, color: TREASURE_COL.clone(), points: 0 });
+    e.hp = e.maxHp = 4 + t; e.speed *= 1.6; e.fireInterval = 99;
+    // It flees *past* you: it sets off sideways (round the view) and spirals slowly outward, so there is a
+    // few seconds' chase before it gets away.
+    const rad = e.obj.position.clone().sub(c); rad.y = 0; if (rad.lengthSq() < 1e-6) rad.set(1, 0, 0);
+    e.obj.position.copy(c).addScaledVector(rad.normalize(), WIN() * 0.5);   // starts half-way out, in view
+    e.fleeDir = new V(0, 1, 0).cross(rad).normalize().multiplyScalar(Math.random() < 0.5 ? 1 : -1);
+    e.fwd.copy(e.fleeDir); e.orbR = WIN() * 0.5;
+    run.treasures++;
+    G.showMessage('TREASURE SHIP', 'Catch it before it gets away!', 2.2);
+    G.log(`endless treasure tier=${t}`);
+  }
+  // Pickups
+  function dropCredits(p, total, n) {
+    for (let i = 0; i < n && picks.length < PICK_N; i++) {
+      const v = new V(Math.random() - 0.5, (Math.random() - 0.5) * 0.6, Math.random() - 0.5).normalize().multiplyScalar(0.6 + Math.random() * 0.9);
+      picks.push({ pos: p.clone(), vel: v, t: 14, v: Math.max(1, Math.round(total / n)) });
+    }
+  }
+  const ships = () => (G.gameMode() === 'squadron' ? G.bots.filter((b) => b.alive) : G.player.alive ? [G.player] : []);
+  function updatePicks(dt) {
+    const S = ships(), R = 0.9 + 2.5 * lv('magnet');
+    let n = 0;
+    for (const k of picks) {
+      k.t -= dt;
+      let best = null, bd = R;
+      for (const sh of S) { const d = sh.obj.position.distanceTo(k.pos); if (d < bd) { bd = d; best = sh; } }
+      if (run.landed && run.landed.pos.distanceTo(k.pos) < 6) { best = S[0]; bd = best ? best.obj.position.distanceTo(k.pos) : 1e9; }
+      if (best) {
+        _a.subVectors(best.obj.position, k.pos).normalize();
+        k.vel.addScaledVector(_a, dt * (10 + 6 * lv('magnet')));
+        if (bd < 0.3) { run.credits += credit(k.v); k.t = -1; G.pickup && G.pickup(k.pos); continue; }
+      }
+      k.vel.multiplyScalar(Math.exp(-dt * 1.2));
+      k.pos.addScaledVector(k.vel, dt);
+    }
+    picks = picks.filter((k) => k.t > 0);
+    for (const k of picks) { pickArr[n * 3] = k.pos.x; pickArr[n * 3 + 1] = k.pos.y; pickArr[n * 3 + 2] = k.pos.z; n++; }
+    pickGeo.setDrawRange(0, n);
+    pickGeo.attributes.position.needsUpdate = true;
+    // Point size is in metres in the room (three.js ignores the board's scale for points), so scale it down
+    // to the world the same way the ships' points are.
+    pickMesh.material.size = (0.14 + 0.04 * Math.sin(run.t * 8)) * pickMesh.getWorldScale(_ws).x;
+  }
+  // Ship-side upgrades over time: shields recharge, the repair drone, homing missiles.
+  function updateUps(dt) {
+    const S = ships();
+    for (const sh of S) if (sh.shieldT > 0) sh.shieldT -= dt;
+    if (lv('drone')) {
+      run.droneT -= dt;
+      if (run.droneT <= 0) {
+        run.droneT = 20 / lv('drone');
+        const max = G.gameMode() === 'squadron' ? G.botMax() : G.playerMax();
+        let w = null; for (const sh of S) if (sh.hp < max && (!w || sh.hp < w.hp)) w = sh;
+        if (w) { w.hp++; G.healFx && G.healFx(w); }
+      }
+    }
+    if (lv('homing') && !run.landed) {
+      run.mslT -= dt;
+      if (run.mslT <= 0) {
+        run.mslT = 3.2 / lv('homing');
+        let tgt = null, td = 7;
+        const from = S[Math.floor(Math.random() * S.length)];
+        if (from) for (const e of G.enemies) { const d = e.obj.position.distanceTo(from.obj.position); if (e.hp > 0 && d < td) { td = d; tgt = e; } }
+        if (tgt) G.fireMissile(from, tgt);
+      }
+    }
   }
   // Outpost destroyed: shockwave, debris, the star flickers and collapses, then turns grey. Big boom + hit-stop.
   function destroyOutpost(s) {
@@ -422,13 +621,15 @@ export function createEndless(G) {
     run.dying.push({ s, t: 0 });
     G.blast(s.pos);
     if (run.demo) { run.demoCleared = true; return; }
-    const bonus = 1000 * s.tier;
+    const bonus = 1000 * s.tier * (s.bounty ? 2 : 1);
     run.outposts++;
+    if (s.bounty) run.bounties++;
     run.reward.add(s.id);
+    rollOffers(s);
     run.autoLand = s;
-    G.addScore(bonus); run.credits += bonus;
-    G.showMessage('OUTPOST DESTROYED', `+${N(bonus)} - pick an upgrade`, 3);
-    G.log(`endless outpost destroyed ${s.id} bonus=${bonus}`);
+    G.addScore(bonus); run.credits += credit(bonus);
+    G.showMessage(s.bounty ? 'BOUNTY CLAIMED' : 'OUTPOST DESTROYED', `+${N(bonus)} - upgrades on offer`, 3);
+    G.log(`endless outpost destroyed ${s.id} bonus=${bonus} offers=${run.offers.get(s.id).ids.join(',')}`);
   }
   function nearestOf(c, test, maxR = 3) {
     let best = null, bd = Infinity;
@@ -480,6 +681,8 @@ export function createEndless(G) {
   // ---------------------------------------------------------------- per frame
   const WIN = () => G.BOX_B();
   const WD = (p, c) => G.winDist(p, c);            // window distance (a cube in the lobby preview)
+  const W_ESC = () => WIN() * 1.3;
+  const PATROL_ROAM = new V(5, 3, 5);
   const _a = new V(), _vt = new V(), vcOff = new V();
   function fadeShip(obj, d) {
     const a = clamp((WIN() * 1.02 - d) / (WIN() * 0.22), 0, 1);
@@ -500,18 +703,50 @@ export function createEndless(G) {
     if (near.at.distanceTo(c) > 1 || near.t > 0.5) refreshNear();
     rockPositions(run.t);
     buildObstacles();
-    // Distance: score for every new 0.1 unit further from home than before.
+    // Distance is a stat (best distance) with milestones - it scores nothing (v33: score is earned).
     const d = c.length();
-    if (d > run.maxDist && !run.demo) { G.addScore(Math.floor(d * DIST_K) - Math.floor(run.maxDist * DIST_K)); run.maxDist = d; }
+    if (d > run.maxDist && !run.demo) {
+      run.maxDist = d;
+      const m = Math.floor(d / MILESTONE);
+      if (m > run.mile) { run.mile = m; G.showMessage(`${N(m * MILESTONE * DIST_K)} REACHED`, 'Distance milestone', 2.2); G.chime(); G.milestone && G.milestone(); }
+    }
+    if (run.comboT > 0) { run.comboT -= dt; if (run.comboT <= 0) run.combo = 0; }
     // Outposts: wake the nearest one when you come close; its ships go home if you leave.
     if (run.active) {
       const sd = run.active.pos.distanceTo(c);
-      if (G.enemies.length === 0) destroyOutpost(run.active);
+      const mine = G.enemies.filter((e) => e.home === run.active && e.hp > 0);
+      if (mine.length === 0) destroyOutpost(run.active);
       else if (sd > DEACT_R) deactivate();
-      else for (const e of G.enemies) if (e.obj.position.distanceTo(run.active.pos) > ENEMY_LEASH) { e.scatterT = 1; e.goal.copy(run.active.pos); }
+      else for (const e of mine) if (e.obj.position.distanceTo(run.active.pos) > ENEMY_LEASH) { e.scatterT = 1; e.goal.copy(run.active.pos); }
     } else {
       const s = nearestOutpost(c, 1);
       if (s && s.pos.distanceTo(c) < ACT_R) activate(s);
+    }
+    if (!run.demo) {
+      // Patrols and the treasure ship turn up between outposts; they keep to the area round you.
+      const roamers = G.enemies.filter((e) => (e.patrol || e.treasure) && e.hp > 0);
+      if (!run.active && roamers.length) G.setArena(c, PATROL_ROAM);
+      for (const e of roamers) {
+        if (WD(e.obj.position, c) > W_ESC()) { e.hp = 0; e.escaped = true; if (e.treasure) G.showMessage('TREASURE SHIP ESCAPED', 'Maybe next time', 1.6); continue; }
+        if (e.treasure) {
+          // It circles round the view on a slowly widening orbit (out past the edge in about 6 - 10 s), so
+          // there is a real chase before it gets away.
+          e.orbR += dt * WIN() * 0.13;
+          _a.copy(e.obj.position).sub(c); _a.y = 0; if (_a.lengthSq() < 1e-6) _a.set(1, 0, 0); _a.normalize();
+          e.fleeDir.addScaledVector(_a, -e.fleeDir.dot(_a)); e.fleeDir.y = 0; e.fleeDir.normalize();
+          e.scatterT = 1;
+          e.goal.copy(c).addScaledVector(_a, e.orbR * 1.2 * Math.cos(0.6)).addScaledVector(e.fleeDir, e.orbR * 1.2 * Math.sin(0.6));
+          e.goal.y = c.y + (e.obj.position.y - c.y) * 0.8;
+        }
+      }
+      if (!G.easy && !run.active && !run.landed) {
+        run.patrolT -= dt; run.treasureT -= dt;
+        if (run.patrolT <= 0) { run.patrolT = (PATROL_T[0] + Math.random() * (PATROL_T[1] - PATROL_T[0])) * Math.max(0.45, 1 - run.t / 900); if (!roamers.some((e) => e.patrol)) spawnPatrol(c); }
+        if (run.treasureT <= 0) { run.treasureT = TREASURE_T[0] + Math.random() * (TREASURE_T[1] - TREASURE_T[0]); if (!roamers.some((e) => e.treasure)) spawnTreasure(c); }
+      }
+      updatePicks(dt);
+      updateUps(dt);
+      if (G.demo) autopilot(dt);
     }
     for (const a of run.dying) a.t += dt;
     run.dying = run.dying.filter((a) => a.t < DIE_T + 0.2);
@@ -558,6 +793,34 @@ export function createEndless(G) {
     for (const b of G.bots) if (b.alive) fadeShip(b.obj, WD(b.obj.position, c));
     draw(c);
   }
+  // Autopilot (test runs, ?demo): lands, buys what it can afford (rarest first), repairs, launches.
+  function autopilot(dt) {
+    if (!run.landed || !popup.visible) { run.landT = 0; return; }
+    run.landT += dt;
+    if (run.landT < 1.2) return;
+    const o = options();
+    if (o.kind === 'reward') {
+      const order = ['legendary', 'epic', 'rare', 'common'];
+      const buy = o.opts.filter((x) => x.ok).sort((a, b) => order.indexOf(a.rar) - order.indexOf(b.rar))[0];
+      if (buy) { click(buy.id); run.landT = 0.8; return; }
+    } else if (o.kind === 'dock') {
+      const r = o.opts.find((x) => x.id === 'repair'), f = o.opts.find((x) => x.id === 'fighter'), h = o.opts.find((x) => x.id === 'hull');
+      if (r.ok) { click('repair'); run.landT = 0.8; return; }
+      if (f.ok && run.credits > cost.fighter() + 1500 && fleet() < 8) { click('fighter'); run.landT = 0.8; return; }
+      if (h.ok && run.credits > cost.hull() + 3000) { click('hull'); run.landT = 0.8; return; }
+      run.autoDockT = run.t;   // (test autopilot: don't fly straight back to a dock it just left)
+    }
+    click('launch');
+  }
+  // Where the autopilot flies when nothing is attacking: a friendly outpost when hurt, else the next outpost.
+  function autoTarget(out) {
+    const c = G.VC;
+    const max = G.gameMode() === 'squadron' ? G.botMax() : G.playerMax();
+    const S = ships(), hp = S.reduce((a, s2) => a + s2.hp, 0) / Math.max(1, S.length * max);
+    const dk = hp < 0.6 && run.credits >= 300 && !(run.t - (run.autoDockT ?? -99) < 30) ? nearestDock(c, 3) : null;
+    const t = dk || nearestOutpost(c, 3);
+    return t ? out.copy(t.pos) : out.copy(c).add(new V(0, 0, -10));
+  }
   // Pooled meshes for what is inside the view window. Far things fade gradually over a long band (from 30%
   // of the window's radius out to its edge), so nothing pops in or out.
   function draw(c) {
@@ -587,19 +850,19 @@ export function createEndless(G) {
             m.material.opacity = (1 - q) * 0.45 * fade(s.pos, 0); m.visible = q < 1;
           }
         } else {
-          const col = s.dock ? STAR_COL.dock : s.kind === 'outpost' ? (run.destroyed.has(s.id) ? STAR_COL.dead : STAR_COL.outpost) : STAR_COL.star;
+          const col = s.dock ? STAR_COL.dock : s.kind === 'outpost' ? (run.destroyed.has(s.id) ? STAR_COL.dead : s.bounty ? STAR_COL.bounty : STAR_COL.outpost) : STAR_COL.star;
           // A cleared outpost with an upgrade waiting pulses gently.
           const pulse = run.reward.has(s.id) ? 0.55 + 0.35 * Math.sin(run.t * 4) : 0.75;
           putStar(s.pos, s.r, col, s.kind === 'start' ? 0.65 : pulse);
         }
       }
       if (s.kind === 'field') for (const rk of s.rocks) {
-        const a = fade(rk.pos, rk.r);
+        const a = 1 - smooth(W * 0.65, W, WD(rk.pos, c) - rk.r);   // (v33: rocks stay clear until near the edge)
         if (a <= 0.01 || ri >= rockPool.length) continue;
         const m = rockPool[ri++];
         m.geometry = rockGeos[rk.geo];
         m.position.copy(rk.pos); m.scale.setScalar(rk.r); m.rotation.set(run.t * rk.spin, run.t * rk.spin * 0.7, 0);
-        m.material.opacity = 0.85 * a; m.visible = true;
+        m.material.opacity = 0.95 * a; m.visible = true;
       }
     }
     for (let i = si; i < starPool.length; i++) starPool[i].visible = false;
@@ -626,6 +889,10 @@ export function createEndless(G) {
       run.on = true; run.credits = 0; run.maxDist = 0; run.outposts = 0; run.hullUps = 0; run.fireUps = 0; run.bought = 0;
       run.destroyed = new Set(); run.reward = new Set(); run.active = null; run.landed = null; run.latch = null; run.t = 0; run.dying = []; run.autoLand = null;
       run.rebase = false; vcOff.set(0, 0, 0);
+      run.ups = {}; run.offers = new Map(); run.combo = 0; run.comboT = 0; run.mile = 0; run.droneT = 8; run.mslT = 2; run.rebuild = 0; run.landT = 0;
+      run.patrolT = 30; run.treasureT = 55 + Math.random() * 30; run.bounties = 0; run.treasures = 0; run.patrols = 0;
+      picks = []; pickGeo.setDrawRange(0, 0);
+      G.resetMods(); applyMods();
       showPopup(false);
       G.setUpgrades(0, 1);
       near = { stars: [], sites: [], at: new V(1e9, 0, 0), t: 0 };
@@ -635,6 +902,7 @@ export function createEndless(G) {
     stop() {
       run.on = false; run.landed = null; run.autoLand = null; showPopup(false);
       for (const m of [...starPool, ...rockPool, ...shockPool, ...hints]) m.visible = false;
+      picks = []; pickGeo.setDrawRange(0, 0);
       for (const b of G.bots) for (const m of b.obj.userData.mats) m.opacity = 1;
     },
     update,
@@ -643,13 +911,29 @@ export function createEndless(G) {
     place() { if (popup.visible) placePopup(); },
     rebaseView() { run.rebase = true; },
     click,
-    onKill(e) { run.credits += e.points * Math.max(1, run.active ? run.active.tier : 1); },
+    // A kill: credits drift out as pickups (a treasure ship: lots), and kills in quick succession chain combos.
+    onKill(e) {
+      if (run.demo) return;
+      const t = e.home ? e.home.tier : tierAt(G.VC), bounty = e.home && e.home.bounty ? 2 : 1;
+      if (e.treasure) {
+        const v = 2500 * t;
+        dropCredits(e.obj.position, v, 14); G.addScore(1500 * t);
+        G.showMessage('TREASURE SHIP!', `+${N(1500 * t)} - grab the credits`, 2.4); G.chime();
+      } else dropCredits(e.obj.position, e.points * t * bounty, 3 + Math.floor(Math.random() * 3));
+      run.combo = run.comboT > 0 ? run.combo + 1 : 1; run.comboT = COMBO_T;
+      if (run.combo >= 3) { const b = 100 * run.combo * t; G.addScore(b); G.showMessage(`COMBO x${run.combo}`, `+${N(b)}`, 1.2); }
+      if (e.patrol && !G.enemies.some((x) => x !== e && x.patrol && x.hp > 0)) { const b = 400 * t; G.addScore(b); G.showMessage('PATROL DESTROYED', `+${N(b)}`, 1.6); }
+    },
+    tryRebuild() { if (run.rebuild <= 0 || run.demo) return false; run.rebuild--; G.showMessage('SHIP REBUILT', run.rebuild ? `${run.rebuild} rebuild left` : 'No rebuilds left', 1.8); return true; },
+    upgradeLine, autoTarget,
+    hitDmg,
+    musicBoost() { return (G.enemies.some((e) => e.treasure && e.hp > 0) ? 0.25 : 0) + Math.min(0.3, run.combo * 0.06) + (run.active && run.active.bounty ? 0.2 : 0); },
     info() {
       const c = G.VC, o = run.active ? null : nearestOutpost(c);
       return {
         dist: Math.round(c.length() * DIST_K), maxDist: Math.round(run.maxDist * DIST_K), credits: run.credits, fleet: fleet(), outposts: run.outposts,
         active: run.active ? run.active.tier : 0, hostiles: G.enemies.length,
-        next: o ? { dist: Math.round(o.pos.distanceTo(c) * DIST_K), tier: o.tier } : null, landed: !!run.landed,
+        next: o ? { dist: Math.round(o.pos.distanceTo(c) * DIST_K), tier: o.tier, bounty: !!o.bounty } : null, landed: !!run.landed, combo: run.combo,
       };
     },
     saveBest() {
@@ -662,6 +946,6 @@ export function createEndless(G) {
     demoRoute,
     // tests
     get run() { return run; }, get vcOff() { return vcOff; }, site, cellStars, rawCell, nearestOutpost, nearestDock, hash, get near() { return near; }, options, hints, shockPool, starPool, popup,
-    consts: { REG, STAR_R, PAD_R, SAFE_R, DIE_T, TIER_D, LAND_GLIDE, STAR_SEP, CELL },
+    consts: { REG, STAR_R, PAD_R, SAFE_R, DIE_T, TIER_D, LAND_GLIDE, STAR_SEP, CELL }, POOL, RARITY, rollOffers, buyUp, get picks() { return picks; }, dropCredits, spawnPatrol, spawnTreasure, level,
   };
 }

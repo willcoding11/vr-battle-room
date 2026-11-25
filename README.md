@@ -1,9 +1,10 @@
-# Battle Room
+# Command Room
 
-A seated, **tabletop** wireframe space battle for **Meta Quest 3 / 3S**, inspired by the
-battle-room simulator in *Ender's Game*. The whole battle plays out as a miniature
-inside a wireframe room (about 1 m across, changing shape between rounds) floating in front of you, so you never have to turn
-or move.
+**Command Room** is a seated, **tabletop** wireframe space battle for **Meta Quest 3 / 3S**, inspired by the
+battle-room simulator in *Ender's Game*. You command from your seat: the whole battle plays out as a
+miniature inside a wireframe room (0.7 m across by default, resizable, changing shape between rounds)
+floating in front of you, so you never have to turn or move. (The repository and web address keep the
+old working name, vr-battle-room.)
 
 It is a WebXR web page built with three.js. It runs in the Quest's built-in browser, so you
 don't need to install an app or turn on developer mode. **It is VR only:** the page shows a single
@@ -32,7 +33,7 @@ moment and the card fades into the next step (or press the lit **NEXT** straight
 explain something wait for **NEXT**.
 
 The steps:
-1. **Room:** your battle room; move it (grip and move your hand); resize it (grip + stick).
+1. **Room:** your command room; move it (grip and move your hand); resize it (grip + stick).
 2. **Fly:** steer your ship; shoot; boost; destroy one practice target, then three more.
 3. **Squadron:** your 4 fighters; lead them; attack (hold trigger); regroup (let go); finish the enemies;
    **split** them into 2 pairs (**X**); **lead the gold pair** with your left hand; **rejoin** (**X** again);
@@ -131,7 +132,22 @@ never pauses in Endless (only Settings pauses it).
 - **Arrows** at the window's edge point the way: **red** to the next enemy outpost and **green** to the
   nearest friendly outpost when a ship is hurt. Each arrow is a long shaft with two short prongs, and it
   turns slowly about its own axis. The ring also shows the next outpost's distance and tier.
-- **Asteroid fields** drift slowly and damage whatever hits them; they are commoner further out.
+- **Asteroid fields** (v33: much commoner - about 1 site in 5 near home, one just behind the start) drift
+  slowly, tumble, and damage whatever hits them. Their rocks stay clear and bright until close to the window's
+  edge, so you see a field coming from a distance.
+- **Bounty outposts** (about 1 in 7) are **gold** stars: tougher defenders, double points and credits, and
+  rarer upgrade cards.
+- **Patrols** roam between outposts (every 40 - 60 s or so) and come after you; a **treasure ship** (gold)
+  sometimes turns up and circles away on a widening orbit - catch it in the 6 - 10 seconds before it escapes
+  for a big payout.
+- **Credits** drift out of destroyed ships as little gold sparks: fly through them (or buy a magnet).
+- **Combos:** kills within 2.5 s of each other chain (x3 and up score a bonus). **Distance milestones**
+  every 1,000 get a small celebration. The music gets busier with combos, bounties and the treasure ship.
+- **Outposts are tougher** than their tier (v33): tier 1 fights like round 2, tier 2 like round 3 (smarter
+  tactics from there), tier 4 like round 6, and every defender has more hull further out. A bigger fleet meets a
+  bigger defence (an extra pair for every 2 ships past 2, up to 5 extra pairs), and every 2 minutes of the run
+  the enemy gets one level tougher everywhere (with 20% more hull and, every 4 minutes, another pair per outpost;
+  from 8 minutes in their hits cost 2 hull, from 16 minutes 3), so a run always ends sooner or later.
 - **Destroying an outpost** (every ship round it) gives 1,000 x its tier in points and credits. A short effect
   (1 s): one faint ring, a few sparks, a quieter boom, a very short hit-stop; the red star flickers gently,
   shrinks and comes back grey. Then your ships **land on the star by themselves**: the view glides over to
@@ -142,8 +158,18 @@ never pauses in Endless (only Settings pauses it).
   ships can't be hurt, steering does nothing and X does not split. A small panel appears **beside the star**
   (point + trigger), on its right - or on its left or above it when that side has a clearer view (no star or
   rock in between). It is depth-correct: a star in front of it hides it (the pointer still draws on top):
-  - **Cleared outpost:** an upgrade: **+1 wingman**, **+hull** (every ship, fully repaired) or **+fire rate**
-    (15%).
+  - **Cleared outpost:** **3 upgrade cards** from a pool of 14, in four rarities (colour-coded: Common grey,
+    Rare blue, Epic purple, Legendary orange). Buy any or all of them with credits; better ones cost a lot
+    more, and rarer ones roll more often at higher tiers and bounty outposts:
+
+    | Rarity | Upgrades (price; each extra level +50%) |
+    |---|---|
+    | Common | +hull (800), +fire rate 15% (900), engine +12% speed (700), bullet speed +25% (600), credit bonus +20% (700) |
+    | Rare | magnet (2,200), +damage 40% (2,600), +1 wingman (2,400, up to 6), repair drone (3,000) |
+    | Epic | spread shot - a fan of 3 (6,500), piercing shots (6,000), shields - block a hit, recharge (7,000) |
+    | Legendary | homing missiles (14,000), rebuild - the next ship destroyed comes back (16,000, up to 3) |
+
+    Your upgrades show as a compact row on the wrist (e.g. `UPG HUL1 FIR2 SPR MSL1`).
   - **Friendly outpost** (fly onto the green star to land): **repair all** (300), **a new fighter** (1,500,
     +500 each time, no fleet limit) and **+1 hull for every ship** (1,200, +50% each time), paid with credits.
   - **LAUNCH** on the panel is the only way to take off. If you launch from a cleared outpost without
@@ -156,8 +182,8 @@ never pauses in Endless (only Settings pauses it).
   when you split or rejoin (no jump).
 - A destroyed ship is gone for good. Lose them all and the run ends: you see your distance and score, then
   the lobby.
-- **Score:** distance (10 points per unit of new distance), outposts and kills. Best distance and best score
-  are saved.
+- **Score is earned** (v33): kills, outposts (by tier, double for bounties), patrols, the treasure ship and
+  combos. Distance scores nothing; it is a stat (best distance is saved, as is best score).
 
 Only nearby things are simulated (outposts wake within a short range, stars and rocks come from small pools),
 so a busy tier-3 outpost fight costs about 0.5 ms of game logic per frame.
@@ -226,7 +252,7 @@ The best round you have reached is saved for each mode (see the lobby stats).
 
 ### Fighter
 
-You fly one cyan ship and win round after round against red ships. The battle room is much bigger than
+You fly one cyan ship and win round after round against red ships. The command room is much bigger than
 the ships, so there is plenty of room to manoeuvre.
 
 The enemies fight in groups with real plans:
@@ -434,6 +460,35 @@ move, resize or reshape the room (or re-centre with the Meta button).
 | ![](screenshots/v31-panels-before.png) | ![](screenshots/v31-panels-after.png) |
 
 ![panels from the seat](screenshots/27-panels-seated.png)
+
+## Changes in v33
+
+- The game is now called **COMMAND ROOM** (page title, ENTER VR screen, tutorial). The repository and web
+  address keep the old name for now.
+- **Endless** is harder and more varied: score is earned only (no points for distance), tougher outposts
+  (more ships, smarter from tier 2, more hull further out, more for a bigger fleet, and a little tougher
+  every 2 minutes), roaming patrols,
+  asteroid fields that actually show up (and are visible from a distance), gold bounty outposts, a fleeing
+  treasure ship, credit pickups, combos, distance milestones, music that reacts to all of it, and an upgrade
+  system: 3 cards per cleared outpost from a pool of 14 in four rarities, bought with credits.
+- Fighter and Squadron are exactly as before.
+
+Autopilot runs (the test autopilot, 8x simulation speed, minutes of game time per run):
+
+| Mode | Runs | Average | Median | Shortest - longest | Notes |
+|---|---|---|---|---|---|
+| Fighter (unchanged) | 25 | 1.8 min | | 0.9 - 3.2 min | |
+| Squadron (unchanged) | 13 | 3.7 min | | | 1 more run unfinished when the budget ran out |
+| Endless v32 (before) | 1 | - | | still alive after 60 min | 131 outposts, every upgrade maxed: it never ended |
+| **Endless v33 (after)** | 24 | **3.4 min** | 1.8 min | 1.0 - 34.5 min | every run ended; the best reached 37 outposts and round 27 |
+
+| Upgrade cards (colour-coded by rarity) | Asteroid field from a distance | Bounty outpost (gold) |
+|---|---|---|
+| ![](screenshots/v33-upgrade-cards.png) | ![](screenshots/v33-asteroids.png) | ![](screenshots/v33-bounty.png) |
+
+| Credit pickups + combo | Patrol (with homing missiles) | Treasure ship |
+|---|---|---|
+| ![](screenshots/v33-pickups-combo.png) | ![](screenshots/v33-patrol.png) | ![](screenshots/v33-treasure.png) |
 
 ## Changes in v32
 
