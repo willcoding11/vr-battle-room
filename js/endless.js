@@ -23,7 +23,7 @@
 //     the outpost panel shows as soon as you head in to land, always drawn over the stars, and much less text.
 // Only the sites and stars near you exist; meshes are pooled. G is the game API from main.js.
 import * as THREE from '../vendor/three.module.js';
-import { Panel, UI } from './ui.js?v=36';
+import { Panel, UI } from './ui.js?v=37';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const smooth = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };

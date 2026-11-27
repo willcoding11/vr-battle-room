@@ -2,15 +2,15 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { createSteer, steerStep } from './steer.js?v=36';
-import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=36';
-import { createTouchController } from './controller.js?v=36';
-import { Sfx } from './audio.js?v=36';
-import { UI } from './ui.js?v=36';
-import { stats, saveStats, recordGame, recordEndless, addPlayTime, fmtTime, fmtNum } from './stats.js?v=36';
-import { createTutorial } from './tutorial.js?v=36';
-import { createRingUI } from './ring.js?v=36';
-import { createEndless } from './endless.js?v=36';
+import { createSteer, steerStep } from './steer.js?v=37';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=37';
+import { createTouchController } from './controller.js?v=37';
+import { Sfx } from './audio.js?v=37';
+import { UI } from './ui.js?v=37';
+import { stats, saveStats, recordGame, recordEndless, addPlayTime, fmtTime, fmtNum } from './stats.js?v=37';
+import { createTutorial } from './tutorial.js?v=37';
+import { createRingUI } from './ring.js?v=37';
+import { createEndless } from './endless.js?v=37';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
@@ -3021,29 +3021,33 @@ function warpBots(dt) {
     b.invuln = Math.max(0, b.invuln - dt);
   });
 }
-// Warp bubble (v35, second pass): light streaks only round your own ships, as if they push through them inside
-// a protective bubble - a faint, slightly stretched wireframe shell just round the fleet, with thin streaks
-// sliding back along its inside and fading in at the front and out at the back. The rest of the view stays
-// clean. No entry / exit animation: the bubble just fades in and out quickly (0.2 s). The view never moves.
-const WFX_N = 64;
-const wfx = { k: 0, R: 1, mode: 'off', t: 0, streaks: [] };
-const wfxArr = new Float32Array(WFX_N * 6), wfxCol = new Float32Array(WFX_N * 6);
+// Warp flow (v37, from the user's sketch): long thin light lines streaming past the fleet, opposite to the warp
+// heading, each following a streamline round an invisible smooth body just bigger than the formation - pinched
+// together ahead of the fleet, curving smoothly outward round it and running on alongside, well past it. The
+// body is a Rankine-style half-body: radius B(z) grows from 0 at its nose (a little ahead of the fleet) to b
+// alongside and behind it, and a line that starts rho0 off the axis far ahead runs at
+//   rho(z) = sqrt(rho0^2 + B(z)^2)
+// (the same flow between neighbouring lines everywhere), so lines near the axis hug the body and lines farther
+// out bend less. Nothing is drawn on the fleet. Bright dashes scroll backward along the lines so the speed reads.
+// No entry / exit animation: it fades in and out in 0.2 s. The view never moves.
+const WFX_LINES = 44, WFX_SEG = 36;
+const wfx = { k: 0, b: 0.6, mode: 'off', t: 0, lines: [] };
+const wfxArr = new Float32Array(WFX_LINES * WFX_SEG * 6), wfxCol = new Float32Array(WFX_LINES * WFX_SEG * 6);
 const wfxLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({
   vertexColors: true, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
 }));
 wfxLines.geometry.setAttribute('position', new THREE.BufferAttribute(wfxArr, 3).setUsage(THREE.DynamicDrawUsage));
 wfxLines.geometry.setAttribute('color', new THREE.BufferAttribute(wfxCol, 3).setUsage(THREE.DynamicDrawUsage));
 wfxLines.frustumCulled = false;
-const wfxShell = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(1, 2)),
-  new THREE.LineBasicMaterial({ color: 0x66d9ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
 const wfxGroup = new THREE.Group();
-wfxGroup.add(wfxLines, wfxShell);
+wfxGroup.add(wfxLines);
 wfxGroup.visible = false;
 world.add(wfxGroup);
-for (let i = 0; i < WFX_N; i++) {
-  // On the inside of the shell (unit sphere; scaled with the fleet), away from the axis the ships sit on.
-  const a = Math.random() * Math.PI * 2, rho = 0.62 + Math.random() * 0.33;
-  wfx.streaks.push({ x: Math.cos(a) * rho, y: Math.sin(a) * rho, zMax: Math.sqrt(Math.max(0.01, 1 - rho * rho)), z: Math.random() * 2 - 1, v: 0.8 + Math.random() * 0.5, len: 0.25 + Math.random() * 0.35, b: 0.5 + Math.random() * 0.5 });
+for (let i = 0; i < WFX_LINES; i++) {
+  // Azimuth evenly round the axis (jittered); start radius (as a fraction of b): most lines close in, so they
+  // bunch up ahead of the nose, a few farther out that barely bend.
+  const u = (i + 0.5) / WFX_LINES;
+  wfx.lines.push({ phi: i * 2.39996 + (Math.random() - 0.5) * 0.3, r0: 0.16 + 1.05 * Math.pow(Math.random(), 1.6), ph: Math.random() * 10, v: 0.85 + Math.random() * 0.3, b: 0.55 + 0.45 * Math.random(), u });
 }
 const _wfxQ = new THREE.Quaternion(), _wfxZ = new THREE.Vector3(0, 0, 1), _wfxV = new THREE.Vector3();
 function warpFxStart(entering) {
@@ -3062,28 +3066,40 @@ function updateWarpFx(dt) {
   wfx.t += dt;
   if (wfx.mode === 'in') { wfx.k = Math.min(1, wfx.k + dt / 0.2); if (!warp.on) warpFxStart(false); }
   else { wfx.k = Math.max(0, wfx.k - dt / 0.2); if (wfx.k <= 0) { wfx.mode = 'off'; wfxGroup.visible = false; return; } }
-  // Round the fleet, along the warp heading; the shell a little longer than wide.
-  const R = (wfx.R += (fleetRadius() * 1.25 + 0.25 - wfx.R) * (1 - Math.exp(-dt * 3)));
+  // The invisible body: width b a bit wider than the formation; its nose ahead of the fleet's front.
+  const bw = (wfx.b += (fleetRadius() * 1.15 + 0.2 - wfx.b) * (1 - Math.exp(-dt * 3)));
+  const nose = bw * 1.7, L = bw * 1.5;                     // nose ahead of the centre; how long the nose takes to open
+  const zF = Math.min(6, nose + 2.2 + bw * 1.5), zB = -Math.min(6.5, bw * 2.5 + 3);   // line span: ahead / behind
   wfxGroup.position.copy(VC);
   _wfxV.copy(warp.cur.lengthSq() > 0.5 ? warp.cur : player.fwd).normalize();
   _wfxQ.setFromUnitVectors(_wfxZ, _wfxV);
   wfxGroup.quaternion.slerp(_wfxQ, wfx.t < dt * 1.5 ? 1 : 1 - Math.exp(-dt * 8));
-  wfxShell.scale.set(R, R, R * 1.3);
-  wfxShell.material.opacity = 0.11 * wfx.k;
-  const spd = 2.2;
-  for (let i = 0; i < WFX_N; i++) {
-    const s = wfx.streaks[i];
-    s.z -= spd * s.v * dt;
-    if (s.z < -1 - s.len) s.z += 2 + s.len;
-    // Within the shell's length at that distance from the axis; bright in the middle, faded at both ends.
-    const z0 = Math.max(-1, s.z), z1 = Math.min(1, s.z + s.len);
-    const f0 = Math.max(0, 1 - Math.abs(z0)), f1 = Math.max(0, 1 - Math.abs(z1));
-    const zz = s.zMax * R * 1.3;
-    wfxArr[i * 6] = s.x * R; wfxArr[i * 6 + 1] = s.y * R; wfxArr[i * 6 + 2] = z0 * zz;
-    wfxArr[i * 6 + 3] = s.x * R; wfxArr[i * 6 + 4] = s.y * R; wfxArr[i * 6 + 5] = z1 * zz;
-    const g = s.b * wfx.k * (z1 > z0 ? 1 : 0);
-    wfxCol[i * 6] = 0.3 * g * f0; wfxCol[i * 6 + 1] = 0.7 * g * f0; wfxCol[i * 6 + 2] = 1.0 * g * f0;
-    wfxCol[i * 6 + 3] = 0.8 * g * f1; wfxCol[i * 6 + 4] = 0.95 * g * f1; wfxCol[i * 6 + 5] = 1.0 * g * f1;
+  const W = BOX_B, flow = 7.5;                          // dash scroll speed (units / s, backward)
+  let o = 0;
+  for (let i = 0; i < WFX_LINES; i++) {
+    const ln = wfx.lines[i], cp = Math.cos(ln.phi), sp = Math.sin(ln.phi), r0 = ln.r0 * bw;
+    const scroll = wfx.t * flow * ln.v + ln.ph;
+    let px = 0, py = 0, pz = 0, pc = 0;
+    for (let j = 0; j <= WFX_SEG; j++) {
+      const z = zF + (zB - zF) * (j / WFX_SEG);
+      // body radius: 0 ahead of the nose, opening smoothly (paraboloid-like), b alongside and behind
+      const x = Math.max(0, (nose - z) / L), Bs = bw * Math.sqrt(1 - Math.exp(-2.2 * x));
+      const rho = Math.sqrt(r0 * r0 + Bs * Bs);
+      const cx = rho * cp, cy = rho * sp;
+      // brightness: scrolling dashes, fading at both ends of the line and before the window's edge
+      const s = (zF - z) + scroll, d = s - Math.floor(s / 2.2) * 2.2;
+      const dash = 0.22 + 0.78 * Math.exp(-((d - 0.5) * (d - 0.5)) / 0.12);
+      const ends = Math.min(1, (zF - z) / 1.5, (z - zB) / 2.2);
+      const win = 1 - Math.min(1, Math.max(0, (Math.hypot(cx, cy, z) - W * 0.7) / (W * 0.3)));
+      const c = Math.max(0, ends) * win * dash * ln.b * wfx.k * (0.55 + 0.45 * Math.exp(-ln.r0));
+      if (j > 0) {
+        wfxArr[o] = px; wfxArr[o + 1] = py; wfxArr[o + 2] = pz; wfxArr[o + 3] = cx; wfxArr[o + 4] = cy; wfxArr[o + 5] = z;
+        wfxCol[o] = 0.35 * pc; wfxCol[o + 1] = 0.75 * pc; wfxCol[o + 2] = 1.0 * pc;
+        wfxCol[o + 3] = 0.35 * c; wfxCol[o + 4] = 0.75 * c; wfxCol[o + 5] = 1.0 * c;
+        o += 6;
+      }
+      px = cx; py = cy; pz = z; pc = c;
+    }
   }
   wfxLines.geometry.attributes.position.needsUpdate = true;
   wfxLines.geometry.attributes.color.needsUpdate = true;
