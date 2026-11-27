@@ -2,7 +2,7 @@
 // -Z = pointing direction). For the tutorial, the button to use is marked on it with a pulsing green
 // marker at roughly where that button sits, plus a small label, so you can see which button on which hand.
 import * as THREE from '../vendor/three.module.js';
-import { buildControllerGizmo } from './models.js?v=35';
+import { buildControllerGizmo } from './models.js?v=36';
 
 export const HI_COLOR = 0x55ff99;
 const LABELS = { trigger: 'TRIGGER', grip: 'GRIP', stick: 'STICK', stickClick: 'CLICK STICK', body: 'TURN' };
@@ -106,5 +106,19 @@ export function createTouchController(hand, color) {
     }
   }
   setHighlight([]);
-  return { root, setHighlight, update, get highlight() { return hi; } };
+  // v35: a small persistent tag on a button (Endless: "B WARP" on the right controller), with a short line to it.
+  let tag = null;
+  function setTag(key, text) {
+    if (tag && (!text || tag.text !== text || tag.key !== key)) { root.remove(tag.s, tag.line); tag.s.material.map.dispose(); tag = null; }
+    if (!text || tag) return;
+    const s = labelSprite(text);
+    s.scale.multiplyScalar(0.75);
+    const p = spots[key];
+    s.position.set(p[0] + side * 0.034, p[1] + 0.016, p[2]);
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...p), new THREE.Vector3(s.position.x - side * 0.017, s.position.y, s.position.z)]), leaderMat);
+    line.renderOrder = 40;
+    root.add(s, line);
+    tag = { key, text, s, line };
+  }
+  return { root, setHighlight, setTag, update, get highlight() { return hi; } };
 }

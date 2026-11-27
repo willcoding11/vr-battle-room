@@ -11,7 +11,7 @@
 // Panels are ui.js Panels (canvas + buttons picked by the ray's UV), so pointing, clicking and the beam /
 // cursor work the same on the curved band.
 import * as THREE from '../vendor/three.module.js';
-import { Panel, UI } from './ui.js?v=35';
+import { Panel, UI } from './ui.js?v=36';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const RR = 1.2;                    // ring radius around your seat (m)
@@ -162,8 +162,22 @@ export function createRingUI(G) {
   function drawEndless(d) {
     const P = game, g = P.g, e = d.endless;
     P.begin();
+    if (d.state === 'gameover' && d.msgTitle === 'VICTORY') {
+      // v35: the win - VICTORY big in the middle, the run's numbers either side. Numbers, no sentences.
+      const mm = Math.floor(e.time / 60), ss = Math.floor(e.time % 60);
+      g.fillStyle = UI.faint; g.fillRect(1090, 30, 3, 180); g.fillRect(1908, 30, 3, 180);
+      P.text('TIME', 760, 62, { size: 36, bold: true, color: UI.dim, align: 'center' });
+      P.text(`${mm}:${String(ss).padStart(2, '0')}`, 760, 142, { size: 76, bold: true, color: UI.title, align: 'center', maxW: 620 });
+      P.text(`DISTANCE ${N(e.maxDist)}`, 760, 198, { size: 36, color: UI.text, align: 'center', maxW: 620 });
+      P.text('VICTORY', 1500, 136, { size: 124, bold: true, color: '#ffd27a', align: 'center', maxW: 780 });
+      P.text(N(d.score), 1500, 202, { size: 48, bold: true, color: '#7fe9ff', align: 'center', maxW: 780 });
+      P.text(`OUTPOSTS ${N(e.outposts)}`, 2240, 100, { size: 52, bold: true, color: UI.title, align: 'center', maxW: 640 });
+      P.text(`KILLS ${N(e.kills)}`, 2240, 172, { size: 52, bold: true, color: UI.title, align: 'center', maxW: 640 });
+      P.end();
+      return;
+    }
     P.text(`DISTANCE ${N(e.dist)}`, 760, 100, { size: 60, bold: true, color: UI.title, align: 'center', maxW: 620 });
-    const left = e.home && e.home.wave ? `HOMEWORLD ${e.home.wave}/3  ${e.homeLeft} LEFT` : e.active ? `TIER ${e.active} OUTPOST  ${e.hostiles} LEFT` : e.warp ? 'WARP' : `FLEET ${e.fleet}   CREDITS ${N(e.credits)}`;
+    const left = e.home && e.home.wave ? `HOMEWORLD  ${e.homeLeft} LEFT` : e.active ? `TIER ${e.active} OUTPOST  ${e.hostiles} LEFT` : e.warp ? 'WARP' : `FLEET ${e.fleet}   CREDITS ${N(e.credits)}`;
     P.text(left, 760, 172, { size: 42, color: e.active || e.warp || (e.home && e.home.wave) ? UI.gold : UI.text, align: 'center', maxW: 620 });
     g.fillStyle = UI.faint; g.fillRect(1090, 30, 3, 180); g.fillRect(1908, 30, 3, 180);
     P.text('SCORE', 1500, 62, { size: 40, bold: true, color: UI.dim, align: 'center' });

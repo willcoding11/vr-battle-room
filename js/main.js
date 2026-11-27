@@ -2,15 +2,15 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { createSteer, steerStep } from './steer.js?v=35';
-import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=35';
-import { createTouchController } from './controller.js?v=35';
-import { Sfx } from './audio.js?v=35';
-import { UI } from './ui.js?v=35';
-import { stats, saveStats, recordGame, recordEndless, addPlayTime, fmtTime, fmtNum } from './stats.js?v=35';
-import { createTutorial } from './tutorial.js?v=35';
-import { createRingUI } from './ring.js?v=35';
-import { createEndless } from './endless.js?v=35';
+import { createSteer, steerStep } from './steer.js?v=36';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=36';
+import { createTouchController } from './controller.js?v=36';
+import { Sfx } from './audio.js?v=36';
+import { UI } from './ui.js?v=36';
+import { stats, saveStats, recordGame, recordEndless, addPlayTime, fmtTime, fmtNum } from './stats.js?v=36';
+import { createTutorial } from './tutorial.js?v=36';
+import { createRingUI } from './ring.js?v=36';
+import { createEndless } from './endless.js?v=36';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
@@ -423,6 +423,18 @@ function explode(obj, color, vel, big = false) {
   flashRing(center, color, (big ? 1.7 : 1.0) * S, big ? 0.45 : 0.32);
   coreFlash(center, color, (big ? 1.1 : 0.65) * S);
 }
+// The homeworld blowing up (v35): a huge spark burst, rings and a core flash, a deep boom, the room frame lit.
+function bigBoom(pos) {
+  const red = new THREE.Color(0xff5544), gold = new THREE.Color(0xffd27a);
+  burst(pos, 220, red, 6.5 * S, 2.4);
+  burst(pos, 120, gold, 4.5 * S, 1.8);
+  flashRing(pos, gold, 9 * S, 1.2);
+  flashRing(pos, red, 6 * S, 0.9);
+  coreFlash(pos, gold, 5 * S);
+  sfx.boom(pos, true); sfx.blast(pos);
+  pulseFrame(gold, 1);
+  haptic('right', 1, 400); haptic('left', 1, 400);
+}
 function blink(pos, color) {
   const shock = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(1, 1)),
     new THREE.LineBasicMaterial({ color: color.clone().lerp(WHITE, 0.5), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
@@ -499,6 +511,10 @@ const framePulseCol = new THREE.Color();
 function pulseFrame(color, amt) { if (amt >= framePulse) { framePulse = amt; framePulseCol.copy(color); } }
 // Hit stop: a tiny freeze-frame on kills (the view keeps tracking your head; only the battle pauses).
 let hitStopT = 0, hitStopCd = 0, hitStops = 0;
+// Slow motion (v35: the homeworld's break-up): the simulation runs at `k` for `sec` real seconds, easing back.
+let slowT = 0, slowK = 1, slowEase = 0.6;
+function slowMo(k, sec) { slowK = k; slowT = sec; }
+function timeScale() { if (slowT <= 0) return 1; return slowT > slowEase ? slowK : slowK + (1 - slowK) * (1 - slowT / slowEase); }
 function hitStop(sec) {
   if (state !== 'playing' && state !== 'tutorial') return;
   if (hitStopCd > 0 && sec < 0.08) return;          // no stutter when kills come in quick succession
@@ -840,12 +856,13 @@ function liveTargets() {
   if (teamMode()) return friends;
   return player.alive ? [player] : [];
 }
-function spawnGroup(role, n, wave) {
+function spawnGroup(role, n, wave, at = null) {
   const g = { role, members: [], t: rand(0, 1.5), focus: null, focusT: 0, ambushPt: null, sprung: false, lureDone: false, leader: null };
-  // The group enters together through one face, well away from you.
+  // The group enters together through one face, well away from you. (v35: or at a given point - the
+  // Endless homeworld swarm, which must arrive where you can see it.)
   const ref = player.obj.position;
-  let best = null, bestD = -1;
-  for (let k = 0; k < 8; k++) {
+  let best = at ? at.clone() : null, bestD = -1;
+  for (let k = 0; k < 8 && !at; k++) {
     const p = new THREE.Vector3(rand(-0.7, 0.7), rand(-0.7, 0.7), rand(-0.7, 0.7)).multiply(AH);
     const ax = ['x', 'y', 'z'][k % 3];
     p[ax] = (Math.random() < 0.5 ? -1 : 1) * AH[ax] * 0.95;
@@ -1670,7 +1687,7 @@ function winGame() {
   if (state !== 'playing' || !endless) return;
   warpOff('win');
   state = 'gameover';
-  stateTimer = -4.5;                                 // (9 s on screen)
+  stateTimer = -8;                                   // (12.5 s on screen, v35; was 9)
   won = true;
   saveBest();
   E.record();
@@ -1679,7 +1696,7 @@ function winGame() {
   sfx.chime(true);
   pulseFrame(new THREE.Color(0xffcc66), 1);
   haptic('right', 0.8, 200); haptic('left', 0.8, 200);
-  showMessage('VICTORY', 'Homeworld destroyed', 9999, true);
+  showMessage('VICTORY', '', 9999, true);             // (v35: the ring shows the run's stats round it)
   log(`victory score=${score} kills=${kills}`);
 }
 let won = false;
@@ -2246,7 +2263,12 @@ function drawHud() {
     hctx.font = 'bold 20px monospace';
     hctx.fillStyle = '#ffcc66';
     hctx.textAlign = 'left';
-    hctx.fillText((warp.on ? 'WARP  ' : E.hasWarp ? 'B:WARP  ' : '') + (ups ? 'UPG ' + ups : 'UPG -'), 20, 153, W - 40);
+    hctx.fillText(ups ? 'UPG ' + ups : 'UPG -', 20, 153, W - 280);
+    // v35: warp is yours from the start - the button is always shown, top right of the wrist panel.
+    hctx.font = 'bold 30px monospace'; hctx.textAlign = 'right';
+    hctx.fillStyle = warp.on ? '#7fe9ff' : '#ffcc66';
+    hctx.fillText(warp.on ? 'B: DROP' : 'B: WARP', W - 18, 153);
+    hctx.textAlign = 'left';
   }
   hudTex.needsUpdate = true;
 }
@@ -2955,7 +2977,7 @@ function warpOff(why) {
   for (const b of bots) if (b.alive) b.speed = CRUISE;
   if (why === 'drop') showMessage('WARP DROP', '', 1.2, true);
   if (why !== 'win' && why !== 'reset') warpFxStart(false);
-  else { wfx.mode = 'off'; wfx.k = 0; wfxGroup.visible = false; }
+  else { wfx.mode = 'off'; wfx.k = 0; wfxGroup.visible = false; }   // (win / reset: gone at once)
   log('warp off ' + why);
 }
 // The warp flight of your ship / the command point: straight on, swerving round obstacles ahead.
@@ -2999,92 +3021,72 @@ function warpBots(dt) {
     b.invuln = Math.max(0, b.invuln - dt);
   });
 }
-// Warp jump effect (v35): hyperspace streaks. A field of thin lines round your ships, all along the warp
-// heading: on the jump they stretch from points into long streaks and rush past (with a ring burst ahead),
-// at warp they keep streaming, on the drop they snap back to points with a second burst. Lines only, inside
-// the battle box (they fade out before its edge); the view itself never moves or shakes.
-const WFX_N = 150, WFX_L = 6.2, WFX_R0 = 1.1, WFX_R1 = 5.6;
-const wfx = { k: 0, stretch: 0, mode: 'off', t: 0, burstT: 9, streaks: [] };
+// Warp bubble (v35, second pass): light streaks only round your own ships, as if they push through them inside
+// a protective bubble - a faint, slightly stretched wireframe shell just round the fleet, with thin streaks
+// sliding back along its inside and fading in at the front and out at the back. The rest of the view stays
+// clean. No entry / exit animation: the bubble just fades in and out quickly (0.2 s). The view never moves.
+const WFX_N = 64;
+const wfx = { k: 0, R: 1, mode: 'off', t: 0, streaks: [] };
 const wfxArr = new Float32Array(WFX_N * 6), wfxCol = new Float32Array(WFX_N * 6);
 const wfxLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({
-  vertexColors: true, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+  vertexColors: true, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
 }));
 wfxLines.geometry.setAttribute('position', new THREE.BufferAttribute(wfxArr, 3).setUsage(THREE.DynamicDrawUsage));
 wfxLines.geometry.setAttribute('color', new THREE.BufferAttribute(wfxCol, 3).setUsage(THREE.DynamicDrawUsage));
 wfxLines.frustumCulled = false;
-// The burst: two wireframe rings and a spray of short radial lines, across the heading.
-const _wfxRing = Array.from({ length: 48 }, (_, i) => { const a = i / 48 * Math.PI * 2, b = (i + 1) / 48 * Math.PI * 2; return [new THREE.Vector3(Math.cos(a), Math.sin(a), 0), new THREE.Vector3(Math.cos(b), Math.sin(b), 0)]; }).flat();
-const _wfxRays = Array.from({ length: 28 }, (_, i) => { const a = i / 28 * Math.PI * 2 + (i % 2) * 0.06, r0 = i % 2 ? 1.15 : 1.05; return [new THREE.Vector3(Math.cos(a) * r0, Math.sin(a) * r0, 0), new THREE.Vector3(Math.cos(a) * (r0 + 0.55), Math.sin(a) * (r0 + 0.55), 0)]; }).flat();
-const wfxBurst = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([..._wfxRing, ..._wfxRays]),
-  new THREE.LineBasicMaterial({ color: 0xbfefff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
-const wfxBurst2 = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(_wfxRing),
-  new THREE.LineBasicMaterial({ color: 0x66ccff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+const wfxShell = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(1, 2)),
+  new THREE.LineBasicMaterial({ color: 0x66d9ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
 const wfxGroup = new THREE.Group();
-wfxGroup.add(wfxLines, wfxBurst, wfxBurst2);
+wfxGroup.add(wfxLines, wfxShell);
 wfxGroup.visible = false;
 world.add(wfxGroup);
 for (let i = 0; i < WFX_N; i++) {
-  const a = Math.random() * Math.PI * 2, r = Math.sqrt(WFX_R0 * WFX_R0 + Math.random() * (WFX_R1 * WFX_R1 - WFX_R0 * WFX_R0));
-  wfx.streaks.push({ x: Math.cos(a) * r, y: Math.sin(a) * r, z: (Math.random() * 2 - 1) * WFX_L, v: 0.7 + Math.random() * 0.6, b: 0.45 + Math.random() * 0.55 });
+  // On the inside of the shell (unit sphere; scaled with the fleet), away from the axis the ships sit on.
+  const a = Math.random() * Math.PI * 2, rho = 0.62 + Math.random() * 0.33;
+  wfx.streaks.push({ x: Math.cos(a) * rho, y: Math.sin(a) * rho, zMax: Math.sqrt(Math.max(0.01, 1 - rho * rho)), z: Math.random() * 2 - 1, v: 0.8 + Math.random() * 0.5, len: 0.25 + Math.random() * 0.35, b: 0.5 + Math.random() * 0.5 });
 }
 const _wfxQ = new THREE.Quaternion(), _wfxZ = new THREE.Vector3(0, 0, 1), _wfxV = new THREE.Vector3();
 function warpFxStart(entering) {
   wfx.mode = entering ? 'in' : 'out';
-  wfx.t = 0; wfx.burstT = 0; wfx.burstIn = entering;
-  wfxGroup.visible = true;
-  if (entering) for (const s of wfx.streaks) s.z = (Math.random() * 2 - 1) * WFX_L;
-  if (entering) sfx.warpIn(); else sfx.warpOut();
+  wfx.t = 0;
+  if (entering) { wfxGroup.visible = true; sfx.warpIn(); } else sfx.warpOut();
+}
+function fleetRadius() {
+  // How far the fleet reaches from the view centre (your ship alone: just round it).
+  let r = 0.35;
+  if (gameMode === 'squadron') for (const b of bots) if (b.alive) r = Math.max(r, b.obj.position.distanceTo(VC) + 0.3);
+  return Math.min(3.2, r);
 }
 function updateWarpFx(dt) {
   if (wfx.mode === 'off') return;
   wfx.t += dt;
-  // Envelope: k = how much warp (speed of the rush), stretch = streak length (overshoots on the jump).
-  if (wfx.mode === 'in') {
-    const u = Math.min(1, wfx.t / 0.45);
-    wfx.k = 1 - Math.pow(1 - u, 3);
-    wfx.stretch = wfx.t < 0.45 ? wfx.k * 1.35 : 1 + 0.35 * Math.exp(-(wfx.t - 0.45) / 0.25);
-    if (!warp.on) warpFxStart(false);
-  } else if (wfx.mode === 'out') {
-    const u = Math.min(1, wfx.t / 0.32);
-    wfx.k = 1 - u; wfx.stretch = Math.pow(1 - u, 2);
-    if (u >= 1 && wfx.burstT > 0.6) { wfx.mode = 'off'; wfx.k = 0; wfxGroup.visible = false; return; }
-  }
-  // Centred on your ships, pointing along the warp heading.
+  if (wfx.mode === 'in') { wfx.k = Math.min(1, wfx.k + dt / 0.2); if (!warp.on) warpFxStart(false); }
+  else { wfx.k = Math.max(0, wfx.k - dt / 0.2); if (wfx.k <= 0) { wfx.mode = 'off'; wfxGroup.visible = false; return; } }
+  // Round the fleet, along the warp heading; the shell a little longer than wide.
+  const R = (wfx.R += (fleetRadius() * 1.25 + 0.25 - wfx.R) * (1 - Math.exp(-dt * 3)));
   wfxGroup.position.copy(VC);
   _wfxV.copy(warp.cur.lengthSq() > 0.5 ? warp.cur : player.fwd).normalize();
   _wfxQ.setFromUnitVectors(_wfxZ, _wfxV);
   wfxGroup.quaternion.slerp(_wfxQ, wfx.t < dt * 1.5 ? 1 : 1 - Math.exp(-dt * 8));
-  const spd = 26 * wfx.k + 1.5, len = 0.04 + 2.4 * wfx.stretch;
+  wfxShell.scale.set(R, R, R * 1.3);
+  wfxShell.material.opacity = 0.11 * wfx.k;
+  const spd = 2.2;
   for (let i = 0; i < WFX_N; i++) {
     const s = wfx.streaks[i];
     s.z -= spd * s.v * dt;
-    if (s.z < -WFX_L - len) s.z += 2 * WFX_L + len;
-    const z0 = s.z, z1 = s.z + len * s.v;
-    wfxArr[i * 6] = s.x; wfxArr[i * 6 + 1] = s.y; wfxArr[i * 6 + 2] = z0;
-    wfxArr[i * 6 + 3] = s.x; wfxArr[i * 6 + 4] = s.y; wfxArr[i * 6 + 5] = z1;
-    // Fade before the box edge (radius ~6.3 from the centre), the head brighter than the tail.
-    const r2 = s.x * s.x + s.y * s.y;
-    const f0 = clamp((6.3 - Math.sqrt(r2 + z0 * z0)) / 1.6, 0, 1), f1 = clamp((6.3 - Math.sqrt(r2 + z1 * z1)) / 1.6, 0, 1);
-    const g = s.b * (0.25 + 0.75 * Math.min(1, wfx.k * 1.4 + 0.15));
-    wfxCol[i * 6] = 0.35 * g * f0; wfxCol[i * 6 + 1] = 0.75 * g * f0; wfxCol[i * 6 + 2] = 1.0 * g * f0;
-    wfxCol[i * 6 + 3] = 0.85 * g * f1; wfxCol[i * 6 + 4] = 0.95 * g * f1; wfxCol[i * 6 + 5] = 1.0 * g * f1;
+    if (s.z < -1 - s.len) s.z += 2 + s.len;
+    // Within the shell's length at that distance from the axis; bright in the middle, faded at both ends.
+    const z0 = Math.max(-1, s.z), z1 = Math.min(1, s.z + s.len);
+    const f0 = Math.max(0, 1 - Math.abs(z0)), f1 = Math.max(0, 1 - Math.abs(z1));
+    const zz = s.zMax * R * 1.3;
+    wfxArr[i * 6] = s.x * R; wfxArr[i * 6 + 1] = s.y * R; wfxArr[i * 6 + 2] = z0 * zz;
+    wfxArr[i * 6 + 3] = s.x * R; wfxArr[i * 6 + 4] = s.y * R; wfxArr[i * 6 + 5] = z1 * zz;
+    const g = s.b * wfx.k * (z1 > z0 ? 1 : 0);
+    wfxCol[i * 6] = 0.3 * g * f0; wfxCol[i * 6 + 1] = 0.7 * g * f0; wfxCol[i * 6 + 2] = 1.0 * g * f0;
+    wfxCol[i * 6 + 3] = 0.8 * g * f1; wfxCol[i * 6 + 4] = 0.95 * g * f1; wfxCol[i * 6 + 5] = 1.0 * g * f1;
   }
   wfxLines.geometry.attributes.position.needsUpdate = true;
   wfxLines.geometry.attributes.color.needsUpdate = true;
-  wfxLines.material.opacity = 0.85 * Math.min(1, 0.2 + wfx.k + wfx.stretch * 0.3);
-  // The burst: on the jump it flashes out ahead of you; on the drop it closes in round you.
-  wfx.burstT += dt;
-  const bt = wfx.burstT / 0.55;
-  if (bt < 1) {
-    const e = 1 - Math.pow(1 - bt, 2), a = (1 - bt) * (1 - bt);
-    const r = wfx.burstIn ? 0.4 + 3.2 * e : 3.6 - 2.6 * e;
-    wfxBurst.position.set(0, 0, wfx.burstIn ? 1.0 + 1.5 * e : 1.2);
-    wfxBurst.scale.setScalar(r);
-    wfxBurst.material.opacity = 0.9 * a;
-    wfxBurst2.position.set(0, 0, wfx.burstIn ? 0.6 + 3.5 * e : 0.4);
-    wfxBurst2.scale.setScalar(r * 0.62);
-    wfxBurst2.material.opacity = 0.7 * a;
-  } else { wfxBurst.material.opacity = 0; wfxBurst2.material.opacity = 0; }
 }
 // ---------------------------------------------------------------- Endless landing (endless.js decides when)
 // Fly onto a green star (or a cleared outpost) and you land: the view glides over to the star (eased, `glide`
@@ -3273,7 +3275,7 @@ E = createEndless({
   setUpgrades: (hull, fire) => { playerMax = MAX_HP + 2 * hull; botMax = BOT_HP + hull; fireMul = fire; },
   setArena: (c, half) => { ARENA_C.copy(c); AH = half; }, setAI, setWave: (n) => { wave = n; }, roster, spawnGroup,
   clearEnemies: () => { clearBattle(); }, showMessage: (t, sub, d) => showMessage(t, sub, d, true), damagePlayer, damageBot, damageEnemy, obstInside,
-  warping: () => warp.on, warpOff: (why) => warpOff(why), win: () => winGame(), warpDir: () => (warp.on ? warp.dir : player.fwd),
+  warping: () => warp.on, warpOff: (why) => warpOff(why), win: () => winGame(), slowMo, bigBoom, warpDir: () => (warp.on ? warp.dir : player.fwd),
   land: landOn, landed: () => landing.on, settled: landSettled, takeOff, newBot, viewTarget,
   easy: EASY, demo: DEMO, mods: MODS, resetMods, fireMissile,
   pickup: (p) => { sfx.ping(p, 0.3); }, healFx: (sh) => { sparks(sh.obj.position, new THREE.Color(0x55ff99), 8); },
@@ -3678,7 +3680,8 @@ function loop() {
   camera.getWorldQuaternion(camQ);
   hitStopCd = Math.max(0, hitStopCd - dt);
   if (hitStopT > 0) hitStopT -= dt;                 // freeze-frame: the battle pauses for a moment
-  else for (let k = 0; k < SIM; k++) simStep(dt);
+  else { const ts = timeScale(); for (let k = 0; k < SIM; k++) simStep(dt * ts); }
+  slowT = Math.max(0, slowT - dt);
   updateMusic();
   if (endless) world.position.set(-VC.x, -VC.y, -VC.z); else world.position.set(0, 0, 0);
   playerBullets.sync();
@@ -3690,6 +3693,7 @@ function loop() {
   animateMenu(dt);
   if (xr) updateRays(dt);
   { const tn = performance.now() / 1000; touch.left.update(tn); touch.right.update(tn); }
+  touch.right.setTag('btn2', endless && state === 'playing' && !tutFreeze ? (warp.on ? 'B DROP' : 'B WARP') : null);   // (v35)
   reticle.lookAt(camPos);
   hudPanel.visible = state !== 'lobby' && state !== 'tutorial';
 
@@ -3748,7 +3752,7 @@ window.__game = {
   startGameAt(mode, round) { settings.mode = mode; startGame(round); }, damagePlayer, world, VC, get endless() { return endless; }, get E() { return E; }, get playerMax() { return playerMax; }, get botMax() { return botMax; }, get fireMul() { return fireMul; }, damageBot, setControls: (m) => setEndlessControls(m),
   get enemyBullets() { return enemyBullets.list.length; }, get bullets() { return playerBullets.list.length; }, toggleSettings, get menuOpen() { return menuOpen; }, get menuHover() { return menuHover; }, menuPanel, seat, rayFx, get panelMoves() { return panelMoves; }, menuAnim,
   // v18
-  get warp() { return warp; }, sfx, mirrorQ, wfx, wfxGroup, wfxLines, squadToFighter, warpToggle, warpOff, winGame, get won() { return won; }, get hudLayout() { return hudLayout; }, get hudMinBox() { return hudMinBox; }, drawHud,
+  get warp() { return warp; }, sfx, mirrorQ, touch, slowMo, timeScale, wfx, wfxGroup, wfxLines, squadToFighter, warpToggle, warpOff, winGame, get won() { return won; }, get hudLayout() { return hudLayout; }, get hudMinBox() { return hudMinBox; }, drawHud,
   get split() { return split; }, setSplit, get formation() { return formation; }, cycleFormation, cmdB, GA, GB, SQUAD, inputB,
   aces, spawnAce, sfx, perf, get hitStops() { return hitStops; }, get edgeFlashes() { return edgeFlashes; }, liveParticles,
   get killHeat() { return killHeat; }, roster, eb: enemyBullets, pb: playerBullets, SL_X0, SL_X1, cycleSetting, mNeutralQ, mirrorQB, steerA, steerB, get xSplitPending() { return xDown; }, damageEnemy, get framePulse() { return framePulse; },

@@ -4,7 +4,7 @@
 //                             +-> master -> glue compressor -> limiter -> out
 //   music -> MUSIC volume -> duck (dips under big explosions) --/
 // Volumes are 0..1 from the settings sliders (squared, so the slider feels even).
-import { Music } from './music.js?v=35';
+import { Music } from './music.js?v=36';
 
 export class Sfx {
   constructor() {

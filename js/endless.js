@@ -23,7 +23,7 @@
 //     the outpost panel shows as soon as you head in to land, always drawn over the stars, and much less text.
 // Only the sites and stars near you exist; meshes are pooled. G is the game API from main.js.
 import * as THREE from '../vendor/three.module.js';
-import { Panel, UI } from './ui.js?v=35';
+import { Panel, UI } from './ui.js?v=36';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const smooth = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
@@ -60,7 +60,7 @@ const HOME_R = 3.2;             // much bigger than a star (0.6)
 const HOME_CLEAR = 24;          // the clearing round it: no stars, outposts or asteroid fields
 const HOME_WAKE = 14;           // its fleet launches when you come this close
 const HOME_LEAVE = 40;          // ... and pulls back if you get this far away
-const HOME_WAVES = 3;
+const HOME_WAVES = 1;            // v35: one massive swarm (v34: three waves)
 const THREAT_T = 150;           // the threat rises one level every 2.5 minutes of a run (v33: 2)
 const TREASURE_COL = new THREE.Color(0xffe066);
 // Upgrades (v33): a pool of cards in four rarities. A cleared outpost offers 5 (v35; was 3); buy any with credits.
@@ -123,25 +123,45 @@ export function createEndless(G) {
       const pDock = clamp(0.32 - d / 350, 0.06, 0.32);
       const u = r();
       // v33: asteroid fields are much commoner (about 1 site in 5 near home, more further out).
-      let kind = u < pDock ? 'dock' : u < pDock + 0.5 ? 'outpost' : r() < clamp(0.55 + d / 200, 0.55, 0.9) ? 'field' : 'none';
+      let kind = u < pDock ? 'dock' : u < pDock + 0.5 ? 'outpost' : r() < 0.92 ? 'field' : 'none';   // (v35: 0.92, v34: 0.55 - 0.9)
       if (I === 0 && K === -1) kind = 'outpost';     // always one straight ahead of the start
       if (I === 1 && K === 0) kind = 'dock';         // and a friendly one close by
       if (I === -1 && K === -1) kind = 'field';      // and an asteroid field you can see early on
       s = { id: key, kind, pos, r: kind === 'outpost' || kind === 'dock' ? STAR_R : 0, tier: Math.min(12, 1 + Math.floor(d / TIER_D)), dock: kind === 'dock' };
       // About 1 outpost in 7 is a gold BOUNTY outpost: tougher, double rewards, rarer cards.
       s.bounty = kind === 'outpost' && !(I === 0 && K === -1) && hash(I, 5, K, 23) % 100 < 14;
-      if (kind === 'field') {
-        const n = Math.min(36, 16 + Math.floor(d / 16));
-        s.rocks = [];
-        s.drift = new V(r() - 0.5, (r() - 0.5) * 0.3, r() - 0.5).normalize();
-        s.phase = r() * 6.28;
-        for (let i = 0; i < n; i++) {
-          const a = r() * 6.28, rad = Math.sqrt(r()) * 5;
-          s.rocks.push({ off: new V(Math.cos(a) * rad, (r() - 0.5) * 4, Math.sin(a) * rad), r: 0.2 + r() * r() * 0.4, geo: Math.floor(r() * 3), spin: (r() < 0.5 ? -1 : 1) * (0.25 + r() * 0.5), pos: new V() });
-        }
-      }
+      if (kind === 'field') makeRocks(s, r, d, 5);
     }
     sites.set(key, s);
+    return s;
+  }
+  function makeRocks(s, r, d, rad0) {
+    const n = Math.min(36, 16 + Math.floor(d / 16));
+    s.rocks = [];
+    s.drift = new V(r() - 0.5, (r() - 0.5) * 0.3, r() - 0.5).normalize();
+    s.phase = r() * 6.28;
+    for (let i = 0; i < n; i++) {
+      const a = r() * 6.28, rad = Math.sqrt(r()) * rad0;
+      s.rocks.push({ off: new V(Math.cos(a) * rad, (r() - 0.5) * 4, Math.sin(a) * rad), r: 0.2 + r() * r() * 0.4, geo: Math.floor(r() * 3), spin: (r() < 0.5 ? -1 : 1) * (0.25 + r() * 0.5), pos: new V() });
+    }
+  }
+  // v35: a lot more asteroid fields - besides the one-per-region sites, most region corners (between four
+  // sites) hold a field of their own. Seeded like everything else, so the map is the same every run.
+  const corners = new Map();
+  function cornerField(I, K) {
+    const key = 'f' + I + ',' + K;
+    let s = corners.get(key);
+    if (s !== undefined) return s;
+    const r = rng(hash(I, 3, K, 41));
+    s = null;
+    if (r() < 0.72) {
+      const pos = new V((I + 0.5 + (r() - 0.5) * 0.3) * REG, (r() - 0.5) * 6, (K + 0.5 + (r() - 0.5) * 0.3) * REG);
+      const d = pos.length();
+      let clear = d > 14;
+      for (let x = 0; x <= 1 && clear; x++) for (let z = 0; z <= 1 && clear; z++) { const o = site(I + x, K + z); if (o.r > 0 && o.pos.distanceTo(pos) < 10) clear = false; }
+      if (clear) { s = { id: key, kind: 'field', pos, r: 0, tier: Math.min(12, 1 + Math.floor(d / TIER_D)), dock: false, bounty: false, corner: true }; makeRocks(s, r, d, 3.5 + r() * 2); }
+    }
+    corners.set(key, s);
     return s;
   }
   // Star candidates of a cell: a pure function of the cell (seeded), each with its own priority.
@@ -206,7 +226,22 @@ export function createEndless(G) {
     for (let i = 0; i < n; i++) { const m = new THREE.LineSegments(Array.isArray(geo) ? geo[0] : geo, lineMat(color)); m.visible = false; world.add(m); list.push(m); }
     return list;
   }
-  const starPool = pool(64, ico, 0x9fb8dd), rockPool = pool(96, rockGeos, 0xc49a70);
+  const starPool = pool(64, ico, 0x9fb8dd), rockPool = pool(150, rockGeos, 0xc49a70);
+  // v35: every star / rock keeps the same pooled mesh for as long as it is drawn (v34 handed the pool out in
+  // list order each frame, so when the near list changed, visible meshes swapped from one star to another -
+  // invisible live, but recordings interpolated them across the sky for a frame). A mesh goes back to the
+  // pool only after a frame hidden, so it never moves while visible.
+  function slots(list) {
+    const by = new Map(), free = [...list].reverse();
+    let used = new Set();
+    return {
+      begin() { used = new Set(); },
+      get(key) { let m = by.get(key); if (!m) { m = free.pop(); if (!m) return null; by.set(key, m); m.userData.fresh = true; } used.add(key); return m; },
+      end() { for (const [k, m] of by) if (!used.has(k)) { m.visible = false; by.delete(k); free.push(m); } },
+      clear() { for (const m of by.values()) { m.visible = false; free.push(m); } by.clear(); },
+    };
+  }
+  const starSlots = slots(starPool), rockSlots = slots(rockPool);
   // The enemy homeworld (v34): a big red star with two slowly turning rings round it.
   const homeObj = new THREE.Group();
   homeObj.visible = false;
@@ -269,6 +304,7 @@ export function createEndless(G) {
     near.sites = [];
     const I = Math.round(c.x / REG), K = Math.round(c.z / REG);
     for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) { const s = site(I + a, K + b); if (s.kind !== 'none' && !inClearing(s.pos, 6)) near.sites.push(s); }
+    for (let a = -2; a <= 1; a++) for (let b = -2; b <= 1; b++) { const s = cornerField(I + a, K + b); if (s && s.pos.distanceTo(c) < REG * 1.2 && !inClearing(s.pos, 6)) near.sites.push(s); }
   }
   function rockPositions(t) {
     for (const s of near.sites) {
@@ -313,11 +349,10 @@ export function createEndless(G) {
       row('fighter', 'NEW FIGHTER', cost.fighter(), true, ''),
       row('hull', 'HULL +1', cost.hull(), true, ''),
     ];
-    // v34: the warp drive is on sale once you have won an outpost.
     if (warpForSale()) opts.push(row('warp', 'WARP DRIVE', cost.warp(), true, ''));
     return { kind: 'dock', title: 'FRIENDLY OUTPOST', sub: `Credits ${N(run.credits)}   Fleet ${fleet()}`, opts };
   }
-  const warpForSale = () => run.outposts >= 1 && !run.warp;
+  const warpForSale = () => false;                 // v35: no longer sold - every run has it from the start
   // ---------------------------------------------------------------- upgrades (v33)
   function upCost(u) { return Math.round((u.cost * (1 + 0.5 * lv(u.id))) / 50) * 50; }
   function available(u) { return lv(u.id) < u.max; }
@@ -418,7 +453,7 @@ export function createEndless(G) {
   // The popup: a small panel in the world beside the star you are sitting on (pointer + trigger). It lists
   // the upgrade choice or the repair / buy rows, and LAUNCH, the only way to take off again.
   const POP_W = 0.3;
-  const POP_PX = 780;                                // v35: taller, for 5 cards (v34: 640)
+  const POP_PX = 812;                                // v35: taller, for 5 cards and the big credits (v34: 640)
   const popup = new Panel(POP_W, 760, POP_PX);
   const POP_H = POP_W * POP_PX / 760;
   G.rig.add(popup.mesh);
@@ -432,14 +467,25 @@ export function createEndless(G) {
     P.g.fillStyle = 'rgba(0,10,22,0.75)'; P.g.fillRect(5, 5, W - 10, P.H - 10);   // (v34: nearly opaque - nothing shows through)
     if (o) {
       const col = o.kind === 'dock' ? '#a8dcc0' : UI.title;
-      P.text(o.title, W / 2, 62, { size: 44, bold: true, color: col, align: 'center', maxW: W - 40 });
-      P.text(o.sub, W / 2, 104, { size: 26, color: UI.text, align: 'center', maxW: W - 40 });
+      P.text(o.title, W / 2, 50, { size: 34, bold: true, color: col, align: 'center', maxW: W - 40 });
+      // v35: your credits, big - and when you buy something the number counts down with a gold flash.
+      const fl = popAnim.flash, g = P.g, size = Math.round(66 + 10 * fl);
+      const str = N(popAnim.shown);
+      g.font = `bold ${size}px monospace`;
+      const tw = Math.min(W - 160, g.measureText(str).width), cx = W / 2 + 22, cy = 116;
+      // a wireframe credit diamond in front of the number (like the ones you pick up)
+      const dx = cx - tw / 2 - 40, dr = 20 + 3 * fl;
+      g.strokeStyle = fl > 0.05 ? '#fff2c0' : UI.gold; g.lineWidth = 3;
+      g.beginPath(); g.moveTo(dx, cy - 24 - dr * 0.35); g.lineTo(dx + dr * 0.75, cy - 24); g.lineTo(dx, cy - 24 + dr * 1.05); g.lineTo(dx - dr * 0.75, cy - 24); g.closePath();
+      g.moveTo(dx - dr * 0.75, cy - 24); g.lineTo(dx + dr * 0.75, cy - 24); g.stroke();
+      const cr = Math.round(255), cg = Math.round(213 + 42 * fl), cb = Math.round(74 + 150 * fl);
+      P.text(str, cx, cy, { size, bold: true, color: `rgb(${cr},${cg},${cb})`, align: 'center', maxW: W - 160 });
       o.opts.forEach((r, i) => {
         if (o.kind === 'reward') {
           // A card per upgrade (v34: calmer - the rarity is a thin coloured edge and a small tag; the name and
           // price in the panel's own colours).
           // (v35: five cards, a little shorter: 92 px every 100, v34: 114 every 124.)
-          const y = 122 + i * 100, R = RARITY[r.rar], ch = 92;
+          const y = 146 + i * 100, R = RARITY[r.rar], ch = 92;
           if (r.ok) P.button(r.id, 30, y, W - 60, ch, '', {});
           else { P.g.strokeStyle = UI.faint; P.g.lineWidth = 2; P.g.strokeRect(31, y + 1, W - 62, ch - 2); }
           P.g.fillStyle = R.col; P.g.globalAlpha = r.owned ? 0.3 : 0.85; P.g.fillRect(36, y + 9, 5, ch - 18); P.g.globalAlpha = 1;
@@ -448,7 +494,7 @@ export function createEndless(G) {
           P.text(r.sub, 56, y + 82, { size: 20, color: UI.dim, maxW: 440 });
           P.text(r.owned ? 'OWNED' : N(r.cost), W - 54, y + 58, { size: 30, bold: true, color: r.owned || !r.ok ? UI.dim : UI.gold, align: 'right', maxW: 180 });
         } else {
-          const n = o.opts.length, rh = n > 3 ? 82 : 88, y = 128 + i * (n > 3 ? 94 : 104);
+          const n = o.opts.length, rh = n > 3 ? 82 : 88, y = 150 + i * (n > 3 ? 94 : 104);
           if (r.ok) P.button(r.id, 30, y, W - 60, rh, '', {});
           else { P.g.strokeStyle = UI.faint; P.g.lineWidth = 2; P.g.strokeRect(31, y + 1, W - 62, rh - 2); }
           P.text(r.label, 60, y + rh / 2 + 12, { size: 34, bold: true, color: r.ok ? UI.title : UI.dim, maxW: 400 });
@@ -456,13 +502,28 @@ export function createEndless(G) {
         }
       });
     }
-    P.button('launch', 30, POP_PX - 148, W - 60, 100, 'LAUNCH', { big: true, size: 50 });
+    P.button('launch', 30, POP_PX - 150, W - 60, 100, 'LAUNCH', { big: true, size: 50 });
     P.end();
   }
   popup.redraw = drawPopup;                          // hover highlight (main.js)
+  // The credits counter on the panel: counts toward run.credits (down after a purchase) over ~0.6 s with a flash.
+  const popAnim = { shown: 0, from: 0, target: 0, t: 1, flash: 0 };
+  function animatePopup(dt) {
+    if (!popup.visible) return;
+    let dirty = false;
+    if (popAnim.target !== run.credits) { popAnim.from = popAnim.shown; popAnim.target = run.credits; popAnim.t = 0; popAnim.flash = 1; }
+    if (popAnim.t < 1) {
+      popAnim.t = Math.min(1, popAnim.t + dt / 0.6);
+      const e = 1 - Math.pow(1 - popAnim.t, 3);
+      popAnim.shown = Math.round(popAnim.from + (popAnim.target - popAnim.from) * e);
+      dirty = true;
+    }
+    if (popAnim.flash > 0) { popAnim.flash = Math.max(0, popAnim.flash - dt / 0.5); dirty = true; }
+    if (dirty) drawPopup();
+  }
   let popKey = '';
   function showPopup(on) {
-    if (on) { drawPopup(); run.popSide = null; placePopup(); }
+    if (on) { popAnim.shown = popAnim.from = popAnim.target = run.credits; popAnim.t = 1; popAnim.flash = 0; drawPopup(); run.popSide = null; placePopup(); }
     popup.visible = on;
     popKey = '';
   }
@@ -590,53 +651,135 @@ export function createEndless(G) {
     G.chime();
     G.log(`endless home spawned at ${pos.toArray().map((v) => v.toFixed(0))} (${Math.round(pos.distanceTo(c) * DIST_K)} away)`);
   }
-  const homeLevel = (k) => 9 + k - 1 + Math.min(2, threat());
-  function homeWave(k) {
-    const h = run.home, sq = G.gameMode() === 'squadron', L = homeLevel(k);
-    h.wave = k; h.state = 'active';
-    G.setArena(h.pos, new V(9, 5, 9));
+  // v35: ONE massive swarm instead of three waves - cruisers, leaders with escorts, hunters, snipers and a
+  // cloud of fighters, about 70 ships (more for a big fleet of yours). It arrives between you and the planet,
+  // spread across your view (v34's waves entered on the far side of the planet, out of sight).
+  const homeLevel = () => 8 + Math.min(2, threat());
+  const HOME_SWARM = () => 56 + 2 * Math.min(10, fleet());
+  const _hs = new V(), _hd = new V(), _hr = new V(), _hu = new V();
+  function homeSwarm(c) {
+    const h = run.home, sq = G.gameMode() === 'squadron', L = homeLevel();
+    h.wave = 1; h.state = 'active';
+    // From you toward the planet.
+    _hd.copy(h.pos).sub(c); _hd.y = 0; if (_hd.lengthSq() < 1e-6) _hd.set(0, 0, -1); _hd.normalize();
+    _hr.set(-_hd.z, 0, _hd.x); _hu.set(0, 1, 0);
+    G.setArena(c.clone().lerp(h.pos, 0.4), new V(10, 5, 10));
     G.setAI(L); G.setWave(L);
-    // Its home fleet: a leader with escorts, cruisers, hunters, snipers and fighter pairs - about 19, 22 and 25 ships
-    // (a few more for a big squadron of yours).
-    for (const [role, count] of [['leader', 4], ['heavy', k], ['hunter', 2], ['sniper', sq ? 2 : 1], ['pincer', 2], ['flank', 2]]) G.spawnGroup(role, count, L);
-    const want = 12 + 4 * k + 2 * Math.min(3, Math.floor(Math.max(0, fleet() - 6) / 4));
-    for (let i = 0; G.enemies.filter((e) => !e.home && !e.patrol && !e.treasure).length < want && i < 12; i++) G.spawnGroup(i % 2 ? 'pincer' : 'flank', 2, L);
+    const groups = [['heavy', 4], ['heavy', 4], ['heavy', 4], ['leader', 4], ['leader', 4], ['hunter', 3], ['hunter', 3], ['sniper', sq ? 3 : 2], ['pincer', 3], ['pincer', 3]];
+    const want = HOME_SWARM();
+    let n = groups.reduce((a, g) => a + g[1], 0);
+    for (let i = 0; n < want; i++) { const k = Math.min(4, want - n); groups.push([i % 3 === 2 ? 'hunter' : i % 2 ? 'pincer' : 'flank', k]); n += k; }
+    // Shuffle so the cruisers are spread through the swarm, not all on one side.
+    for (let i = groups.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [groups[i], groups[j]] = [groups[j], groups[i]]; }
+    groups.forEach(([role, count], i) => {
+      // An arc across your view, 4.2 - 5 ahead (inside the window, so you see it come), +-55 degrees either
+      // side and a little above / below; cruisers in the back row.
+      const th = ((i + 0.5) / groups.length * 2 - 1) * 0.96 + (Math.random() - 0.5) * 0.12;
+      const rr = (role === 'heavy' ? 4.8 : 4.2) + Math.random() * 0.5;
+      _hs.copy(c).addScaledVector(_hd, Math.cos(th) * rr).addScaledVector(_hr, Math.sin(th) * rr).addScaledVector(_hu, (Math.random() - 0.5) * 2.6);
+      G.spawnGroup(role, count, L, _hs);
+    });
     tagNew({ home: h });
-    const n = G.enemies.filter((e) => e.home === h).length;
-    G.showMessage(`HOMEWORLD - WAVE ${k}/${HOME_WAVES}`, `${n} hostiles`, 2.4);
-    G.log(`endless home wave ${k} level=${L} enemies=${n}`);
+    const mine = G.enemies.filter((e) => e.home === h);
+    // (Lighter models for the swarm's fighters: no vertex dots - one draw call each.)
+    for (const e of mine) if (e.type === 'fighter' && e.obj.children[1]) e.obj.children[1].visible = false;
+    h.total = mine.length;
+    G.showMessage('HOMEWORLD', `${mine.length} hostiles`, 2.4);
+    G.log(`endless home swarm level=${L} enemies=${mine.length}`);
   }
+  // The break-up (v35): the planet's wireframe flies apart edge by edge, three shock shells sweep out, the
+  // rings spin away; time slows for a moment, the view glides over, then the VICTORY screen.
+  let debris = null;
+  const HOME_DIE_T = 4.2;
+  function breakHome(h) {
+    const src = homeBall.geometry.attributes.position, n = src.count / 2;
+    const arr = new Float32Array(n * 6), col = new Float32Array(n * 6);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(arr, 3).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3).setUsage(THREE.DynamicDrawUsage));
+    const mesh = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 1, depthWrite: false, blending: THREE.AdditiveBlending }));
+    mesh.frustumCulled = false;
+    world.add(mesh);
+    const frags = [];
+    const R = HOME_R;
+    for (let i = 0; i < n; i++) {
+      const a = new V().fromBufferAttribute(src, i * 2).multiplyScalar(R), b = new V().fromBufferAttribute(src, i * 2 + 1).multiplyScalar(R);
+      const c = a.clone().add(b).multiplyScalar(0.5);
+      const out = c.clone().normalize();
+      frags.push({ c: c.add(h.pos), half: b.sub(a).multiplyScalar(0.5), v: out.multiplyScalar(1.2 + Math.random() * 3.2).add(new V().randomDirection().multiplyScalar(0.6)), axis: new V().randomDirection(), spin: 0.5 + Math.random() * 2.5, hot: Math.random() });
+    }
+    const shells = [0, 1, 2].map((i) => {
+      const m = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(1, 1)), new THREE.LineBasicMaterial({ color: i === 1 ? 0xffd9a0 : 0xff6a50, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+      m.position.copy(h.pos); m.rotation.set(i * 0.7, i * 1.1, 0); world.add(m); return m;
+    });
+    debris = { mesh, arr, col, frags, shells, t: 0, _q: new THREE.Quaternion(), _v: new V() };
+  }
+  function clearDebris() {
+    if (!debris) return;
+    world.remove(debris.mesh); debris.mesh.geometry.dispose();
+    debris.shells.forEach((m) => world.remove(m));
+    debris = null;
+  }
+  function updateDebris(dt, c) {
+    if (!debris) return;
+    const D = debris, W = WIN();
+    D.t += dt;
+    const life = clamp(1 - (D.t - 1.2) / 3.0, 0, 1);
+    for (let i = 0; i < D.frags.length; i++) {
+      const f = D.frags[i];
+      f.c.addScaledVector(f.v, dt); f.v.multiplyScalar(Math.exp(-dt * 0.25));
+      D._q.setFromAxisAngle(f.axis, f.spin * D.t);
+      D._v.copy(f.half).applyQuaternion(D._q);
+      D.arr[i * 6] = f.c.x - D._v.x; D.arr[i * 6 + 1] = f.c.y - D._v.y; D.arr[i * 6 + 2] = f.c.z - D._v.z;
+      D.arr[i * 6 + 3] = f.c.x + D._v.x; D.arr[i * 6 + 4] = f.c.y + D._v.y; D.arr[i * 6 + 5] = f.c.z + D._v.z;
+      // Hot white-gold at first, cooling to red, fading out; and gone before the window's edge.
+      const fade = 1 - smooth(W * 0.75, W * 1.05, WD(f.c, c));
+      const k = life * fade, heat = clamp(1 - D.t / (1.2 + f.hot), 0, 1);
+      const r = k, g = k * (0.35 + 0.55 * heat), b = k * (0.25 + 0.6 * heat * heat);
+      D.col[i * 6] = r; D.col[i * 6 + 1] = g; D.col[i * 6 + 2] = b; D.col[i * 6 + 3] = r; D.col[i * 6 + 4] = g; D.col[i * 6 + 5] = b;
+    }
+    D.mesh.geometry.attributes.position.needsUpdate = true;
+    D.mesh.geometry.attributes.color.needsUpdate = true;
+    D.shells.forEach((m, i) => {
+      const q = clamp((D.t - i * 0.25) / 2.4, 0, 1);
+      m.scale.setScalar(HOME_R * (1 + q * (1.2 + i * 0.5)));
+      m.material.opacity = q > 0 && q < 1 ? (1 - q) * (0.7 - i * 0.15) * (1 - smooth(W * 0.75, W * 1.05, WD(m.position, c) + m.scale.x * 0.5)) : 0;
+    });
+    if (D.t > HOME_DIE_T + 3) clearDebris();
+  }
+  const homeFocus = new V();
   function updateHome(c, dt) {
     const h = run.home;
+    updateDebris(dt, c);
     if (!h) { if (!run.demo && run.maxDist >= HOME_UNLOCK) spawnHome(c); return; }
     h.t += dt;
     const d = h.pos.distanceTo(c);
     if (h.state === 'waiting') {
-      if (d < HOME_WAKE && !run.landed) homeWave(Math.max(1, h.wave));
+      if (d < HOME_WAKE && !run.landed && !G.warping()) homeSwarm(c);
     } else if (h.state === 'active') {
       const mine = G.enemies.filter((e) => e.home === h && e.hp > 0);
-      if (d > HOME_LEAVE) {                          // you ran: its fleet pulls back (the wave starts again)
+      if (d > HOME_LEAVE) {                          // you ran: the swarm pulls back (and comes again in full)
         for (const e of mine) { e.hp = 0; e.escaped = true; }
         h.state = 'waiting';
-      } else if (!mine.length) {
-        if (h.wave < HOME_WAVES) {                   // a short breather, then the next wave
-          h.state = 'between'; h.nextT = 6;
-          G.showMessage(`WAVE ${h.wave} DOWN`, '', 2);
-        } else {                                       // the last wave is down: it blows up, you win
-          h.state = 'dying'; h.dieT = 0;
-          G.blast(h.pos); G.blast(h.pos.clone().add(new V(HOME_R, 0, 0))); G.blast(h.pos.clone().add(new V(-HOME_R, 1, 0)));
-          const bonus = 50000;
-          G.addScore(bonus);
-          G.log('endless home destroyed');
-        }
+      } else if (!mine.length) {                     // the whole swarm is down: the planet breaks apart, you win
+        h.state = 'dying'; h.dieT = 0;
+        homeFocus.copy(c).sub(h.pos).setLength(HOME_R + 4.5).add(h.pos);
+        if (G.slowMo) G.slowMo(0.25, 1.4);
+        G.blast(h.pos); G.blast(h.pos.clone().add(new V(HOME_R, 0, 0))); G.blast(h.pos.clone().add(new V(-HOME_R, 1, 0)));
+        G.addScore(50000);
+        G.log('endless home destroyed');
       } else for (const e of mine) if (e.obj.position.distanceTo(h.pos) > HOME_LEAVE * 0.5) { e.scatterT = 1; e.goal.copy(h.pos); }
-    } else if (h.state === 'between') {
-      h.nextT -= dt;
-      if (h.nextT <= 0) homeWave(h.wave + 1);
     } else if (h.state === 'dying') {
       h.dieT += dt;
-      if (h.dieT > 2.2) { h.state = 'dead'; G.win(); }
+      if (h.dieT > 0.35 && !h.broken) { h.broken = true; breakHome(h); if (G.bigBoom) G.bigBoom(h.pos); }
+      if (h.dieT > HOME_DIE_T) { h.state = 'dead'; G.win(); }
     }
+  }
+  // While the planet breaks apart the view glides over to it (eased), so you see it happen.
+  function homeViewPull() {
+    const h = run.home;
+    if (!h || h.state === 'waiting' || h.state === 'active') return 0;
+    return smooth(0, 1.4, h.state === 'dying' ? h.dieT : HOME_DIE_T);
   }
   // Warp (v34): may it be engaged here? ('' = yes, else why not)
   // v35: only a stop straight ahead counts - leaving an outpost, or one beside or behind you, never blocks.
@@ -843,6 +986,7 @@ export function createEndless(G) {
     vcOff.multiplyScalar(Math.exp(-dt / 0.35));
     if (vcOff.lengthSq() < 1e-8) vcOff.set(0, 0, 0);
     const c = G.VC.copy(_vt).add(vcOff);
+    { const w = homeViewPull(); if (w > 0) c.lerp(homeFocus, w); }
     near.t += dt;
     if (near.at.distanceTo(c) > 1 || near.t > 0.5) refreshNear();
     rockPositions(run.t);
@@ -940,7 +1084,7 @@ export function createEndless(G) {
       }
       // v34: the panel shows as soon as the ships head in to land (v33: once they had settled).
       if (run.landed && !popup.visible) showPopup(true);
-      if (popup.visible) placePopup();
+      if (popup.visible) { placePopup(); animatePopup(dt); }
     }
     // Rocks hurt on contact (ships bounce off them: they are solid obstacles too).
     for (const o of G.obstacles) {
@@ -996,14 +1140,16 @@ export function createEndless(G) {
   function draw(c) {
     const W = WIN();
     const fade = (p, r) => 1 - smooth(W * 0.3, W, WD(p, c) - r);
-    let si = 0, ri = 0, ki = 0;
-    const putStar = (p, r, col, a0 = 0.65, scale = r) => {
+    let ki = 0;
+    starSlots.begin(); rockSlots.begin();
+    const putStar = (key, p, r, col, a0 = 0.65, scale = r) => {
       const a = fade(p, r);
-      if (a <= 0.01 || si >= starPool.length) return;
-      const m = starPool[si++];
+      if (a <= 0.01) return;
+      const m = starSlots.get(key);
+      if (!m) return;
       m.position.copy(p); m.scale.setScalar(scale); m.rotation.set(0, run.t * 0.05, 0); m.material.color.setHex(col); m.material.opacity = a0 * a; m.visible = true;
     };
-    for (const s of near.stars) putStar(s.pos, s.r, STAR_COL.star);
+    for (const s of near.stars) putStar(s, s.pos, s.r, STAR_COL.star);
     for (const s of near.sites) {
       if (s.r > 0) {
         const die = run.dying.find((x) => x.s === s);
@@ -1013,7 +1159,7 @@ export function createEndless(G) {
           // A gentle flicker (red / soft pink) while it shrinks, then back as a grey star; one faint ring.
           const col = k < 0.6 ? (Math.floor(t * 12) % 2 ? 0xffb3a8 : STAR_COL.outpost) : STAR_COL.dead;
           const sc = k < 0.6 ? s.r * (1 - 0.5 * (k / 0.6)) : s.r * (0.5 + 0.5 * smooth(0.6, 1, k));
-          putStar(s.pos, s.r, col, 0.8, sc);
+          putStar(s, s.pos, s.r, col, 0.8, sc);
           if (ki < shockPool.length) {
             const m = shockPool[ki++], q = clamp(t / 0.8, 0, 1);
             m.position.copy(s.pos); m.rotation.set(0, 0, 0); m.scale.setScalar(0.5 + q * 3.5);
@@ -1023,22 +1169,22 @@ export function createEndless(G) {
           const col = s.dock ? STAR_COL.dock : s.kind === 'outpost' ? (run.destroyed.has(s.id) ? STAR_COL.dead : s.bounty ? STAR_COL.bounty : STAR_COL.outpost) : STAR_COL.star;
           // A cleared outpost with an upgrade waiting pulses gently.
           const pulse = run.reward.has(s.id) ? 0.55 + 0.35 * Math.sin(run.t * 4) : 0.75;
-          putStar(s.pos, s.r, col, s.kind === 'start' ? 0.65 : pulse);
+          putStar(s, s.pos, s.r, col, s.kind === 'start' ? 0.65 : pulse);
         }
       }
       if (s.kind === 'field') for (const rk of s.rocks) {
         const a = 1 - smooth(W * 0.65, W, WD(rk.pos, c) - rk.r);   // (v33: rocks stay clear until near the edge)
-        if (a <= 0.01 || ri >= rockPool.length) continue;
-        const m = rockPool[ri++];
+        if (a <= 0.01) continue;
+        const m = rockSlots.get(rk);
+        if (!m) continue;
         m.geometry = rockGeos[rk.geo];
         m.position.copy(rk.pos); m.scale.setScalar(rk.r); m.rotation.set(run.t * rk.spin, run.t * rk.spin * 0.7, 0);
         m.material.opacity = 0.95 * a; m.visible = true;
       }
     }
-    for (let i = si; i < starPool.length; i++) starPool[i].visible = false;
-    for (let i = ri; i < rockPool.length; i++) rockPool[i].visible = false;
+    starSlots.end(); rockSlots.end();
     const h = run.home;
-    if (h && h.state !== 'dead') {
+    if (h && h.state !== 'dead' && !h.broken) {
       const a = 1 - smooth(W * 0.7, W * 1.05, WD(h.pos, c) - HOME_R);   // (clear right out to the window's edge)
       const k = h.state === 'dying' ? clamp(1 - h.dieT / 2.2, 0, 1) : 1;
       homeObj.visible = a > 0.01;
@@ -1072,7 +1218,7 @@ export function createEndless(G) {
       run.rebase = false; vcOff.set(0, 0, 0);
       run.ups = {}; run.offers = new Map(); run.combo = 0; run.comboT = 0; run.mile = 0; run.droneT = 8; run.mslT = 2; run.rebuild = 0; run.landT = 0;
       run.patrolT = 30; run.treasureT = 55 + Math.random() * 30; run.bounties = 0; run.treasures = 0; run.patrols = 0;
-      run.warp = false; run.home = null; homeObj.visible = false;
+      run.warp = true; run.home = null; homeObj.visible = false;   // (v35: warp from the start; v34 sold it)
       picks = []; pickGeo.setDrawRange(0, 0);
       G.resetMods(); applyMods();
       showPopup(false);
@@ -1083,6 +1229,7 @@ export function createEndless(G) {
     },
     stop() {
       run.on = false; run.landed = null; run.autoLand = null; showPopup(false);
+      starSlots.clear(); rockSlots.clear(); clearDebris();
       for (const m of [...starPool, ...rockPool, ...shockPool, ...hints]) m.visible = false;
       homeObj.visible = false;
       picks = []; pickGeo.setDrawRange(0, 0);
@@ -1120,7 +1267,8 @@ export function createEndless(G) {
         dist: Math.round(c.length() * DIST_K), maxDist: Math.round(run.maxDist * DIST_K), credits: run.credits, fleet: fleet(), outposts: run.outposts,
         active: run.active ? run.active.tier : 0, hostiles: G.enemies.length,
         next: o ? { dist: Math.round(o.pos.distanceTo(c) * DIST_K), tier: o.tier, bounty: !!o.bounty } : null, landed: !!run.landed, combo: run.combo,
-        home: run.home && run.home.state !== 'dead' ? { dist: Math.round(Math.max(0, run.home.pos.distanceTo(c) - HOME_R) * DIST_K), wave: run.home.state === 'active' ? run.home.wave : 0 } : null,
+        home: run.home && run.home.state !== 'dead' ? { dist: Math.round(Math.max(0, run.home.pos.distanceTo(c) - HOME_R) * DIST_K), wave: run.home.state === 'active' ? 1 : 0, total: run.home.total || 0 } : null,
+        time: run.t, kills: G.kills(), won: !!(run.home && run.home.state === 'dead'),
         warp: G.warping(),
       };
     },
@@ -1135,6 +1283,6 @@ export function createEndless(G) {
     // tests
     get run() { return run; }, get vcOff() { return vcOff; }, site, cellStars, rawCell, nearestOutpost, nearestDock, hash, get near() { return near; }, options, hints, shockPool, starPool, popup,
     consts: { REG, STAR_R, PAD_R, SAFE_R, LAND_KEEP, WARP_CONE_W, WARP_CONE_TAN, WARP_IGNORE, DIE_T, TIER_D, LAND_GLIDE, STAR_SEP, CELL, WARP_STOP, WARP_MIN, WARP_COST, HOME_UNLOCK, HOME_AHEAD, HOME_R, HOME_CLEAR, HOME_WAKE, HOME_WAVES, DIST_K },
-    nearWarpStop, spawnHome, homeObj, pickMesh, inClearing, POOL, RARITY, rollOffers, buyUp, get picks() { return picks; }, dropCredits, spawnPatrol, spawnTreasure, level,
+    nearWarpStop, cornerField, starSlots, homeSwarm, get debris() { return debris; }, spawnHome, homeObj, pickMesh, inClearing, POOL, RARITY, rollOffers, buyUp, get picks() { return picks; }, dropCredits, spawnPatrol, spawnTreasure, level,
   };
 }

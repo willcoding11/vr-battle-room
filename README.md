@@ -132,7 +132,9 @@ never pauses in Endless (only Settings pauses it).
 - **Arrows** at the window's edge point the way: **red** to the next enemy outpost and **green** to the
   nearest friendly outpost when a ship is hurt. Each arrow is a long shaft with two short prongs, and it
   turns slowly about its own axis. The ring also shows the next outpost's distance and tier.
-- **Asteroid fields** (v33: much commoner - about 1 site in 5 near home, one just behind the start) drift
+- **Asteroid fields** (v36: **a lot more** - almost every region without an outpost has one, and about 7 in 10
+  of the corners between regions hold another, kept 10 away from any outpost: about 125 fields within 5 regions
+  of home, roughly 3 - 4 times v35; v33: about 1 site in 5 near home, one just behind the start) drift
   slowly, tumble, and damage whatever hits them. Their rocks stay clear and bright until close to the window's
   edge, so you see a field coming from a distance.
 - **Bounty outposts** (about 1 in 7) are **gold** stars: tougher defenders, double points and credits, and
@@ -162,7 +164,9 @@ never pauses in Endless (only Settings pauses it).
   ships can't be hurt, steering does nothing and X does not split. A small panel appears **beside the star**
   (point + trigger) **as soon as your ships head in to land** (v34; before, once they had settled), on its
   right - or on its left or above it when that side has a clearer view. v34: it is **always drawn over
-  everything** - stars, rocks and ships never cover it - and its background is nearly opaque:
+  everything** - stars, rocks and ships never cover it - and its background is nearly opaque. v36: your
+  **credits are the biggest thing on it** (a gold number with a wireframe credit diamond), and when you buy
+  something the number counts down to the new total with a short gold flash:
   - **Cleared outpost:** **5 upgrade cards** (v35; was 3) from a pool of 14, in four rarities (Common, Rare, Epic,
     Legendary: v34 shows the rarity as a thin muted colour edge and a small tag, the names in the panel's own
     colours). Buy any or all of them with credits; better ones cost a lot more, and rarer ones roll more often
@@ -178,7 +182,7 @@ never pauses in Endless (only Settings pauses it).
     Your upgrades show as a compact row on the wrist (e.g. `UPG HUL1 FIR2 SPR MSL1`).
   - **Friendly outpost** (fly onto the green star to land): **repair all** (300), **a new fighter** (v34: 800,
     +15% each time, no fleet limit; v33: 1,500, +30% each time), **+1 hull for every ship** (1,200, +50% each
-    time) and, once you have won an outpost, the **WARP DRIVE** (2,000, once), paid with credits.
+    time), paid with credits. (v34 - v35 also sold the warp drive here; since v36 every run has it.)
   - **LAUNCH** on the panel is the only way to take off. If you launch from a cleared outpost without
     choosing, its grey star pulses and you can fly back onto it later.
 - You start as **one fighter** (Fighter controls). Kills earn credits. With a wingman you lead a squadron
@@ -187,13 +191,14 @@ never pauses in Endless (only Settings pauses it).
   cost about 0.6 ms of game logic per frame.
 - **Split** (X): the view centre follows both pairs, weighted 60 / 40 toward the blue pair, and eases over
   when you split or rejoin (no jump).
-- **Warp** (v34): with the warp drive, press **B** (desktop: V) and your ships fly **5x faster** in a straight
-  line. You can't steer at warp (and nobody shoots); the ships swerve smoothly round stars and rocks in the way
-  and hold their formation. B again drops out early.
-  - **The jump** (v35): hyperspace streaks - a field of thin lines round your ships stretches from points into
-    long streaks that rush past along the warp heading, with a wireframe ring burst ahead of you and a rising
-    "charge + punch" sound; on the drop they snap back to points with a second burst and a falling sweep. All
-    lines, inside the battle box (they fade before its edge); the view itself never moves or shakes.
+- **Warp** (v34; **from the start** since v36): press **B** (desktop: V) and your ships fly **5x faster** in a
+  straight line. You can't steer at warp (and nobody shoots); the ships swerve smoothly round stars and rocks in
+  the way and hold their formation. B again drops out early. The button is always shown: **`B WARP`** on a
+  small tag at the right controller's B button (`B DROP` while at warp) and on the wrist panel.
+  - **The warp bubble** (v36): a faint, slightly stretched wireframe shell just round your own ships, with thin
+    light streaks sliding back along its inside, as if the ships push through them inside a protective bubble.
+    The rest of the view stays clean. No entry or exit animation (it fades in and out in 0.2 s); a rising
+    sound on the jump and a falling one on the drop. (v35 filled the whole box with streaks and ring bursts.)
   - **Only the outpost dead ahead counts** (v35): warp drops out about **45 (shown units) before** an outpost
     (enemy, friendly or the homeworld) that lies in a narrow cone along your warp heading (1.6 units wide at
     your ships, opening at 10 degrees). Outposts beside or behind you are ignored (and you fly past them without
@@ -203,11 +208,17 @@ never pauses in Endless (only Settings pauses it).
 - **The goal - the enemy homeworld** (v34): once you are past the tier-9 outposts (2,880 out), the **ENEMY
   HOMEWORLD** appears about 1,200 further on, in the direction you have been heading out. It is a huge red star
   (more than 5x a star's size, with two turning rings) in a wide clearing with no stars, outposts or fields.
-  A **magenta arrow** and the ring point the way and show the distance. Come close and its fleet launches in
-  **three waves of about 19, 22 and 25 ships** (cruisers, a leader with escorts, hunters, snipers, fighter pairs),
-  with a 6-second breather after each. Destroy the last wave: the homeworld blows up and **you win**
-  (VICTORY, +50,000; wins are counted in the stats). Run from it and its fleet pulls back (that wave starts
-  again when you return). Endless keeps its name: it is now a run with a goal.
+  A **magenta arrow** and the ring point the way and show the distance. Come close and **one massive swarm**
+  launches (v36; v34 - v35: three waves of about 20): about **68 ships for a 6-ship fleet, 76 for 10** -
+  12 cruisers, two leaders with escorts, hunters, snipers and a cloud of fighters - on a wide arc **between
+  you and the planet, inside your view** (4 - 5 units ahead, across about 110 degrees; v35's waves entered on
+  the planet's far side, out of sight). The swarm's fighters drop their vertex dots (one draw call each); with
+  the swarm up, the game logic costs about 1.3 - 1.7 ms per frame in the emulator, about 200 draw calls.
+  Destroy the whole swarm and the homeworld **breaks apart**: time slows to a quarter for about 1.5 s, a huge
+  spark burst and boom, its wireframe flies apart edge by edge (white-hot, cooling to red), three shock shells
+  sweep out and the view glides over to watch. Then **VICTORY** on the ring, held for 12.5 s, with the run's
+  numbers round it - time, distance, score, outposts, kills - and no sentences (+50,000; wins are counted in
+  the stats). Run from it and the swarm pulls back (it comes again in full). Endless keeps its name.
 - A destroyed ship is gone for good. **Down to one ship** (v35), it becomes your fighter again: Fighter
   controls (A brakes, the ship is yours to fly), with its share of hull; a new wingman makes it a squadron
   again. Lose the last ship and the run ends: you see your distance and score, then the lobby.
@@ -393,7 +404,7 @@ formation / split state (Squadron).
 | Left | **Click the thumbstick** | Put the box back in its default spot | Same |
 | Left | **X + Y together** | Settings open / close, on a panel to the left of the room (point and pull the trigger to change; a game pauses meanwhile) | Same |
 | Left | **Look at your wrist** | Hull | Your 4 bots' hull, formation, split state |
-| Right | **B** | Endless: **warp** on / off (with the warp drive) | Same |
+| Right | **B** | Endless: **warp** on / off (from the start; a `B WARP` tag shows on the controller) | Same |
 
 Right B does nothing outside Endless; the right stick click does nothing. Steering is always this one style (there are no other steering modes).
 
@@ -425,7 +436,7 @@ debug HUD, and sends errors and status lines to a local test server:
 | N | Switch mode (Fighter / Squadron) |
 | G | Split / rejoin (Squadron; the gold pair copies the mouse) |
 | B | Next formation (Squadron) |
-| V | Warp on / off (Endless, with the warp drive) |
+| V | Warp on / off (Endless) |
 | + / - | Box size |
 | C | Reset the box |
 | Right-drag or arrow keys | Look around |
@@ -497,6 +508,32 @@ move, resize or reshape the room (or re-centre with the Meta button).
 | ![](screenshots/v31-panels-before.png) | ![](screenshots/v31-panels-after.png) |
 
 ![panels from the seat](screenshots/27-panels-seated.png)
+
+## Changes in v36
+
+- **Homeworld:** one massive swarm (about 70 ships with 12 cruisers) that arrives in view, between you and the
+  planet - instead of three waves from behind it. Beating it **breaks the planet apart** (slow motion, debris,
+  shock shells, the view glides over), then a held **VICTORY** with the run's numbers.
+- **Warp:** a bubble round your own ships with light streaks inside, the rest of the view clean; no entry / exit
+  animations. **Warp from the start** (no longer sold), with a `B WARP` tag on the controller and the wrist.
+- **A lot more asteroid fields** across the map.
+- **Outpost panel:** your credits big, counting down with a flash when you buy.
+- **Recordings: no more scenery jumps.** Endless handed its pooled star / rock meshes out in list order every
+  frame, so when the nearby list changed, visible meshes swapped from one star to another (invisible live, all
+  in place every frame - but the recordings interpolate each mesh between frames, so stars and outposts slid
+  across the sky for 1 - 4 rendered frames, outposts swapping colours). v6.zip had 6,191 such jumps. Now every
+  star and rock keeps its mesh while it is drawn, and the recorder starts a new object id whenever a visible
+  object jumps (any pooled mesh, in any version), so the renderer cuts instead of sliding.
+
+Homeworld probe (the autopilot with a 10-ship fleet and a few upgrades, starting next to the homeworld, 3 tries): **3 wins** against the 76-ship swarm, about 3 minutes each, 1 - 6 ships left; game logic at most 3.6 - 5.9 ms per frame at 6x simulation speed.
+
+| Warp bubble (fighter) | The homeworld swarm, in view | The planet breaking apart |
+|---|---|---|
+| ![](screenshots/v36-warp-bubble.png) | ![](screenshots/v36-swarm.png) | ![](screenshots/v36-homeworld-breakup.png) |
+
+| VICTORY with the run's numbers | Outpost panel: big credits | Counting down after a purchase |
+|---|---|---|
+| ![](screenshots/v36-victory.png) | ![](screenshots/v36-outpost-panel.png) | ![](screenshots/v36-credits-counting.png) |
 
 ## Changes in v35
 
