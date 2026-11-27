@@ -23,7 +23,7 @@
 //     the outpost panel shows as soon as you head in to land, always drawn over the stars, and much less text.
 // Only the sites and stars near you exist; meshes are pooled. G is the game API from main.js.
 import * as THREE from '../vendor/three.module.js';
-import { Panel, UI } from './ui.js?v=34';
+import { Panel, UI } from './ui.js?v=35';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const smooth = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
@@ -39,6 +39,7 @@ const OBST_R = 12;              // stars / rocks within this range are solid (AI
 const DIST_K = 10;              // shown distance = world units x 10
 const PAD_R = STAR_R + 1.8;     // fly this close to a green star (or a cleared outpost) to land on it
 const SAFE_R = 5.5;             // green stars: enemies keep out, their shots fizzle
+const LAND_KEEP = 4.5;          // v35: landed anywhere, enemies are held at least this far off (patrols leave)
 const DIE_T = 1.0;              // outpost destruction animation (s); then the ships glide onto the star
 const LAND_GLIDE = 1.0;         // glide onto a cleared outpost (s)
 const DOCK_GLIDE = 0.7;         // ...and onto a green star
@@ -47,8 +48,11 @@ const PATROL_T = [38, 62];      // a patrol turns up every 38 - 62 s while you a
 const TREASURE_T = [70, 120];   // a treasure ship flees past every 70 - 120 s
 const MILESTONE = 100;          // distance milestone every 100 units (1,000 shown)
 const COMBO_T = 2.5;            // kills within this many seconds chain into a combo
-const WARP_STOP = 13;           // warp drops out this close to any outpost (130 shown) ...
-const WARP_MIN = 15;            // ... and can't be engaged closer than this (150 shown)
+const WARP_STOP = 4.5;          // v35: warp drops out this close to the outpost dead ahead (45 shown; v34: 130 from any)
+const WARP_MIN = WARP_STOP;     // (v34: no warp within 150 of any outpost - gone; only one dead ahead blocks)
+const WARP_CONE_W = 1.6;        // the "dead ahead" cone: this wide at your ship ...
+const WARP_CONE_TAN = Math.tan(10 * Math.PI / 180);   // ... opening at 10 degrees
+const WARP_IGNORE = PAD_R + 1.2;   // the star you are on / taking off from never counts
 const WARP_COST = 2000;
 const HOME_UNLOCK = 9 * 36;     // the enemy homeworld appears once you are past the tier-9 outposts
 const HOME_AHEAD = 120;         // ... this far beyond where you are (1,200 shown)
@@ -59,7 +63,8 @@ const HOME_LEAVE = 40;          // ... and pulls back if you get this far away
 const HOME_WAVES = 3;
 const THREAT_T = 150;           // the threat rises one level every 2.5 minutes of a run (v33: 2)
 const TREASURE_COL = new THREE.Color(0xffe066);
-// Upgrades (v33): a pool of cards in four rarities. A cleared outpost offers 3; buy any of them with credits.
+// Upgrades (v33): a pool of cards in four rarities. A cleared outpost offers 5 (v35; was 3); buy any with credits.
+const OFFER_N = 5;
 const RARITY = {
   common: { name: 'COMMON', col: '#8fa3b5' }, rare: { name: 'RARE', col: '#6f9cc4' },
   epic: { name: 'EPIC', col: '#9a86b8' }, legendary: { name: 'LEGENDARY', col: '#c4a36e' },
@@ -321,7 +326,7 @@ export function createEndless(G) {
     const t = s.tier + (s.bounty ? 2 : 0);
     const w = { common: Math.max(20, 70 - 7 * t), rare: 22 + 3 * t, epic: 6 + 2.5 * t, legendary: 1 + 1.2 * t };
     const ids = [];
-    for (let k = 0; k < 3; k++) {
+    for (let k = 0; k < OFFER_N; k++) {
       const left = POOL.filter((u) => available(u) && !ids.includes(u.id));
       if (!left.length) break;
       const rars = Object.keys(w).filter((r) => left.some((u) => u.rar === r));
@@ -413,8 +418,9 @@ export function createEndless(G) {
   // The popup: a small panel in the world beside the star you are sitting on (pointer + trigger). It lists
   // the upgrade choice or the repair / buy rows, and LAUNCH, the only way to take off again.
   const POP_W = 0.3;
-  const popup = new Panel(POP_W, 760, 640);
-  const POP_H = POP_W * 640 / 760;
+  const POP_PX = 780;                                // v35: taller, for 5 cards (v34: 640)
+  const popup = new Panel(POP_W, 760, POP_PX);
+  const POP_H = POP_W * POP_PX / 760;
   G.rig.add(popup.mesh);
   // v34: always drawn over everything in the world (stars, rocks, ships): no depth test, drawn last.
   popup.mesh.material.depthTest = false; popup.mesh.material.depthWrite = false;
@@ -432,14 +438,15 @@ export function createEndless(G) {
         if (o.kind === 'reward') {
           // A card per upgrade (v34: calmer - the rarity is a thin coloured edge and a small tag; the name and
           // price in the panel's own colours).
-          const y = 128 + i * 124, R = RARITY[r.rar];
-          if (r.ok) P.button(r.id, 30, y, W - 60, 114, '', {});
-          else { P.g.strokeStyle = UI.faint; P.g.lineWidth = 2; P.g.strokeRect(31, y + 1, W - 62, 112); }
-          P.g.fillStyle = R.col; P.g.globalAlpha = r.owned ? 0.3 : 0.85; P.g.fillRect(36, y + 10, 5, 94); P.g.globalAlpha = 1;
-          P.text(R.name, 56, y + 32, { size: 20, bold: true, color: r.owned ? UI.dim : R.col, maxW: 300 });
-          P.text(r.label, 56, y + 70, { size: 36, bold: true, color: r.owned ? UI.dim : UI.title, maxW: 420 });
-          P.text(r.sub, 56, y + 100, { size: 22, color: UI.dim, maxW: 440 });
-          P.text(r.owned ? 'OWNED' : N(r.cost), W - 54, y + 70, { size: 32, bold: true, color: r.owned || !r.ok ? UI.dim : UI.gold, align: 'right', maxW: 180 });
+          // (v35: five cards, a little shorter: 92 px every 100, v34: 114 every 124.)
+          const y = 122 + i * 100, R = RARITY[r.rar], ch = 92;
+          if (r.ok) P.button(r.id, 30, y, W - 60, ch, '', {});
+          else { P.g.strokeStyle = UI.faint; P.g.lineWidth = 2; P.g.strokeRect(31, y + 1, W - 62, ch - 2); }
+          P.g.fillStyle = R.col; P.g.globalAlpha = r.owned ? 0.3 : 0.85; P.g.fillRect(36, y + 9, 5, ch - 18); P.g.globalAlpha = 1;
+          P.text(R.name, 56, y + 26, { size: 18, bold: true, color: r.owned ? UI.dim : R.col, maxW: 300 });
+          P.text(r.label, 56, y + 58, { size: 32, bold: true, color: r.owned ? UI.dim : UI.title, maxW: 420 });
+          P.text(r.sub, 56, y + 82, { size: 20, color: UI.dim, maxW: 440 });
+          P.text(r.owned ? 'OWNED' : N(r.cost), W - 54, y + 58, { size: 30, bold: true, color: r.owned || !r.ok ? UI.dim : UI.gold, align: 'right', maxW: 180 });
         } else {
           const n = o.opts.length, rh = n > 3 ? 82 : 88, y = 128 + i * (n > 3 ? 94 : 104);
           if (r.ok) P.button(r.id, 30, y, W - 60, rh, '', {});
@@ -449,7 +456,7 @@ export function createEndless(G) {
         }
       });
     }
-    P.button('launch', 30, 512, W - 60, 104, 'LAUNCH', { big: true, size: 50 });
+    P.button('launch', 30, POP_PX - 148, W - 60, 100, 'LAUNCH', { big: true, size: 50 });
     P.end();
   }
   popup.redraw = drawPopup;                          // hover highlight (main.js)
@@ -531,7 +538,14 @@ export function createEndless(G) {
   // Plus the THREAT: one more level for every 2 minutes of the run (and more hull, more ships), so even a fully
   // upgraded fleet is worn down.
   // v34: a gentler curve (v33: x * 1.4 + 0.6, +1 every 2 minutes).
-  function level(t, bounty) { const x = t + (bounty ? 1 : 0); return G.easy ? x : Math.round(x * 1.2 + 0.4) + threat(); }
+  // v35: the first tiers are their own tier number (v34: x * 1.2 + 0.4, so tier 1 was level 2); the steeper
+  // curve blends in from tier 4 and is back to the v34 levels from tier 7 on.
+  function level(t, bounty) {
+    const x = t + (bounty ? 1 : 0);
+    if (G.easy) return x;
+    const ramp = Math.min(1, Math.max(0, (x - 3) / 4));
+    return Math.max(1, Math.round(x + (0.2 * x + 0.4) * ramp)) + threat();
+  }
   const threat = () => Math.floor(run.t / THREAT_T);
   const threatHp = () => 1 + 0.15 * threat();   // and 15% more hull per threat step, so no fleet holds out for ever
   const hitDmg = () => (G.easy ? 1 : 1 + Math.floor(threat() / 4));   // from 10 minutes in, hits cost 2 hull (3 from 20)
@@ -625,23 +639,38 @@ export function createEndless(G) {
     }
   }
   // Warp (v34): may it be engaged here? ('' = yes, else why not)
-  function warpBlock(c) {
+  // v35: only a stop straight ahead counts - leaving an outpost, or one beside or behind you, never blocks.
+  function warpBlock(c, dir) {
     if (!run.warp) return 'NO WARP DRIVE';
     if (run.landed) return 'LANDED';
-    if (nearWarpStop(c, WARP_MIN)) return 'TOO CLOSE';
+    if (warpStopAhead(c, dir, WARP_STOP + 1.5)) return 'OUTPOST AHEAD';
     return '';
   }
-  function nearWarpStop(c, R) {
-    // Any enemy outpost not yet destroyed, any friendly outpost, and the homeworld.
-    if (run.home && run.home.state !== 'dead' && run.home.pos.distanceTo(c) < R + HOME_R) return true;
+  // v35: the first stop (an enemy outpost not yet destroyed, a friendly outpost, the homeworld) in a narrow
+  // cone along the warp heading, at most R ahead. The one you are on / just left is ignored.
+  const _wd = new V(), _wp = new V();
+  function inWarpCone(c, dir, p, R, r = 0) {
+    _wp.copy(p).sub(c);
+    const along = _wp.dot(dir);
+    if (along <= 0 || along - r > R) return false;
+    const lat = Math.sqrt(Math.max(0, _wp.lengthSq() - along * along));
+    return lat < r + WARP_CONE_W + along * WARP_CONE_TAN;
+  }
+  function warpStopAhead(c, dir, R) {
+    _wd.copy(dir); if (_wd.lengthSq() < 1e-9) return null; _wd.normalize();
+    if (run.home && run.home.state !== 'dead' && inWarpCone(c, _wd, run.home.pos, R + 2, HOME_R)) return run.home;
     const I = Math.round(c.x / REG), K = Math.round(c.z / REG);
     for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
       const s = site(I + a, K + b);
       if (inClearing(s.pos, 6)) continue;
-      if ((s.dock || (s.kind === 'outpost' && !run.destroyed.has(s.id))) && s.pos.distanceTo(c) < R) return true;
+      if (!(s.dock || (s.kind === 'outpost' && !run.destroyed.has(s.id)))) continue;
+      if (s.pos.distanceTo(c) < WARP_IGNORE) continue;
+      if (inWarpCone(c, _wd, s.pos, R)) return s;
     }
-    return false;
+    return null;
   }
+  // (v34 name, kept for tests: any stop within R ahead along dir.)
+  function nearWarpStop(c, R, dir = G.warpDir()) { return !!warpStopAhead(c, dir, R); }
   // Patrols (v33): a few ships that roam between outposts and come after you.
   function spawnPatrol(c) {
     const t = tierAt(c), L = level(t, false), sq = G.gameMode() === 'squadron';
@@ -835,7 +864,7 @@ export function createEndless(G) {
       else for (const e of mine) if (e.obj.position.distanceTo(run.active.pos) > ENEMY_LEASH) { e.scatterT = 1; e.goal.copy(run.active.pos); }
     } else {
       const s = nearestOutpost(c, 1);
-      if (s && s.pos.distanceTo(c) < ACT_R) activate(s);
+      if (s && s.pos.distanceTo(c) < ACT_R && !G.warping()) activate(s);   // (v35: not while flying past at warp)
     }
     if (!run.demo) {
       // Patrols and the treasure ship turn up between outposts; they keep to the area round you.
@@ -855,8 +884,8 @@ export function createEndless(G) {
         }
       }
       updateHome(c, dt);
-      // Warp drops out near any outpost (and the homeworld).
-      if (G.warping() && nearWarpStop(c, WARP_STOP)) G.warpOff('drop');
+      // Warp drops out just before the outpost (or the homeworld) straight ahead.
+      if (G.warping() && warpStopAhead(c, G.warpDir(), WARP_STOP)) G.warpOff('drop');
       if (!G.easy && !run.active && !run.landed && !(run.home && (run.home.state === 'active' || run.home.state === 'between')) && !G.warping()) {
         run.patrolT -= dt; run.treasureT -= dt;
         if (run.patrolT <= 0) { run.patrolT = (PATROL_T[0] + Math.random() * (PATROL_T[1] - PATROL_T[0])) * Math.max(0.45, 1 - run.t / 900); if (!roamers.some((e) => e.patrol)) spawnPatrol(c); }
@@ -882,6 +911,24 @@ export function createEndless(G) {
         if (ed < SAFE_R * 0.8) e.obj.position.sub(s.pos).setLength(SAFE_R * 0.8).add(s.pos);
       }
       for (const b of G.enemyBullets()) if (!b.dead && b.pos.distanceTo(s.pos) < SAFE_R) b.dead = true;
+    }
+    // v35: landed (a green star or a cleared outpost): everyone breaks off - no attack runs, no ramming.
+    // Patrols turn round and leave for good (they escape off the edge); anything else keeps its distance.
+    if (run.landed) {
+      const lp = run.landed.pos;
+      for (const e of G.enemies) {
+        if (e.hp <= 0) continue;
+        _a.copy(e.obj.position).sub(lp);
+        const ed = _a.length();
+        if (ed < 1e-6) _a.set(1, 0, 0); else _a.multiplyScalar(1 / ed);
+        if (e.patrol || ed < LAND_KEEP + 3) {
+          e.scatterT = Math.max(e.scatterT || 0, 1);
+          e.goal.copy(lp).addScaledVector(_a, e.patrol ? W_ESC() * 1.8 : LAND_KEEP + 4);
+          e.disengaged = true;
+        }
+        if (ed < LAND_KEEP) e.obj.position.copy(lp).addScaledVector(_a, LAND_KEEP);
+      }
+      for (const b of G.enemyBullets()) if (!b.dead && b.pos.distanceTo(lp) < LAND_KEEP + 2) b.dead = true;
     }
     // Landing: fly onto a green star, or onto a cleared outpost with an upgrade waiting. Steer away to leave.
     if (!run.demo) {
@@ -1063,7 +1110,7 @@ export function createEndless(G) {
     tryRebuild() { if (run.rebuild <= 0 || run.demo) return false; run.rebuild--; G.showMessage('SHIP REBUILT', '', 1.6); return true; },
     upgradeLine, autoTarget,
     hitDmg,
-    warpBlock: () => warpBlock(G.VC), get hasWarp() { return !!run.warp; },
+    warpBlock: () => warpBlock(G.VC, G.warpDir()), warpStopAhead, get hasWarp() { return !!run.warp; },
     musicBoost() { return (G.enemies.some((e) => e.treasure && e.hp > 0) ? 0.25 : 0) + Math.min(0.3, run.combo * 0.06) + (run.active && run.active.bounty ? 0.2 : 0); },
     info() {
       const c = G.VC, o = run.active ? null : nearestOutpost(c);
@@ -1087,7 +1134,7 @@ export function createEndless(G) {
     demoRoute,
     // tests
     get run() { return run; }, get vcOff() { return vcOff; }, site, cellStars, rawCell, nearestOutpost, nearestDock, hash, get near() { return near; }, options, hints, shockPool, starPool, popup,
-    consts: { REG, STAR_R, PAD_R, SAFE_R, DIE_T, TIER_D, LAND_GLIDE, STAR_SEP, CELL, WARP_STOP, WARP_MIN, WARP_COST, HOME_UNLOCK, HOME_AHEAD, HOME_R, HOME_CLEAR, HOME_WAKE, HOME_WAVES, DIST_K },
+    consts: { REG, STAR_R, PAD_R, SAFE_R, LAND_KEEP, WARP_CONE_W, WARP_CONE_TAN, WARP_IGNORE, DIE_T, TIER_D, LAND_GLIDE, STAR_SEP, CELL, WARP_STOP, WARP_MIN, WARP_COST, HOME_UNLOCK, HOME_AHEAD, HOME_R, HOME_CLEAR, HOME_WAKE, HOME_WAVES, DIST_K },
     nearWarpStop, spawnHome, homeObj, pickMesh, inClearing, POOL, RARITY, rollOffers, buyUp, get picks() { return picks; }, dropCredits, spawnPatrol, spawnTreasure, level,
   };
 }

@@ -2,14 +2,15 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=34';
-import { createTouchController } from './controller.js?v=34';
-import { Sfx } from './audio.js?v=34';
-import { UI } from './ui.js?v=34';
-import { stats, saveStats, recordGame, recordEndless, addPlayTime, fmtTime, fmtNum } from './stats.js?v=34';
-import { createTutorial } from './tutorial.js?v=34';
-import { createRingUI } from './ring.js?v=34';
-import { createEndless } from './endless.js?v=34';
+import { createSteer, steerStep } from './steer.js?v=35';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=35';
+import { createTouchController } from './controller.js?v=35';
+import { Sfx } from './audio.js?v=35';
+import { UI } from './ui.js?v=35';
+import { stats, saveStats, recordGame, recordEndless, addPlayTime, fmtTime, fmtNum } from './stats.js?v=35';
+import { createTutorial } from './tutorial.js?v=35';
+import { createRingUI } from './ring.js?v=35';
+import { createEndless } from './endless.js?v=35';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
@@ -1659,6 +1660,8 @@ function damageBot(b, bullet) {
   haptic('right', 1.0, 160);
   screenFlash = 0.25;
   const left = sq.bots.filter((x) => x.alive).length;
+  // Endless (v35): down to one ship - it becomes your fighter again (Fighter controls, as at the start).
+  if (left === 1 && endless && state === 'playing' && gameMode === 'squadron') { squadToFighter(sq.bots.find((x) => x.alive)); return; }
   if (left > 0) { showMessage('WINGMAN DOWN', `${left} ship${left > 1 ? 's' : ''} left`, 1.6); return; }
   gameOver('SQUADRON LOST');
 }
@@ -2370,17 +2373,21 @@ function updateShipArrow(xr) {
 //     ship = Ry(gain * yaw) * Rx(gain * pitch) * shipNeutral
 //   Wrist roll is ignored. Whole extra turns are dropped again whenever that can't move the ship (whole-number
 //   gains), so after a full spin, pointing forward is straight ahead again.
+//   v35: that split is only used away from straight up / down. The tracker (steer.js) moves the ship by the
+//   controller's own frame-to-frame turn, scaled by the gain, so near the vertical (where yaw / pitch blow up)
+//   the fleet no longer spins or flips; it is eased back onto the map above without any jump.
 const mNeutralQ = new THREE.Quaternion();                  // the room's front, level (see updateNeutral)
 const SHIP_NEUTRAL_Q = new THREE.Quaternion();             // ship orientation at neutral: into the box
 quatFromDir(new THREE.Vector3(0, 0, -1), SHIP_NEUTRAL_Q);
 const mirrorQ = SHIP_NEUTRAL_Q.clone();                    // target ship orientation (before cosmetic bank)
-const _mq = new THREE.Quaternion(), _mt = new THREE.Quaternion(), _mi = new THREE.Quaternion(), _mf = new THREE.Vector3();
+const _mi = new THREE.Quaternion(), _mf = new THREE.Vector3();
 const mirrorQB = new THREE.Quaternion();                    // group B (left hand) target orientation
-// Unwrapped steering angles, one tracker per hand (right: main / group A; left: group B when split).
-const steerA = { init: false, raw: 0, yaw: 0, over: false, pitch: 0, lastPitch: 0 };
-const steerB = { init: false, raw: 0, yaw: 0, over: false, pitch: 0, lastPitch: 0 };
+// Steering trackers, one per hand (right: main / group A; left: group B when split). v35: delta based,
+// see steer.js (no yaw / pitch wrap or flip near straight up / down).
+const steerA = createSteer();
+const steerB = createSteer();
 function setMirrorTarget(ctrlQ) { mirrorInto(ctrlQ, mNeutralQ, SHIP_NEUTRAL_Q, mirrorQ, steerA); }
-const YAXIS = new THREE.Vector3(0, 1, 0), XAXIS = new THREE.Vector3(1, 0, 0);
+const YAXIS = new THREE.Vector3(0, 1, 0);
 function updateNeutral() {
   // The battle room's front axis (-Z), level. (The room only translates and scales, so this is its own
   // facing in the shared reference space; it does not depend on where you sit or where the room is.)
@@ -2390,37 +2397,14 @@ function updateNeutral() {
   mNeutralQ.setFromAxisAngle(YAXIS, yawN);
   SHIP_NEUTRAL_Q.copy(BOX_FWD_Q);
 }
-const TAU = Math.PI * 2;
-const wrapPi = (a) => a - Math.round(a / TAU) * TAU;
-function steerAngles(ctrlQ, nQ, tr) {
-  // Controller pointing direction (targetRay -Z) in the room frame.
-  _mf.set(0, 0, -1).applyQuaternion(ctrlQ).applyQuaternion(_mi.copy(nQ).invert());
-  const h = Math.hypot(_mf.x, _mf.z);
-  const pitch = Math.atan2(_mf.y, h);                 // -90 .. 90 degrees
-  if (h > 1e-4) {
-    let raw = Math.atan2(-_mf.x, -_mf.z) + (tr.over ? Math.PI : 0);
-    if (!tr.init) { tr.init = true; tr.raw = raw; tr.yaw = wrapPi(raw); tr.over = false; }
-    let d = wrapPi(raw - tr.raw);
-    // Through the vertical (over the top / under): the raw yaw flips by half a turn - that's pitch, not yaw.
-    if (Math.abs(d) > 2.2 && Math.abs(tr.lastPitch) > 1.0) { tr.over = !tr.over; raw += Math.PI; d = wrapPi(raw - tr.raw); }
-    tr.yaw += d;
-    tr.raw = raw;
-    // Drop whole extra turns when the controller is back near the front and that can't move the ship.
-    const g = steerGain(), k = Math.round((tr.yaw - wrapPi(raw)) / TAU);
-    if (k && !tr.over && Math.abs(wrapPi(raw)) < 0.8 && Math.abs(g * k - Math.round(g * k)) < 1e-9) tr.yaw -= k * TAU;
-  }
-  tr.lastPitch = pitch;
-  tr.pitch = tr.over ? (pitch >= 0 ? Math.PI - pitch : -Math.PI - pitch) : pitch;
-  return tr;
-}
 function steerGain() { return Number(teamMode() ? settings.steerGainSq : settings.steerGain) || 2; }
 function mirrorInto(ctrlQ, nQ, shipN, out, tr = steerA) {
-  const g = steerGain();
-  steerAngles(ctrlQ, nQ, tr);
-  _mq.setFromAxisAngle(YAXIS, g * tr.yaw);
-  _mt.setFromAxisAngle(XAXIS, g * tr.pitch);
-  // world = neutral * Ry * Rx * neutral^-1 * shipNeutral
-  out.copy(nQ).multiply(_mq).multiply(_mt).multiply(_mi.copy(nQ).invert()).multiply(shipN);
+  const now = performance.now() / 1000, dt = tr.t ? Math.min(0.1, Math.max(0, now - tr.t)) : 1 / 72;
+  if (tr.t && now - tr.t > 0.25) tr.init = false;      // not steered for a while (e.g. the left hand before a split): start fresh
+  tr.t = now;
+  const rq = steerStep(tr, ctrlQ, nQ, steerGain(), dt);
+  // world = neutral * R(room frame) * neutral^-1 * shipNeutral
+  out.copy(nQ).multiply(rq).multiply(_mi.copy(nQ).invert()).multiply(shipN);
 }
 // ---------------------------------------------------------------- XR controllers
 const hands = { left: null, right: null }; // controller groups by handedness
@@ -2929,6 +2913,20 @@ function setEndlessControls(m) {
   setSplit(false, true);
   refreshFriends();
 }
+// The last ship of an Endless squadron turns back into the single fighter: same spot, heading and share of hull.
+function squadToFighter(b) {
+  const k = b.hp / botMax;
+  player.obj.position.copy(b.obj.position);
+  player.fwd.copy(b.fwd).normalize();
+  player.speed = b.speed;
+  player.hp = Math.max(1, Math.ceil(k * playerMax));
+  player.invuln = 1; player.flash = 0; player.alive = true; player.obj.visible = true;
+  b.alive = false; b.obj.visible = false;
+  setEndlessControls('fighter');
+  resetTrail();
+  showMessage('LAST SHIP', 'Fighter controls', 1.6, true);
+  log('endless: last ship -> fighter controls');
+}
 // ---------------------------------------------------------------- Endless warp (v34)
 // B (desktop: V) engages the warp drive (bought at a friendly outpost): your ships fly 5x faster in a straight
 // line - no steering - and swerve smoothly round stars and rocks on the way. It drops out by itself near any
@@ -2945,7 +2943,7 @@ function warpToggle() {
   warp.on = true; warp.t = 0;
   warp.dir.copy(player.fwd).normalize();
   warp.cur.copy(warp.dir);
-  sfx.whoosh(); haptic('right', 0.5, 80); haptic('left', 0.5, 80);
+  warpFxStart(true); haptic('right', 0.5, 80); haptic('left', 0.5, 80);
   showMessage('WARP', '', 1.2, true);
   log('warp on');
 }
@@ -2956,7 +2954,8 @@ function warpOff(why) {
   if (gameMode !== 'squadron') quatFromDir(player.fwd, player.mq);
   for (const b of bots) if (b.alive) b.speed = CRUISE;
   if (why === 'drop') showMessage('WARP DROP', '', 1.2, true);
-  if (why !== 'win' && why !== 'reset') sfx.whoosh(0.5);
+  if (why !== 'win' && why !== 'reset') warpFxStart(false);
+  else { wfx.mode = 'off'; wfx.k = 0; wfxGroup.visible = false; }
   log('warp off ' + why);
 }
 // The warp flight of your ship / the command point: straight on, swerving round obstacles ahead.
@@ -2999,6 +2998,93 @@ function warpBots(dt) {
     b.speed = player.speed;
     b.invuln = Math.max(0, b.invuln - dt);
   });
+}
+// Warp jump effect (v35): hyperspace streaks. A field of thin lines round your ships, all along the warp
+// heading: on the jump they stretch from points into long streaks and rush past (with a ring burst ahead),
+// at warp they keep streaming, on the drop they snap back to points with a second burst. Lines only, inside
+// the battle box (they fade out before its edge); the view itself never moves or shakes.
+const WFX_N = 150, WFX_L = 6.2, WFX_R0 = 1.1, WFX_R1 = 5.6;
+const wfx = { k: 0, stretch: 0, mode: 'off', t: 0, burstT: 9, streaks: [] };
+const wfxArr = new Float32Array(WFX_N * 6), wfxCol = new Float32Array(WFX_N * 6);
+const wfxLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({
+  vertexColors: true, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+}));
+wfxLines.geometry.setAttribute('position', new THREE.BufferAttribute(wfxArr, 3).setUsage(THREE.DynamicDrawUsage));
+wfxLines.geometry.setAttribute('color', new THREE.BufferAttribute(wfxCol, 3).setUsage(THREE.DynamicDrawUsage));
+wfxLines.frustumCulled = false;
+// The burst: two wireframe rings and a spray of short radial lines, across the heading.
+const _wfxRing = Array.from({ length: 48 }, (_, i) => { const a = i / 48 * Math.PI * 2, b = (i + 1) / 48 * Math.PI * 2; return [new THREE.Vector3(Math.cos(a), Math.sin(a), 0), new THREE.Vector3(Math.cos(b), Math.sin(b), 0)]; }).flat();
+const _wfxRays = Array.from({ length: 28 }, (_, i) => { const a = i / 28 * Math.PI * 2 + (i % 2) * 0.06, r0 = i % 2 ? 1.15 : 1.05; return [new THREE.Vector3(Math.cos(a) * r0, Math.sin(a) * r0, 0), new THREE.Vector3(Math.cos(a) * (r0 + 0.55), Math.sin(a) * (r0 + 0.55), 0)]; }).flat();
+const wfxBurst = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([..._wfxRing, ..._wfxRays]),
+  new THREE.LineBasicMaterial({ color: 0xbfefff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+const wfxBurst2 = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(_wfxRing),
+  new THREE.LineBasicMaterial({ color: 0x66ccff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+const wfxGroup = new THREE.Group();
+wfxGroup.add(wfxLines, wfxBurst, wfxBurst2);
+wfxGroup.visible = false;
+world.add(wfxGroup);
+for (let i = 0; i < WFX_N; i++) {
+  const a = Math.random() * Math.PI * 2, r = Math.sqrt(WFX_R0 * WFX_R0 + Math.random() * (WFX_R1 * WFX_R1 - WFX_R0 * WFX_R0));
+  wfx.streaks.push({ x: Math.cos(a) * r, y: Math.sin(a) * r, z: (Math.random() * 2 - 1) * WFX_L, v: 0.7 + Math.random() * 0.6, b: 0.45 + Math.random() * 0.55 });
+}
+const _wfxQ = new THREE.Quaternion(), _wfxZ = new THREE.Vector3(0, 0, 1), _wfxV = new THREE.Vector3();
+function warpFxStart(entering) {
+  wfx.mode = entering ? 'in' : 'out';
+  wfx.t = 0; wfx.burstT = 0; wfx.burstIn = entering;
+  wfxGroup.visible = true;
+  if (entering) for (const s of wfx.streaks) s.z = (Math.random() * 2 - 1) * WFX_L;
+  if (entering) sfx.warpIn(); else sfx.warpOut();
+}
+function updateWarpFx(dt) {
+  if (wfx.mode === 'off') return;
+  wfx.t += dt;
+  // Envelope: k = how much warp (speed of the rush), stretch = streak length (overshoots on the jump).
+  if (wfx.mode === 'in') {
+    const u = Math.min(1, wfx.t / 0.45);
+    wfx.k = 1 - Math.pow(1 - u, 3);
+    wfx.stretch = wfx.t < 0.45 ? wfx.k * 1.35 : 1 + 0.35 * Math.exp(-(wfx.t - 0.45) / 0.25);
+    if (!warp.on) warpFxStart(false);
+  } else if (wfx.mode === 'out') {
+    const u = Math.min(1, wfx.t / 0.32);
+    wfx.k = 1 - u; wfx.stretch = Math.pow(1 - u, 2);
+    if (u >= 1 && wfx.burstT > 0.6) { wfx.mode = 'off'; wfx.k = 0; wfxGroup.visible = false; return; }
+  }
+  // Centred on your ships, pointing along the warp heading.
+  wfxGroup.position.copy(VC);
+  _wfxV.copy(warp.cur.lengthSq() > 0.5 ? warp.cur : player.fwd).normalize();
+  _wfxQ.setFromUnitVectors(_wfxZ, _wfxV);
+  wfxGroup.quaternion.slerp(_wfxQ, wfx.t < dt * 1.5 ? 1 : 1 - Math.exp(-dt * 8));
+  const spd = 26 * wfx.k + 1.5, len = 0.04 + 2.4 * wfx.stretch;
+  for (let i = 0; i < WFX_N; i++) {
+    const s = wfx.streaks[i];
+    s.z -= spd * s.v * dt;
+    if (s.z < -WFX_L - len) s.z += 2 * WFX_L + len;
+    const z0 = s.z, z1 = s.z + len * s.v;
+    wfxArr[i * 6] = s.x; wfxArr[i * 6 + 1] = s.y; wfxArr[i * 6 + 2] = z0;
+    wfxArr[i * 6 + 3] = s.x; wfxArr[i * 6 + 4] = s.y; wfxArr[i * 6 + 5] = z1;
+    // Fade before the box edge (radius ~6.3 from the centre), the head brighter than the tail.
+    const r2 = s.x * s.x + s.y * s.y;
+    const f0 = clamp((6.3 - Math.sqrt(r2 + z0 * z0)) / 1.6, 0, 1), f1 = clamp((6.3 - Math.sqrt(r2 + z1 * z1)) / 1.6, 0, 1);
+    const g = s.b * (0.25 + 0.75 * Math.min(1, wfx.k * 1.4 + 0.15));
+    wfxCol[i * 6] = 0.35 * g * f0; wfxCol[i * 6 + 1] = 0.75 * g * f0; wfxCol[i * 6 + 2] = 1.0 * g * f0;
+    wfxCol[i * 6 + 3] = 0.85 * g * f1; wfxCol[i * 6 + 4] = 0.95 * g * f1; wfxCol[i * 6 + 5] = 1.0 * g * f1;
+  }
+  wfxLines.geometry.attributes.position.needsUpdate = true;
+  wfxLines.geometry.attributes.color.needsUpdate = true;
+  wfxLines.material.opacity = 0.85 * Math.min(1, 0.2 + wfx.k + wfx.stretch * 0.3);
+  // The burst: on the jump it flashes out ahead of you; on the drop it closes in round you.
+  wfx.burstT += dt;
+  const bt = wfx.burstT / 0.55;
+  if (bt < 1) {
+    const e = 1 - Math.pow(1 - bt, 2), a = (1 - bt) * (1 - bt);
+    const r = wfx.burstIn ? 0.4 + 3.2 * e : 3.6 - 2.6 * e;
+    wfxBurst.position.set(0, 0, wfx.burstIn ? 1.0 + 1.5 * e : 1.2);
+    wfxBurst.scale.setScalar(r);
+    wfxBurst.material.opacity = 0.9 * a;
+    wfxBurst2.position.set(0, 0, wfx.burstIn ? 0.6 + 3.5 * e : 0.4);
+    wfxBurst2.scale.setScalar(r * 0.62);
+    wfxBurst2.material.opacity = 0.7 * a;
+  } else { wfxBurst.material.opacity = 0; wfxBurst2.material.opacity = 0; }
 }
 // ---------------------------------------------------------------- Endless landing (endless.js decides when)
 // Fly onto a green star (or a cleared outpost) and you land: the view glides over to the star (eased, `glide`
@@ -3187,7 +3273,7 @@ E = createEndless({
   setUpgrades: (hull, fire) => { playerMax = MAX_HP + 2 * hull; botMax = BOT_HP + hull; fireMul = fire; },
   setArena: (c, half) => { ARENA_C.copy(c); AH = half; }, setAI, setWave: (n) => { wave = n; }, roster, spawnGroup,
   clearEnemies: () => { clearBattle(); }, showMessage: (t, sub, d) => showMessage(t, sub, d, true), damagePlayer, damageBot, damageEnemy, obstInside,
-  warping: () => warp.on, warpOff: (why) => warpOff(why), win: () => winGame(),
+  warping: () => warp.on, warpOff: (why) => warpOff(why), win: () => winGame(), warpDir: () => (warp.on ? warp.dir : player.fwd),
   land: landOn, landed: () => landing.on, settled: landSettled, takeOff, newBot, viewTarget,
   easy: EASY, demo: DEMO, mods: MODS, resetMods, fireMissile,
   pickup: (p) => { sfx.ping(p, 0.3); }, healFx: (sh) => { sparks(sh.obj.position, new THREE.Color(0x55ff99), 8); },
@@ -3548,6 +3634,7 @@ function simStep(dt) {
     }
   }
   updateEffects(dt);
+  updateWarpFx(dt);
   updateParticles(dt);
   killHeat *= Math.exp(-dt / 7);
   if (msgTime > 0 && msgTime < 9000) { msgTime -= dt; if (msgTime <= 0) hideMessage(); }
@@ -3661,7 +3748,7 @@ window.__game = {
   startGameAt(mode, round) { settings.mode = mode; startGame(round); }, damagePlayer, world, VC, get endless() { return endless; }, get E() { return E; }, get playerMax() { return playerMax; }, get botMax() { return botMax; }, get fireMul() { return fireMul; }, damageBot, setControls: (m) => setEndlessControls(m),
   get enemyBullets() { return enemyBullets.list.length; }, get bullets() { return playerBullets.list.length; }, toggleSettings, get menuOpen() { return menuOpen; }, get menuHover() { return menuHover; }, menuPanel, seat, rayFx, get panelMoves() { return panelMoves; }, menuAnim,
   // v18
-  get warp() { return warp; }, warpToggle, warpOff, winGame, get won() { return won; }, get hudLayout() { return hudLayout; }, get hudMinBox() { return hudMinBox; }, drawHud,
+  get warp() { return warp; }, sfx, mirrorQ, wfx, wfxGroup, wfxLines, squadToFighter, warpToggle, warpOff, winGame, get won() { return won; }, get hudLayout() { return hudLayout; }, get hudMinBox() { return hudMinBox; }, drawHud,
   get split() { return split; }, setSplit, get formation() { return formation; }, cycleFormation, cmdB, GA, GB, SQUAD, inputB,
   aces, spawnAce, sfx, perf, get hitStops() { return hitStops; }, get edgeFlashes() { return edgeFlashes; }, liveParticles,
   get killHeat() { return killHeat; }, roster, eb: enemyBullets, pb: playerBullets, SL_X0, SL_X1, cycleSetting, mNeutralQ, mirrorQB, steerA, steerB, get xSplitPending() { return xDown; }, damageEnemy, get framePulse() { return framePulse; },

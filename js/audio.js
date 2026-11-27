@@ -4,7 +4,7 @@
 //                             +-> master -> glue compressor -> limiter -> out
 //   music -> MUSIC volume -> duck (dips under big explosions) --/
 // Volumes are 0..1 from the settings sliders (squared, so the slider feels even).
-import { Music } from './music.js?v=34';
+import { Music } from './music.js?v=35';
 
 export class Sfx {
   constructor() {
@@ -199,6 +199,24 @@ export class Sfx {
     if (!this.ctx || this._limited('whoosh', 0.35)) return;
     const t = this.now();
     this._noise(t, 'bandpass', 380, 2600, 1.4, 0.16 * vol, 0.5, this.sfxBus, 0.07);
+  }
+
+  // Warp (v35). Jump: a rising charge, then a soft noise "punch" and a low swell. Drop: a falling sweep and a thud.
+  warpIn() {
+    if (!this.ctx || this._limited('warpIn', 0.4)) return;
+    const t = this.now();
+    this._osc(t, 'sawtooth', 90, 620, 0.42, 0.07, this.sfxBus, [500, 3200]);
+    this._osc(t, 'sine', 180, 1240, 0.42, 0.06, this.sfxBus);
+    this._noise(t + 0.34, 'bandpass', 600, 3600, 0.9, 0.22, 0.55, this.sfxBus, 0.03);
+    this._osc(t + 0.36, 'sine', 70, 38, 0.7, 0.28, this.sfxBus);
+    this._duck(0.6, 0.4);
+  }
+  warpOut() {
+    if (!this.ctx || this._limited('warpOut', 0.4)) return;
+    const t = this.now();
+    this._noise(t, 'bandpass', 3200, 420, 0.9, 0.18, 0.45, this.sfxBus);
+    this._osc(t, 'sawtooth', 700, 110, 0.35, 0.06, this.sfxBus, [3000, 400]);
+    this._osc(t + 0.05, 'sine', 95, 40, 0.45, 0.24, this.sfxBus);
   }
 
   // Little tunes (all in D).

@@ -11,7 +11,7 @@
 // Panels are ui.js Panels (canvas + buttons picked by the ray's UV), so pointing, clicking and the beam /
 // cursor work the same on the curved band.
 import * as THREE from '../vendor/three.module.js';
-import { Panel, UI } from './ui.js?v=34';
+import { Panel, UI } from './ui.js?v=35';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const RR = 1.2;                    // ring radius around your seat (m)

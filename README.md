@@ -137,16 +137,18 @@ never pauses in Endless (only Settings pauses it).
   edge, so you see a field coming from a distance.
 - **Bounty outposts** (about 1 in 7) are **gold** stars: tougher defenders, double points and credits, and
   rarer upgrade cards.
-- **Patrols** roam between outposts (every 40 - 60 s or so) and come after you; a **treasure ship** (gold)
+- **Patrols** roam between outposts (every 40 - 60 s or so) and come after you - but **not once you have
+  landed** (v35): on any star you land on, every enemy breaks off and keeps at least 45 (shown units) away, no
+  attack runs, no ramming, its shots fizzle, and a patrol turns round and leaves for good; a **treasure ship** (gold)
   sometimes turns up and circles away on a widening orbit - catch it in the 6 - 10 seconds before it escapes
   for a big payout.
 - **Credits** drift out of destroyed ships as small spinning gold wireframe diamonds (v34; v33 had gold
   dots): fly through them (or buy a magnet).
 - **Combos:** kills within 2.5 s of each other chain (x3 and up score a bonus). **Distance milestones**
   every 1,000 get a small celebration. The music gets busier with combos, bounties and the treasure ship.
-- **Outposts are tougher** than their tier, on a gentler curve since v34: tier 1 fights like round 2, tier 2
-  like round 3 (smarter tactics from there), tier 3 like round 4, tier 4 like round 5, tier 9 like round 11
-  (v33: 2, 3, 5, 6, 13), and every defender has a little more hull further out. A bigger fleet meets a bigger
+- **Outposts get tougher** with their tier. v35 eased the start again: tiers 1 - 4 fight like rounds 1 - 4
+  (v34: 2 - 5), tier 5 like round 6, tier 6 like round 7, and from tier 7 on it is the v34 curve (tier 9 like
+  round 11; v33: 13), and every defender has a little more hull further out. A bigger fleet meets a bigger
   defence (an extra pair for every 3 ships past 2, up to 5 extra pairs), and every 2.5 minutes of the run the
   enemy gets one level tougher everywhere (with 15% more hull and, every 5 minutes, another pair per outpost;
   from 10 minutes in their hits cost 2 hull, from 20 minutes 3), so a run always ends sooner or later.
@@ -161,7 +163,7 @@ never pauses in Endless (only Settings pauses it).
   (point + trigger) **as soon as your ships head in to land** (v34; before, once they had settled), on its
   right - or on its left or above it when that side has a clearer view. v34: it is **always drawn over
   everything** - stars, rocks and ships never cover it - and its background is nearly opaque:
-  - **Cleared outpost:** **3 upgrade cards** from a pool of 14, in four rarities (Common, Rare, Epic,
+  - **Cleared outpost:** **5 upgrade cards** (v35; was 3) from a pool of 14, in four rarities (Common, Rare, Epic,
     Legendary: v34 shows the rarity as a thin muted colour edge and a small tag, the names in the panel's own
     colours). Buy any or all of them with credits; better ones cost a lot more, and rarer ones roll more often
     at higher tiers and bounty outposts:
@@ -187,8 +189,17 @@ never pauses in Endless (only Settings pauses it).
   when you split or rejoin (no jump).
 - **Warp** (v34): with the warp drive, press **B** (desktop: V) and your ships fly **5x faster** in a straight
   line. You can't steer at warp (and nobody shoots); the ships swerve smoothly round stars and rocks in the way
-  and hold their formation. Warp **drops out by itself about 130 (shown units) from any outpost** - enemy,
-  friendly or the homeworld - and can't be engaged closer than 150. B again drops out early.
+  and hold their formation. B again drops out early.
+  - **The jump** (v35): hyperspace streaks - a field of thin lines round your ships stretches from points into
+    long streaks that rush past along the warp heading, with a wireframe ring burst ahead of you and a rising
+    "charge + punch" sound; on the drop they snap back to points with a second burst and a falling sweep. All
+    lines, inside the battle box (they fade before its edge); the view itself never moves or shakes.
+  - **Only the outpost dead ahead counts** (v35): warp drops out about **45 (shown units) before** an outpost
+    (enemy, friendly or the homeworld) that lies in a narrow cone along your warp heading (1.6 units wide at
+    your ships, opening at 10 degrees). Outposts beside or behind you are ignored (and you fly past them without
+    waking them), and the star you are on or just took off from never blocks the warp. It can't be engaged
+    with an outpost dead ahead closer than about 60. (v34: dropped 130 from any outpost in any direction and
+    could not be engaged within 150 of one.)
 - **The goal - the enemy homeworld** (v34): once you are past the tier-9 outposts (2,880 out), the **ENEMY
   HOMEWORLD** appears about 1,200 further on, in the direction you have been heading out. It is a huge red star
   (more than 5x a star's size, with two turning rings) in a wide clearing with no stars, outposts or fields.
@@ -197,8 +208,9 @@ never pauses in Endless (only Settings pauses it).
   with a 6-second breather after each. Destroy the last wave: the homeworld blows up and **you win**
   (VICTORY, +50,000; wins are counted in the stats). Run from it and its fleet pulls back (that wave starts
   again when you return). Endless keeps its name: it is now a run with a goal.
-- A destroyed ship is gone for good. Lose them all and the run ends: you see your distance and score, then
-  the lobby.
+- A destroyed ship is gone for good. **Down to one ship** (v35), it becomes your fighter again: Fighter
+  controls (A brakes, the ship is yours to fly), with its share of hull; a new wingman makes it a squadron
+  again. Lose the last ship and the run ends: you see your distance and score, then the lobby.
 - **Less text** (v34): Endless notices are a few words (`LEADER DOWN`, `OUTPOST - TIER 2` / `7 hostiles`,
   `+2,000`) - no explanation lines; the panels' text is short too.
 - **Wrist HUD with a big fleet** (v34): up to 6 ships, one box each as before; 7 - 16 ships wrap into two rows
@@ -369,7 +381,7 @@ formation / split state (Squadron).
 
 | Hand | Input | Fighter | Squadron |
 |---|---|---|---|
-| Right | **Point / turn the controller** | **Absolute forward:** point the controller along the room's front (level, straight away from you into the room) and the ship flies straight into the box, whatever you did before. This holds wherever the room is (even moved to the side), wherever your head is, and after a re-centre. Turn away from that and the ship turns the same way, times the gain (default **2x**: 45° = 90°). Left / right and up / down are both continuous: keep turning past straight back and the ship keeps turning round smoothly (no stop at 180°, no snap), and up over the top works the same way. Wrist roll is ignored. No re-centring, no drift. | Same, for the squadron's heading (default gain **3x**) |
+| Right | **Point / turn the controller** | **Absolute forward:** point the controller along the room's front (level, straight away from you into the room) and the ship flies straight into the box, whatever you did before. This holds wherever the room is (even moved to the side), wherever your head is, and after a re-centre. Turn away from that and the ship turns the same way, times the gain (default **2x**: 45° = 90°). Left / right and up / down are both continuous: keep turning past straight back and the ship keeps turning round smoothly (no stop at 180°, no snap), and up over the top works the same way. v35: near straight up / down the ship is moved by the controller's own frame-to-frame turn (times the gain), not by a yaw / pitch split, so pointing near the vertical, or flicking the wrist back from "fleet facing me", never spins or flips the fleet; any leftover offset eases out once you point back toward the room. Wrist roll is ignored. No re-centring, no drift. | Same, for the squadron's heading (default gain **3x**) |
 | Either | **Ray + trigger** on a panel | Press lobby, tutorial and settings buttons | Same |
 | Either | **Grip** (lobby and tutorial) | Drag to move the room; with that hand's **stick up/down**, resize it | Same |
 | Right | **Trigger** | Shoot (gentle aim assist) | **Hold = engage**, release = regroup |
@@ -453,6 +465,7 @@ the left stick to put the box back in its default spot.
 - `js/ui.js` - VR panels (canvas text and buttons picked with a controller ray) and the animated controller icons
 - `js/controller.js` - the wireframe controller gizmos at your hands
 - `js/tutorial.js` - the step-by-step tutorial
+- `js/steer.js` - the mirror-steering tracker (controller pose -> ship orientation, v35)
 - `js/endless.js` - Endless mode: the seeded open world (stars, outposts, asteroid fields, docks), the
   dock / upgrade panel and run scoring
 - `js/ring.js` - the holo ring (lobby menu, in-game score and announcements) and the stats panel
@@ -484,6 +497,41 @@ move, resize or reshape the room (or re-centre with the Meta button).
 | ![](screenshots/v31-panels-before.png) | ![](screenshots/v31-panels-after.png) |
 
 ![panels from the seat](screenshots/27-panels-seated.png)
+
+## Changes in v35
+
+- **Steering fix** (all modes): turning the wrist so the fleet faces you and then flicking it back, or pointing
+  near straight up / down, could make the fleet spin and the aim line jump (the yaw / pitch split blows up near
+  the vertical, times the gain). The controller is now tracked frame to frame (a quaternion carried along by the
+  smallest turn, no Euler angles), and near the vertical the ship turns by the controller's own movement times
+  the gain. Away from it the feel is exactly as before (same map, 0.00 degrees difference in the tests).
+- **Landed = safe** in Endless: patrols (and any other enemy) break off as soon as you land - no attack runs, no
+  ramming; patrols leave for good.
+- **Warp:** a hyperspace jump effect (streaks, entry and exit bursts, sound); drops out about 45 before the
+  outpost **dead ahead** only (v34: 130 from any outpost); outposts beside or behind you and the one you just
+  left never block or stop it.
+- **Easier first tiers** in Endless (tiers 1 - 4 = levels 1 - 4, v34: 2 - 5), the same from tier 7 on.
+- **5 upgrade cards** per cleared outpost (was 3).
+- **Down to one ship = Fighter controls** again in Endless (a new wingman switches back to Squadron).
+
+Autopilot runs (the test autopilot, 8x simulation speed, minutes of game time per run; 15 minutes of wall time
+each - v35 runs last so much longer that only 4 fitted):
+
+| Endless | Runs | Average | Median | Shortest - longest | Notes |
+|---|---|---|---|---|---|
+| v34 (before) | 25 | 4.3 min | 1.6 min | 0.8 - 26.9 min | |
+| **v35 (after)** | 4 | **22.8 min** | 16.9 min | 1.0 - 57.3 min | 3 - 68 outposts per run (avg 31); every run cleared at least 3 outposts; no win (the autopilot never heads for the homeworld) |
+
+The jump is bigger than the tier change alone: 5 cards per outpost means more upgrades, and the last ship
+now carries on as a fighter. The threat clock (every 2.5 minutes) still ends every run.
+
+| The jump (streaks + burst) | At warp | Dropped out before the outpost ahead (45) |
+|---|---|---|
+| ![](screenshots/v35-warp-jump.png) | ![](screenshots/v35-warp-cruise.png) | ![](screenshots/v35-warp-drop-near.png) |
+
+| 5 upgrade cards | The last ship: Fighter controls |
+|---|---|
+| ![](screenshots/v35-five-cards-panel.png) | ![](screenshots/v35-last-ship-fighter.png) |
 
 ## Changes in v34
 
