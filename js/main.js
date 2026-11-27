@@ -2,15 +2,15 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { createSteer, steerStep } from './steer.js?v=37';
-import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=37';
-import { createTouchController } from './controller.js?v=37';
-import { Sfx } from './audio.js?v=37';
-import { UI } from './ui.js?v=37';
-import { stats, saveStats, recordGame, recordEndless, addPlayTime, fmtTime, fmtNum } from './stats.js?v=37';
-import { createTutorial } from './tutorial.js?v=37';
-import { createRingUI } from './ring.js?v=37';
-import { createEndless } from './endless.js?v=37';
+import { createSteer, steerStep } from './steer.js?v=38';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=38';
+import { createTouchController } from './controller.js?v=38';
+import { Sfx } from './audio.js?v=38';
+import { UI } from './ui.js?v=38';
+import { stats, saveStats, recordGame, recordEndless, addPlayTime, fmtTime, fmtNum } from './stats.js?v=38';
+import { createTutorial } from './tutorial.js?v=38';
+import { createRingUI } from './ring.js?v=38';
+import { createEndless } from './endless.js?v=38';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
@@ -3021,17 +3021,16 @@ function warpBots(dt) {
     b.invuln = Math.max(0, b.invuln - dt);
   });
 }
-// Warp flow (v37, from the user's sketch): long thin light lines streaming past the fleet, opposite to the warp
-// heading, each following a streamline round an invisible smooth body just bigger than the formation - pinched
-// together ahead of the fleet, curving smoothly outward round it and running on alongside, well past it. The
-// body is a Rankine-style half-body: radius B(z) grows from 0 at its nose (a little ahead of the fleet) to b
-// alongside and behind it, and a line that starts rho0 off the axis far ahead runs at
-//   rho(z) = sqrt(rho0^2 + B(z)^2)
-// (the same flow between neighbouring lines everywhere), so lines near the axis hug the body and lines farther
-// out bend less. Nothing is drawn on the fleet. Bright dashes scroll backward along the lines so the speed reads.
-// No entry / exit animation: it fades in and out in 0.2 s. The view never moves.
-const WFX_LINES = 44, WFX_SEG = 36;
-const wfx = { k: 0, b: 0.6, mode: 'off', t: 0, lines: [] };
+// Warp flow (v37 from the user's sketch; v38: fewer, shorter, closer, smoother): thin light lines streaming past
+// the fleet, opposite to the warp heading, round an invisible smooth body that sits just outside the formation.
+// Each line comes in straight a little ahead of the fleet, eases outward in one long gentle S-curve (smootherstep,
+// so there is no corner anywhere) and then runs on alongside the ships and a little past them. A line that comes in
+// rho0 off the axis ends up at sqrt(rho0^2 + b^2) (the same flow between neighbouring lines everywhere), so lines
+// farther out bend less. The axis runs through the middle of the formation (seen across the heading); the body's
+// width and nose follow the formation's real extent. Nothing is drawn on the ships. Bright dashes scroll backward
+// along the lines so the speed reads. No entry / exit animation: it fades in and out in 0.2 s.
+const WFX_LINES = 20, WFX_SEG = 40;
+const wfx = { k: 0, b: 0.35, f: 0, bk: 0, c: new THREE.Vector3(), mode: 'off', t: 0, lines: [] };
 const wfxArr = new Float32Array(WFX_LINES * WFX_SEG * 6), wfxCol = new Float32Array(WFX_LINES * WFX_SEG * 6);
 const wfxLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({
   vertexColors: true, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
@@ -3044,54 +3043,68 @@ wfxGroup.add(wfxLines);
 wfxGroup.visible = false;
 world.add(wfxGroup);
 for (let i = 0; i < WFX_LINES; i++) {
-  // Azimuth evenly round the axis (jittered); start radius (as a fraction of b): most lines close in, so they
-  // bunch up ahead of the nose, a few farther out that barely bend.
-  const u = (i + 0.5) / WFX_LINES;
-  wfx.lines.push({ phi: i * 2.39996 + (Math.random() - 0.5) * 0.3, r0: 0.16 + 1.05 * Math.pow(Math.random(), 1.6), ph: Math.random() * 10, v: 0.85 + Math.random() * 0.3, b: 0.55 + 0.45 * Math.random(), u });
+  // Azimuth evenly round the axis (golden angle, jittered); lead-in radius as a fraction of the body's width:
+  // stratified so they spread evenly from close to the axis out to about 0.65 b.
+  const u = (i + 0.2 + 0.6 * Math.random()) / WFX_LINES;
+  wfx.lines.push({ phi: i * 2.39996 + (Math.random() - 0.5) * 0.4, r0: 0.05 + 0.6 * Math.pow(u, 1.3), ph: Math.random() * 10, v: 0.85 + Math.random() * 0.3, b: 0.6 + 0.4 * Math.random() });
 }
-const _wfxQ = new THREE.Quaternion(), _wfxZ = new THREE.Vector3(0, 0, 1), _wfxV = new THREE.Vector3();
+wfx.lines.sort(() => Math.random() - 0.5);
+const _wfxQ = new THREE.Quaternion(), _wfxZ = new THREE.Vector3(0, 0, 1), _wfxV = new THREE.Vector3(), _wfxR = new THREE.Vector3(), _wfxC = new THREE.Vector3();
 function warpFxStart(entering) {
   wfx.mode = entering ? 'in' : 'out';
   wfx.t = 0;
   if (entering) { wfxGroup.visible = true; sfx.warpIn(); } else sfx.warpOut();
 }
-function fleetRadius() {
-  // How far the fleet reaches from the view centre (your ship alone: just round it).
-  let r = 0.35;
-  if (gameMode === 'squadron') for (const b of bots) if (b.alive) r = Math.max(r, b.obj.position.distanceTo(VC) + 0.3);
-  return Math.min(3.2, r);
-}
+function wfxShips() { return gameMode === 'squadron' ? bots.filter((b) => b.alive).map((b) => b.obj) : [player.obj]; }
+const smoother = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * t * (t * (t * 6 - 15) + 10));
 function updateWarpFx(dt) {
   if (wfx.mode === 'off') return;
   wfx.t += dt;
   if (wfx.mode === 'in') { wfx.k = Math.min(1, wfx.k + dt / 0.2); if (!warp.on) warpFxStart(false); }
   else { wfx.k = Math.max(0, wfx.k - dt / 0.2); if (wfx.k <= 0) { wfx.mode = 'off'; wfxGroup.visible = false; return; } }
-  // The invisible body: width b a bit wider than the formation; its nose ahead of the fleet's front.
-  const bw = (wfx.b += (fleetRadius() * 1.15 + 0.2 - wfx.b) * (1 - Math.exp(-dt * 3)));
-  const nose = bw * 1.7, L = bw * 1.5;                     // nose ahead of the centre; how long the nose takes to open
-  const zF = Math.min(6, nose + 2.2 + bw * 1.5), zB = -Math.min(6.5, bw * 2.5 + 3);   // line span: ahead / behind
-  wfxGroup.position.copy(VC);
   _wfxV.copy(warp.cur.lengthSq() > 0.5 ? warp.cur : player.fwd).normalize();
+  // The formation in the flow's frame: its middle across the heading, how far it reaches across (radial), and
+  // how far ahead / behind the view centre its ships sit.
+  const ships = wfxShips();
+  _wfxC.set(0, 0, 0);
+  for (const o of ships) { _wfxR.copy(o.position).sub(VC); _wfxC.add(_wfxR.addScaledVector(_wfxV, -_wfxR.dot(_wfxV))); }
+  if (ships.length) _wfxC.multiplyScalar(1 / ships.length);
+  let rad = 0, front = 0, back = 0;
+  for (const o of ships) {
+    _wfxR.copy(o.position).sub(VC);
+    const al = _wfxR.dot(_wfxV);
+    front = Math.max(front, al); back = Math.min(back, al);
+    rad = Math.max(rad, _wfxR.addScaledVector(_wfxV, -al).sub(_wfxC).length());
+  }
+  const first = wfx.t < dt * 1.5, e = first ? 1 : 1 - Math.exp(-dt * 3);
+  if (first) wfx.c.copy(_wfxC); else wfx.c.lerp(_wfxC, e);
+  // The invisible body: just outside the formation (a ship is about 0.2 long at this scale).
+  const bw = (wfx.b += (Math.min(3.2, rad + 0.28) - wfx.b) * e);
+  const fr = (wfx.f += (front - wfx.f) * e), bk = (wfx.bk += (back - wfx.bk) * e);
+  const Lo = 1.1 + bw * 1.4;                            // the long, gentle opening (straight -> alongside)
+  const nose = fr + 0.15 + Lo;                          // fully open just ahead of the leading ship
+  const zF = nose + 0.5, zB = bk - (0.9 + bw * 0.6);    // short: a little ahead of the bend, a little past the fleet
+  wfxGroup.position.copy(VC).add(wfx.c);
   _wfxQ.setFromUnitVectors(_wfxZ, _wfxV);
-  wfxGroup.quaternion.slerp(_wfxQ, wfx.t < dt * 1.5 ? 1 : 1 - Math.exp(-dt * 8));
-  const W = BOX_B, flow = 7.5;                          // dash scroll speed (units / s, backward)
+  wfxGroup.quaternion.slerp(_wfxQ, first ? 1 : 1 - Math.exp(-dt * 8));
+  const W = BOX_B, flow = 6, len = zF - zB;            // dash scroll speed (units / s, backward)
   let o = 0;
   for (let i = 0; i < WFX_LINES; i++) {
     const ln = wfx.lines[i], cp = Math.cos(ln.phi), sp = Math.sin(ln.phi), r0 = ln.r0 * bw;
+    const r1 = Math.sqrt(r0 * r0 + bw * bw);
     const scroll = wfx.t * flow * ln.v + ln.ph;
     let px = 0, py = 0, pz = 0, pc = 0;
     for (let j = 0; j <= WFX_SEG; j++) {
-      const z = zF + (zB - zF) * (j / WFX_SEG);
-      // body radius: 0 ahead of the nose, opening smoothly (paraboloid-like), b alongside and behind
-      const x = Math.max(0, (nose - z) / L), Bs = bw * Math.sqrt(1 - Math.exp(-2.2 * x));
-      const rho = Math.sqrt(r0 * r0 + Bs * Bs);
+      const z = zF - len * (j / WFX_SEG);
+      const rho = r0 + (r1 - r0) * smoother((nose - z) / Lo);
       const cx = rho * cp, cy = rho * sp;
-      // brightness: scrolling dashes, fading at both ends of the line and before the window's edge
-      const s = (zF - z) + scroll, d = s - Math.floor(s / 2.2) * 2.2;
-      const dash = 0.22 + 0.78 * Math.exp(-((d - 0.5) * (d - 0.5)) / 0.12);
-      const ends = Math.min(1, (zF - z) / 1.5, (z - zB) / 2.2);
-      const win = 1 - Math.min(1, Math.max(0, (Math.hypot(cx, cy, z) - W * 0.7) / (W * 0.3)));
-      const c = Math.max(0, ends) * win * dash * ln.b * wfx.k * (0.55 + 0.45 * Math.exp(-ln.r0));
+      // brightness: scrolling dashes, soft fades at both ends of the line and before the window's edge
+      const s = (zF - z) + scroll, d = s - Math.floor(s / 1.5) * 1.5;
+      const dash = 0.3 + 0.7 * Math.exp(-((d - 0.4) * (d - 0.4)) / 0.06);
+      const ends = smoother(Math.min((zF - z) / (len * 0.18), (z - zB) / (len * 0.3)));
+      const wr = Math.hypot(cx, cy, z);
+      const win = 1 - Math.min(1, Math.max(0, (wr - W * 0.75) / (W * 0.25)));
+      const c = ends * win * dash * ln.b * wfx.k;
       if (j > 0) {
         wfxArr[o] = px; wfxArr[o + 1] = py; wfxArr[o + 2] = pz; wfxArr[o + 3] = cx; wfxArr[o + 4] = cy; wfxArr[o + 5] = z;
         wfxCol[o] = 0.35 * pc; wfxCol[o + 1] = 0.75 * pc; wfxCol[o + 2] = 1.0 * pc;

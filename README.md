@@ -195,13 +195,13 @@ never pauses in Endless (only Settings pauses it).
   straight line. You can't steer at warp (and nobody shoots); the ships swerve smoothly round stars and rocks in
   the way and hold their formation. B again drops out early. The button is always shown: **`B WARP`** on a
   small tag at the right controller's B button (`B DROP` while at warp) and on the wrist panel.
-  - **The warp flow** (v37): long thin light-blue lines stream past your fleet, backward against the warp
-    heading, like air flowing round an invisible smooth body just bigger than the formation. They are pinched
-    together ahead of the fleet, curve smoothly outward round its nose and run on alongside and well past it;
-    lines farther out bend less. Bright dashes scroll back along them so the speed reads. Nothing is drawn on
-    the ships themselves and the lines stay near the fleet. No entry or exit animation (it fades in and out in
-    0.2 s); a rising sound on the jump and a falling one on the drop. (v36 had a wireframe bubble with streaks
-    inside; v35 filled the whole box with streaks and ring bursts.)
+  - **The warp flow** (v37; v38 fewer, shorter, closer, smoother): 20 thin light-blue lines stream past your
+    fleet, backward against the warp heading, like air flowing round an invisible smooth body just outside the
+    formation. Each comes in straight a little ahead of the fleet, eases outward in one long gentle S-curve round
+    the ships, runs on alongside them and ends a little past them; lines farther out bend less. Bright dashes
+    scroll back along them so the speed reads. Nothing is drawn on the ships. No entry or exit animation (it
+    fades in and out in 0.2 s); a rising sound on the jump and a falling one on the drop. (v36 had a wireframe
+    bubble with streaks inside; v35 filled the whole box with streaks and ring bursts.)
   - **Only the outpost dead ahead counts** (v35): warp drops out about **45 (shown units) before** an outpost
     (enemy, friendly or the homeworld) that lies in a narrow cone along your warp heading (1.6 units wide at
     your ships, opening at 10 degrees). Outposts beside or behind you are ignored (and you fly past them without
@@ -511,6 +511,19 @@ move, resize or reshape the room (or re-centre with the Meta button).
 | ![](screenshots/v31-panels-before.png) | ![](screenshots/v31-panels-after.png) |
 
 ![panels from the seat](screenshots/27-panels-seated.png)
+
+## Changes in v38
+
+- **Warp flow, tighter** (user feedback on v37: "less, shorter, closer, and more smooth from straight to bending
+  away from the ships"): 20 lines instead of 44; they reach about 2-3 units ahead of the fleet and 1 past it
+  (v37: up to 6 each way); the invisible body sits just outside the formation (about 0.2-0.3 outside the
+  farthest ship, its axis through the middle of the formation and its nose just ahead of the leading ship); and
+  the bend is one long smootherstep S-curve from straight to alongside, so there is no corner (sharpest turn
+  between line segments under 6 degrees).
+
+| From the side (squadron) | Player's view, heading across | Player's view, heading away | Fighter alone |
+|---|---|---|---|
+| ![](screenshots/v38-warp-flow-side.png) | ![](screenshots/v38-warp-flow-player.png) | ![](screenshots/v38-warp-flow-player-ahead.png) | ![](screenshots/v38-warp-flow-fighter.png) |
 
 ## Changes in v37
 
