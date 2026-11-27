@@ -140,14 +140,16 @@ never pauses in Endless (only Settings pauses it).
 - **Patrols** roam between outposts (every 40 - 60 s or so) and come after you; a **treasure ship** (gold)
   sometimes turns up and circles away on a widening orbit - catch it in the 6 - 10 seconds before it escapes
   for a big payout.
-- **Credits** drift out of destroyed ships as little gold sparks: fly through them (or buy a magnet).
+- **Credits** drift out of destroyed ships as small spinning gold wireframe diamonds (v34; v33 had gold
+  dots): fly through them (or buy a magnet).
 - **Combos:** kills within 2.5 s of each other chain (x3 and up score a bonus). **Distance milestones**
   every 1,000 get a small celebration. The music gets busier with combos, bounties and the treasure ship.
-- **Outposts are tougher** than their tier (v33): tier 1 fights like round 2, tier 2 like round 3 (smarter
-  tactics from there), tier 4 like round 6, and every defender has more hull further out. A bigger fleet meets a
-  bigger defence (an extra pair for every 2 ships past 2, up to 5 extra pairs), and every 2 minutes of the run
-  the enemy gets one level tougher everywhere (with 20% more hull and, every 4 minutes, another pair per outpost;
-  from 8 minutes in their hits cost 2 hull, from 16 minutes 3), so a run always ends sooner or later.
+- **Outposts are tougher** than their tier, on a gentler curve since v34: tier 1 fights like round 2, tier 2
+  like round 3 (smarter tactics from there), tier 3 like round 4, tier 4 like round 5, tier 9 like round 11
+  (v33: 2, 3, 5, 6, 13), and every defender has a little more hull further out. A bigger fleet meets a bigger
+  defence (an extra pair for every 3 ships past 2, up to 5 extra pairs), and every 2.5 minutes of the run the
+  enemy gets one level tougher everywhere (with 15% more hull and, every 5 minutes, another pair per outpost;
+  from 10 minutes in their hits cost 2 hull, from 20 minutes 3), so a run always ends sooner or later.
 - **Destroying an outpost** (every ship round it) gives 1,000 x its tier in points and credits. A short effect
   (1 s): one faint ring, a few sparks, a quieter boom, a very short hit-stop; the red star flickers gently,
   shrinks and comes back grey. Then your ships **land on the star by themselves**: the view glides over to
@@ -156,22 +158,25 @@ never pauses in Endless (only Settings pauses it).
   it touches down, then levels out. Nothing slides sideways. A split squadron rejoins first.
 - **Landed:** the ship (or the whole squadron) sits on top of the star while the game keeps running. Landed
   ships can't be hurt, steering does nothing and X does not split. A small panel appears **beside the star**
-  (point + trigger), on its right - or on its left or above it when that side has a clearer view (no star or
-  rock in between). It is depth-correct: a star in front of it hides it (the pointer still draws on top):
-  - **Cleared outpost:** **3 upgrade cards** from a pool of 14, in four rarities (colour-coded: Common grey,
-    Rare blue, Epic purple, Legendary orange). Buy any or all of them with credits; better ones cost a lot
-    more, and rarer ones roll more often at higher tiers and bounty outposts:
+  (point + trigger) **as soon as your ships head in to land** (v34; before, once they had settled), on its
+  right - or on its left or above it when that side has a clearer view. v34: it is **always drawn over
+  everything** - stars, rocks and ships never cover it - and its background is nearly opaque:
+  - **Cleared outpost:** **3 upgrade cards** from a pool of 14, in four rarities (Common, Rare, Epic,
+    Legendary: v34 shows the rarity as a thin muted colour edge and a small tag, the names in the panel's own
+    colours). Buy any or all of them with credits; better ones cost a lot more, and rarer ones roll more often
+    at higher tiers and bounty outposts:
 
     | Rarity | Upgrades (price; each extra level +50%) |
     |---|---|
-    | Common | +hull (800), +fire rate 15% (900), engine +12% speed (700), bullet speed +25% (600), credit bonus +20% (700) |
-    | Rare | magnet (2,200), +damage 40% (2,600), +1 wingman (2,400, up to 6), repair drone (3,000) |
+    | Common | +hull (800), +fire rate 15% (900), engine +12% speed (700), bullet speed +25% (600), credit bonus +20% (700), +1 wingman (1,200, up to 8; v34, was Rare 2,400) |
+    | Rare | magnet (2,200), +damage 40% (2,600), repair drone (3,000) |
     | Epic | spread shot - a fan of 3 (6,500), piercing shots (6,000), shields - block a hit, recharge (7,000) |
     | Legendary | homing missiles (14,000), rebuild - the next ship destroyed comes back (16,000, up to 3) |
 
     Your upgrades show as a compact row on the wrist (e.g. `UPG HUL1 FIR2 SPR MSL1`).
-  - **Friendly outpost** (fly onto the green star to land): **repair all** (300), **a new fighter** (1,500,
-    +500 each time, no fleet limit) and **+1 hull for every ship** (1,200, +50% each time), paid with credits.
+  - **Friendly outpost** (fly onto the green star to land): **repair all** (300), **a new fighter** (v34: 800,
+    +15% each time, no fleet limit; v33: 1,500, +30% each time), **+1 hull for every ship** (1,200, +50% each
+    time) and, once you have won an outpost, the **WARP DRIVE** (2,000, once), paid with credits.
   - **LAUNCH** on the panel is the only way to take off. If you launch from a cleared outpost without
     choosing, its grey star pulses and you can fly back onto it later.
 - You start as **one fighter** (Fighter controls). Kills earn credits. With a wingman you lead a squadron
@@ -180,8 +185,25 @@ never pauses in Endless (only Settings pauses it).
   cost about 0.6 ms of game logic per frame.
 - **Split** (X): the view centre follows both pairs, weighted 60 / 40 toward the blue pair, and eases over
   when you split or rejoin (no jump).
+- **Warp** (v34): with the warp drive, press **B** (desktop: V) and your ships fly **5x faster** in a straight
+  line. You can't steer at warp (and nobody shoots); the ships swerve smoothly round stars and rocks in the way
+  and hold their formation. Warp **drops out by itself about 130 (shown units) from any outpost** - enemy,
+  friendly or the homeworld - and can't be engaged closer than 150. B again drops out early.
+- **The goal - the enemy homeworld** (v34): once you are past the tier-9 outposts (2,880 out), the **ENEMY
+  HOMEWORLD** appears about 1,200 further on, in the direction you have been heading out. It is a huge red star
+  (more than 5x a star's size, with two turning rings) in a wide clearing with no stars, outposts or fields.
+  A **magenta arrow** and the ring point the way and show the distance. Come close and its fleet launches in
+  **three waves of about 19, 22 and 25 ships** (cruisers, a leader with escorts, hunters, snipers, fighter pairs),
+  with a 6-second breather after each. Destroy the last wave: the homeworld blows up and **you win**
+  (VICTORY, +50,000; wins are counted in the stats). Run from it and its fleet pulls back (that wave starts
+  again when you return). Endless keeps its name: it is now a run with a goal.
 - A destroyed ship is gone for good. Lose them all and the run ends: you see your distance and score, then
   the lobby.
+- **Less text** (v34): Endless notices are a few words (`LEADER DOWN`, `OUTPOST - TIER 2` / `7 hostiles`,
+  `+2,000`) - no explanation lines; the panels' text is short too.
+- **Wrist HUD with a big fleet** (v34): up to 6 ships, one box each as before; 7 - 16 ships wrap into two rows
+  (each box at least 34 px of the 512 px HUD); more than 16, one bar for the whole fleet's hull (with the ship
+  count) plus boxes for the 8 weakest ships. (v33 squeezed 20 ships into 8 px slivers.)
 - **Score is earned** (v33): kills, outposts (by tier, double for bounties), patrols, the treasure ship and
   combos. Distance scores nothing; it is a stat (best distance is saved, as is best score).
 
@@ -359,8 +381,9 @@ formation / split state (Squadron).
 | Left | **Click the thumbstick** | Put the box back in its default spot | Same |
 | Left | **X + Y together** | Settings open / close, on a panel to the left of the room (point and pull the trigger to change; a game pauses meanwhile) | Same |
 | Left | **Look at your wrist** | Hull | Your 4 bots' hull, formation, split state |
+| Right | **B** | Endless: **warp** on / off (with the warp drive) | Same |
 
-Right B and the right stick click do nothing. Steering is always this one style (there are no other steering modes).
+Right B does nothing outside Endless; the right stick click does nothing. Steering is always this one style (there are no other steering modes).
 
 ### Settings (saved on the device, as are the box position and size)
 
@@ -390,6 +413,7 @@ debug HUD, and sends errors and status lines to a local test server:
 | N | Switch mode (Fighter / Squadron) |
 | G | Split / rejoin (Squadron; the gold pair copies the mouse) |
 | B | Next formation (Squadron) |
+| V | Warp on / off (Endless, with the warp drive) |
 | + / - | Box size |
 | C | Reset the box |
 | Right-drag or arrow keys | Look around |
@@ -460,6 +484,44 @@ move, resize or reshape the room (or re-centre with the Meta button).
 | ![](screenshots/v31-panels-before.png) | ![](screenshots/v31-panels-after.png) |
 
 ![panels from the seat](screenshots/27-panels-seated.png)
+
+## Changes in v34
+
+- **Endless has a goal:** past the tier-9 outposts the **enemy homeworld** appears far out - a huge red star in a
+  wide clearing, defended by three waves of a big fleet. Destroy it to win.
+- **Warp drive** (friendly outposts, after your first outpost win): B flies your ships 5x faster in a straight
+  line, swerving round stars; it drops out about 130 from any outpost and can't be used near one.
+- **Gentler difficulty curve** in Endless and **cheaper ships** (a new fighter 800 +15%, was 1,500 +30%; the
+  wingman card is a Common 1,200, was a Rare 2,400). Fighter and Squadron are unchanged.
+- **Credits are wireframe diamonds**, like everything else.
+- **Calmer upgrade panel colours** (muted rarity edge + small tag, names in the panel's own colours).
+- **The outpost panel is always drawn over the stars** (the user's recordings showed stars covering it - the
+  v32 depth test let stars in front hide it) and shows **as soon as your ships head in to land**.
+- **Much less text** in Endless notices and panels.
+- **Wrist HUD** stays readable with a big fleet (two rows, then a fleet bar + the weakest ships).
+
+Autopilot runs (the test autopilot, 8x simulation speed, minutes of game time per run):
+
+| Endless | Runs | Average | Median | Shortest - longest | Notes |
+|---|---|---|---|---|---|
+| v33 (before) | 24 | 3.4 min | 1.8 min | 1.0 - 34.5 min | every run ended |
+| **v34 (after)** | 25 | **4.3 min** | 1.6 min | 0.8 - 26.9 min | every run ended; one run reached the homeworld and **won** (42 outposts, 26.9 min) |
+
+Homeworld probe (the autopilot with a 10-ship fleet and a few upgrades, starting next to the homeworld, 4 tries):
+4 wins, about 11.5 min each, 6 - 9 ships left; with 8 ships and the larger v34-draft waves it lost every time,
+so the final waves were trimmed to about 19 / 22 / 25 ships.
+
+| Outpost panel over a star (v34) | Credits (wireframe, zoomed in) | Friendly outpost with the warp drive |
+|---|---|---|
+| ![](screenshots/v34-popup-over-star.png) | ![](screenshots/v34-credits.png) | ![](screenshots/v34-dock-warp.png) |
+
+| At warp | The enemy homeworld (wave 1) | VICTORY |
+|---|---|---|
+| ![](screenshots/v34-warp.png) | ![](screenshots/v34-homeworld.png) | ![](screenshots/v34-victory.png) |
+
+| Wrist, 10 ships (two rows) | Wrist, 20 ships (fleet bar + weakest 8) |
+|---|---|
+| ![](screenshots/v34-hud-10.png) | ![](screenshots/v34-hud-20.png) |
 
 ## Changes in v33
 

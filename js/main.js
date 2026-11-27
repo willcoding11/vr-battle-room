@@ -2,14 +2,14 @@
 // the page shows one ENTER VR button. In VR you land in the lobby (after the first-run tutorial).
 // A hidden desktop mode (mouse + keyboard, autopilot) remains for automated testing: ?test.
 import * as THREE from '../vendor/three.module.js';
-import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=33';
-import { createTouchController } from './controller.js?v=33';
-import { Sfx } from './audio.js?v=33';
-import { UI } from './ui.js?v=33';
-import { stats, saveStats, recordGame, recordEndless, addPlayTime, fmtTime, fmtNum } from './stats.js?v=33';
-import { createTutorial } from './tutorial.js?v=33';
-import { createRingUI } from './ring.js?v=33';
-import { createEndless } from './endless.js?v=33';
+import { buildPlayerShip, buildFighter, buildCruiser, tintShip, getDotTexture } from './models.js?v=34';
+import { createTouchController } from './controller.js?v=34';
+import { Sfx } from './audio.js?v=34';
+import { UI } from './ui.js?v=34';
+import { stats, saveStats, recordGame, recordEndless, addPlayTime, fmtTime, fmtNum } from './stats.js?v=34';
+import { createTutorial } from './tutorial.js?v=34';
+import { createRingUI } from './ring.js?v=34';
+import { createEndless } from './endless.js?v=34';
 
 const URLQ = new URLSearchParams(location.search);
 const TEST = URLQ.has('test');                           // test hooks + hidden desktop controls
@@ -1662,6 +1662,24 @@ function damageBot(b, bullet) {
   if (left > 0) { showMessage('WINGMAN DOWN', `${left} ship${left > 1 ? 's' : ''} left`, 1.6); return; }
   gameOver('SQUADRON LOST');
 }
+// Endless (v34): the enemy homeworld is destroyed - you win. A longer end screen, then back to the lobby.
+function winGame() {
+  if (state !== 'playing' || !endless) return;
+  warpOff('win');
+  state = 'gameover';
+  stateTimer = -4.5;                                 // (9 s on screen)
+  won = true;
+  saveBest();
+  E.record();
+  stats.modes.endless.wins = (stats.modes.endless.wins || 0) + 1;
+  saveStats();
+  sfx.chime(true);
+  pulseFrame(new THREE.Color(0xffcc66), 1);
+  haptic('right', 0.8, 200); haptic('left', 0.8, 200);
+  showMessage('VICTORY', 'Homeworld destroyed', 9999, true);
+  log(`victory score=${score} kills=${kills}`);
+}
+let won = false;
 function gameOver(title) {
   player.alive = false;
   player.obj.visible = false;
@@ -1670,7 +1688,7 @@ function gameOver(title) {
   stateTimer = 0;
   saveBest();
   if (endless) E.record(); else recordGame(gameMode, wave, score, kills);
-  showMessage(title, endLine(), 9999);
+  showMessage(title, endLine(), 9999, true);
   log(`gameover mode=${gameMode} round=${wave} score=${score} kills=${kills}`);
 }
 // Everything that fights: real games, the ambient lobby skirmish and the tutorial.
@@ -1745,7 +1763,7 @@ function saveBest() {
   try { localStorage.setItem('battleRoomBest', String(best)); } catch (e) { /* ignore */ }
   saveStats();
 }
-function endLine() { return endless ? `${E.endLine()}\n${restartHint()}` : `Reached round ${wave}  (best ${bestRound[gameMode] || 0})\n${restartHint()}`; }
+function endLine() { return endless ? E.endLine() : `Reached round ${wave}  (best ${bestRound[gameMode] || 0})\n${restartHint()}`; }
 
 function startWave(n) {
   wave = n;
@@ -2124,8 +2142,11 @@ hudTex.colorSpace = THREE.SRGBColorSpace;
 const msgEl = document.getElementById('message');
 let msgTitle = '', msgSub = '', msgTime = 0;
 
-function showMessage(title, sub = '', dur = 2) {
+// v34: in Endless, notices are just their title (endless.js and the end screen pass keep = true for the few
+// short lines worth keeping, e.g. "+2,000" or "7 hostiles").
+function showMessage(title, sub = '', dur = 2, keep = false) {
   if (state === 'lobby') return;                     // the lobby backdrops never announce anything
+  if (endless && !keep) sub = '';
   msgTitle = title; msgSub = sub; msgTime = dur;
   msgEl.querySelector('.t').textContent = title;
   msgEl.querySelector('.s').textContent = sub;
@@ -2145,6 +2166,7 @@ function getCamForwardFlat(out) {
   if (out.lengthSq() < 1e-6) out.set(0, 0, -1);
   return out.normalize();
 }
+let hudLayout = 'row', hudMinBox = 0;              // (tests)
 function drawHud() {
   // The wrist keeps only your status; score and announcements are on the board right of the room.
   const W = hudCanvas.width, H = hudCanvas.height;
@@ -2161,18 +2183,40 @@ function drawHud() {
     // One box per ship, filled by its hull, in its pair's colour; lost ships are crossed out.
     hctx.fillText(split ? 'SPLIT' : 'SQUAD', 20, 64);
     const shown = bots.filter((b, i) => i < BOT_N || b.alive);
-    const step = Math.min(78, (W - 170) / Math.max(1, shown.length)), bw = Math.max(8, step - 14);
-    shown.forEach((b, i) => {
-      const x = 150 + i * step + (split && b.grp === GB ? 18 : 0), col = '#' + b.grp.color.getHexString();
+    // One box per ship (filled by its hull) while they fit at a readable size. v34: 7 - 16 ships wrap into
+    // two rows; more than that, one bar for the whole fleet's hull plus boxes for the 8 weakest ships.
+    const box = (b, x, y, bw, bh) => {
+      const col = '#' + b.grp.color.getHexString();
       hctx.strokeStyle = b.alive ? col : '#ff5566';
-      hctx.strokeRect(x, 30, bw, 42);
+      hctx.lineWidth = 3;
+      hctx.strokeRect(x, y, bw, bh);
       if (b.alive) {
         hctx.fillStyle = b.hp <= 1 ? '#ff5566' : col;
-        hctx.fillRect(x + 4, 34, ((bw - 8) * Math.min(b.hp, botMax)) / botMax, 34);
+        hctx.fillRect(x + 4, y + 4, ((bw - 8) * Math.min(b.hp, botMax)) / botMax, bh - 8);
       } else {
-        hctx.beginPath(); hctx.moveTo(x + 6, 36); hctx.lineTo(x + bw - 6, 66); hctx.moveTo(x + bw - 6, 36); hctx.lineTo(x + 6, 66); hctx.stroke();
+        hctx.beginPath(); hctx.moveTo(x + 5, y + 5); hctx.lineTo(x + bw - 5, y + bh - 5); hctx.moveTo(x + bw - 5, y + 5); hctx.lineTo(x + 5, y + bh - 5); hctx.stroke();
       }
-    });
+    };
+    const n = shown.length, X0 = 150, AW = W - X0 - 16;
+    hudLayout = n <= 6 ? 'row' : n <= 16 ? 'rows' : 'fleet';
+    if (n <= 6) {
+      const step = Math.min(78, AW / Math.max(1, n)), bw = Math.max(8, step - 14);
+      shown.forEach((b, i) => box(b, X0 + i * step + (split && b.grp === GB ? 18 : 0), 30, bw, 42));
+    } else if (n <= 16) {
+      const per = Math.ceil(n / 2), step = AW / per, bw = Math.max(20, step - 8);
+      hudMinBox = bw;
+      shown.forEach((b, i) => box(b, X0 + (i % per) * step, i < per ? 20 : 56, bw, 30));
+    } else {
+      const alive = shown.filter((b) => b.alive), tot = alive.reduce((a, b) => a + Math.min(b.hp, botMax), 0) / Math.max(1, alive.length * botMax);
+      hctx.strokeStyle = '#7fe9ff'; hctx.lineWidth = 3; hctx.strokeRect(X0, 18, AW, 28);
+      hctx.fillStyle = tot < 0.35 ? '#ff5566' : '#33ddff'; hctx.fillRect(X0 + 4, 22, (AW - 8) * tot, 20);
+      hctx.font = 'bold 22px monospace'; hctx.fillStyle = '#021018'; hctx.textAlign = 'left';
+      hctx.fillText(`${alive.length} SHIPS`, X0 + 10, 40);
+      const weak = alive.slice().sort((a, b) => a.hp - b.hp).slice(0, 8), step = AW / 8, bw = step - 8;
+      hudMinBox = bw;
+      weak.forEach((b, i) => box(b, X0 + i * step, 54, bw, 28));
+      hctx.font = 'bold 34px monospace'; hctx.fillStyle = '#7fe9ff';
+    }
     const f = formation.toUpperCase();
     const line = !split ? `${f} - ${squadEngaged ? 'ATTACK' : 'HOLD'}`
       : `${f}  R:${GA.engaged ? 'ATTACK' : 'HOLD'}  L:${GB.engaged ? 'ATTACK' : 'HOLD'}`;
@@ -2194,11 +2238,12 @@ function drawHud() {
     hctx.fillStyle = '#5fa9bf';
     hctx.fillText('FIGHTER', 20, 126);
   }
-  if (endless && state !== 'lobby') {                 // v33: your Endless upgrades, compact
+  if (endless && state !== 'lobby') {                 // v33: your Endless upgrades, compact (v34: + warp)
     const ups = E.upgradeLine();
     hctx.font = 'bold 20px monospace';
     hctx.fillStyle = '#ffcc66';
-    hctx.fillText(ups ? 'UPG ' + ups : 'UPG -', 20, 153, W - 40);
+    hctx.textAlign = 'left';
+    hctx.fillText((warp.on ? 'WARP  ' : E.hasWarp ? 'B:WARP  ' : '') + (ups ? 'UPG ' + ups : 'UPG -'), 20, 153, W - 40);
   }
   hudTex.needsUpdate = true;
 }
@@ -2614,7 +2659,8 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Tab') { e.preventDefault(); if (!e.repeat) toggleSettings(); }
   if (e.code === 'Escape' && menuOpen) toggleSettings(false);
   if (e.code === 'KeyN' && !e.repeat) setSetting('mode', nextMode());
-  if (e.code === 'KeyG' && !e.repeat && gameMode === 'squadron' && (state === 'playing' || state === 'tutorial') && !landing.on) setSplit(!split);
+  if (e.code === 'KeyG' && !e.repeat && gameMode === 'squadron' && (state === 'playing' || state === 'tutorial') && !landing.on && !warp.on) setSplit(!split);
+  if (e.code === 'KeyV' && !e.repeat) warpToggle();
   if (e.code === 'KeyB' && !e.repeat && gameMode === 'squadron' && (state === 'playing' || state === 'tutorial')) cycleFormation();
   if (e.code === 'Space') e.preventDefault();
 });
@@ -2652,6 +2698,7 @@ const input = {
   hasSteer: false, origin: new THREE.Vector3(), dir: new THREE.Vector3(),
   fire: false, boost: false, brake: false, move: new THREE.Vector3(),
 };
+let prevB = false;
 let prevA = false, prevLStick = false, prevXY = false, prevMenuBtn = false, prevTrigMenu = false, prevLTrig = false;
 let xDown = false, xWithY = false;                 // X tap (released without Y) = split / rejoin
 // Group B's orders (left controller, while the squadron is split).
@@ -2683,6 +2730,9 @@ function gatherInputVR(dt) {
     if (gameMode === 'squadron') { if (btn(4) && !prevA && live) cycleFormation(); }
     else input.brake = btn(4);
     prevA = btn(4);
+    // B: warp on / off (Endless, v34).
+    if (btn(5) && !prevB && live) warpToggle();
+    prevB = btn(5);
     setMirrorTarget(_q);                      // absolute: no re-centre, the stick click does nothing
     const trigEdge = trig && !prevTrigMenu;
     prevTrigMenu = trig;
@@ -2710,7 +2760,7 @@ function gatherInputVR(dt) {
     if (xDown && (by || menuOpen)) xWithY = true;
     if (!bx && xDown) {
       xDown = false;
-      if (!xWithY && !by && gameMode === 'squadron' && live && !landing.on) setSplit(!split);   // (landed: X does nothing)
+      if (!xWithY && !by && gameMode === 'squadron' && live && !landing.on && !warp.on) setSplit(!split);   // (landed / at warp: X does nothing)
     }
     const lt = btn(0);
     const onUi = uiRay('left', L, lt, lt && !prevLTrig);
@@ -2879,6 +2929,77 @@ function setEndlessControls(m) {
   setSplit(false, true);
   refreshFriends();
 }
+// ---------------------------------------------------------------- Endless warp (v34)
+// B (desktop: V) engages the warp drive (bought at a friendly outpost): your ships fly 5x faster in a straight
+// line - no steering - and swerve smoothly round stars and rocks on the way. It drops out by itself near any
+// outpost (endless.js) and can't be engaged near one. B again drops out. No shooting while at warp.
+const WARP_K = 5;
+const warp = { on: false, dir: new THREE.Vector3(), cur: new THREE.Vector3(), t: 0 };
+const _w1 = new THREE.Vector3(), _w2 = new THREE.Vector3(), _w3 = new THREE.Vector3(), _w4 = new THREE.Vector3();
+function warpToggle() {
+  if (!endless || state !== 'playing') return;
+  if (warp.on) { warpOff('manual'); return; }
+  const why = E.warpBlock();
+  if (why) { showMessage(why, '', 1.2, true); sfx.click(); log('warp blocked ' + why); return; }
+  if (split) setSplit(false, true);
+  warp.on = true; warp.t = 0;
+  warp.dir.copy(player.fwd).normalize();
+  warp.cur.copy(warp.dir);
+  sfx.whoosh(); haptic('right', 0.5, 80); haptic('left', 0.5, 80);
+  showMessage('WARP', '', 1.2, true);
+  log('warp on');
+}
+function warpOff(why) {
+  if (!warp.on) return;
+  warp.on = false;
+  player.speed = CRUISE * MODS.speed;
+  if (gameMode !== 'squadron') quatFromDir(player.fwd, player.mq);
+  for (const b of bots) if (b.alive) b.speed = CRUISE;
+  if (why === 'drop') showMessage('WARP DROP', '', 1.2, true);
+  if (why !== 'win' && why !== 'reset') sfx.whoosh(0.5);
+  log('warp off ' + why);
+}
+// The warp flight of your ship / the command point: straight on, swerving round obstacles ahead.
+function warpMove(dt) {
+  const p = player.obj.position;
+  warp.t += dt;
+  const des = _w1.copy(warp.dir), LOOK = 7;
+  for (const o of obstacles) {
+    _w2.subVectors(o.c, p);
+    const along = _w2.dot(warp.cur);
+    if (along < -o.r || along > LOOK) continue;
+    _w3.copy(p).addScaledVector(warp.cur, along);   // the closest point of the path to it
+    _w4.subVectors(_w3, o.c);
+    const clear = o.r + 0.9, dl = _w4.length();
+    if (dl > clear) continue;
+    if (dl < 1e-4) _w4.set(-warp.cur.z, 0, warp.cur.x);
+    des.addScaledVector(_w4.normalize(), (1 - dl / clear) * 2.2 * (1 - Math.max(0, along) / LOOK * 0.6));
+  }
+  des.normalize();
+  warp.cur.lerp(des, 1 - Math.exp(-dt * 4)).normalize();
+  const sp = CRUISE * WARP_K * MODS.speed;
+  player.speed = sp;
+  player.fwd.copy(warp.cur);
+  player.vel.copy(warp.cur).multiplyScalar(sp);
+  p.addScaledVector(player.vel, dt);
+  obstPushOut(p, 0.15 * S);
+  quatFromDir(player.fwd, player.mq);
+  player.obj.quaternion.copy(player.mq);
+}
+// The squadron at warp: every ship holds its formation slot round the command point.
+const _w5 = new THREE.Vector3();
+function warpBots(dt) {
+  syncSquadToPlayer();
+  const alive = bots.filter((b) => b.alive);
+  alive.forEach((b, k) => {
+    slotPos(SQUAD, k, alive.length, _w5);
+    b.obj.position.addScaledVector(player.vel, dt).lerp(_w5, 1 - Math.exp(-dt * 5));
+    b.fwd.copy(warp.cur);
+    quatFromDir(b.fwd, b.obj.quaternion);
+    b.speed = player.speed;
+    b.invuln = Math.max(0, b.invuln - dt);
+  });
+}
 // ---------------------------------------------------------------- Endless landing (endless.js decides when)
 // Fly onto a green star (or a cleared outpost) and you land: the view glides over to the star (eased, `glide`
 // seconds) while every ship flies a real approach (v32): from where it is, along its own heading, it curves
@@ -2938,6 +3059,7 @@ function flyFlight(obj, f, t, dt) {
 }
 function smoothstep(a, b, x) { const k = clamp((x - a) / (b - a), 0, 1); return k * k * (3 - 2 * k); }
 function landOn(c, r, glide = 1) {
+  warpOff('land');
   if (split) { setSplit(false, true); showMessage('SQUADRON REJOINED', 'Landing together', 1.4); }
   landing.on = true; landing.c.copy(c); landing.r = r;
   landing.at.copy(c).add(_v1.set(0, r + 0.3, 0));
@@ -3038,12 +3160,14 @@ function startEndless() {
   intermission = 0;
   wave = 1;
   landing.on = false;
+  warp.on = false; won = false;
   E.start();
-  showMessage('ENDLESS', 'Raid red stars for upgrades. Green stars: friendly, land to refit', 4);
+  showMessage('ENDLESS', 'Raid the red stars', 3, true);
   log('game start mode=endless');
 }
 function exitEndless() {
   landing.on = false;
+  warpOff('reset');
   if (!endless) return;
   E.stop();
   endless = false;
@@ -3062,7 +3186,8 @@ E = createEndless({
   setControls: setEndlessControls, syncSquad: () => syncSquadToPlayer(), placeBot: (b, k, m) => placeBot(SQUAD, b, k, m), refreshFriends,
   setUpgrades: (hull, fire) => { playerMax = MAX_HP + 2 * hull; botMax = BOT_HP + hull; fireMul = fire; },
   setArena: (c, half) => { ARENA_C.copy(c); AH = half; }, setAI, setWave: (n) => { wave = n; }, roster, spawnGroup,
-  clearEnemies: () => { clearBattle(); }, showMessage, damagePlayer, damageBot, damageEnemy, obstInside,
+  clearEnemies: () => { clearBattle(); }, showMessage: (t, sub, d) => showMessage(t, sub, d, true), damagePlayer, damageBot, damageEnemy, obstInside,
+  warping: () => warp.on, warpOff: (why) => warpOff(why), win: () => winGame(),
   land: landOn, landed: () => landing.on, settled: landSettled, takeOff, newBot, viewTarget,
   easy: EASY, demo: DEMO, mods: MODS, resetMods, fireMissile,
   pickup: (p) => { sfx.ping(p, 0.3); }, healFx: (sh) => { sparks(sh.obj.position, new THREE.Color(0x55ff99), 8); },
@@ -3247,6 +3372,7 @@ function updatePlayer(dt) {
     }
     if (!landing.on) steer(player, desired.clone(), dt);
   }
+  if (warp.on && !landing.on) { warpMove(dt); if (gameMode !== 'squadron') playerFx(dt); return; }   // (v34)
   if (landing.on && landedMove(p, dt)) {                    // Endless: sitting on a star
     if (gameMode === 'squadron') return;
   } else if (gameMode === 'squadron') {
@@ -3390,7 +3516,7 @@ function simStep(dt) {
     updatePlayer(dt);
     if (gameMode === 'squadron') updateCmdB(dt);
     refreshFriends();
-    if (gameMode === 'squadron') { if (landing.on) holdLanded(dt); else updateBots(dt); }
+    if (gameMode === 'squadron') { if (landing.on) holdLanded(dt); else if (warp.on) warpBots(dt); else updateBots(dt); }
     updateEnemies(dt);
     playerBullets.update(dt);
     enemyBullets.update(dt);
@@ -3535,6 +3661,7 @@ window.__game = {
   startGameAt(mode, round) { settings.mode = mode; startGame(round); }, damagePlayer, world, VC, get endless() { return endless; }, get E() { return E; }, get playerMax() { return playerMax; }, get botMax() { return botMax; }, get fireMul() { return fireMul; }, damageBot, setControls: (m) => setEndlessControls(m),
   get enemyBullets() { return enemyBullets.list.length; }, get bullets() { return playerBullets.list.length; }, toggleSettings, get menuOpen() { return menuOpen; }, get menuHover() { return menuHover; }, menuPanel, seat, rayFx, get panelMoves() { return panelMoves; }, menuAnim,
   // v18
+  get warp() { return warp; }, warpToggle, warpOff, winGame, get won() { return won; }, get hudLayout() { return hudLayout; }, get hudMinBox() { return hudMinBox; }, drawHud,
   get split() { return split; }, setSplit, get formation() { return formation; }, cycleFormation, cmdB, GA, GB, SQUAD, inputB,
   aces, spawnAce, sfx, perf, get hitStops() { return hitStops; }, get edgeFlashes() { return edgeFlashes; }, liveParticles,
   get killHeat() { return killHeat; }, roster, eb: enemyBullets, pb: playerBullets, SL_X0, SL_X1, cycleSetting, mNeutralQ, mirrorQB, steerA, steerB, get xSplitPending() { return xDown; }, damageEnemy, get framePulse() { return framePulse; },

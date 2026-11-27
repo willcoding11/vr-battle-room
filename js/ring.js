@@ -11,7 +11,7 @@
 // Panels are ui.js Panels (canvas + buttons picked by the ray's UV), so pointing, clicking and the beam /
 // cursor work the same on the curved band.
 import * as THREE from '../vendor/three.module.js';
-import { Panel, UI } from './ui.js?v=33';
+import { Panel, UI } from './ui.js?v=34';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const RR = 1.2;                    // ring radius around your seat (m)
@@ -163,7 +163,8 @@ export function createRingUI(G) {
     const P = game, g = P.g, e = d.endless;
     P.begin();
     P.text(`DISTANCE ${N(e.dist)}`, 760, 100, { size: 60, bold: true, color: UI.title, align: 'center', maxW: 620 });
-    P.text(e.active ? `TIER ${e.active} OUTPOST  ${e.hostiles} LEFT` : `FLEET ${e.fleet}   CREDITS ${N(e.credits)}`, 760, 172, { size: 42, color: e.active ? UI.gold : UI.text, align: 'center', maxW: 620 });
+    const left = e.home && e.home.wave ? `HOMEWORLD ${e.home.wave}/3  ${e.homeLeft} LEFT` : e.active ? `TIER ${e.active} OUTPOST  ${e.hostiles} LEFT` : e.warp ? 'WARP' : `FLEET ${e.fleet}   CREDITS ${N(e.credits)}`;
+    P.text(left, 760, 172, { size: 42, color: e.active || e.warp || (e.home && e.home.wave) ? UI.gold : UI.text, align: 'center', maxW: 620 });
     g.fillStyle = UI.faint; g.fillRect(1090, 30, 3, 180); g.fillRect(1908, 30, 3, 180);
     P.text('SCORE', 1500, 62, { size: 40, bold: true, color: UI.dim, align: 'center' });
     P.text(N(d.score), 1500, 200, { size: 140, bold: true, color: '#7fe9ff', align: 'center', maxW: 780 });
@@ -171,6 +172,9 @@ export function createRingUI(G) {
       P.text(d.msgTitle, 2240, 100, { size: 64, bold: true, color: UI.title, align: 'center', maxW: 640 });
       const lines = wrap(g, d.msgSub.split('\n')[0], 640, '40px monospace', 2);
       lines.forEach((l, i) => P.text(l, 2240, 158 + i * 46, { size: 40, color: UI.gold, align: 'center', maxW: 640 }));
+    } else if (e.home) {                             // v34: the goal, once it has appeared
+      P.text('HOMEWORLD', 2240, 92, { size: 40, bold: true, color: UI.dim, align: 'center' });
+      P.text(N(e.home.dist), 2240, 160, { size: 54, bold: true, color: '#ff6688', align: 'center', maxW: 640 });
     } else if (e.next) {
       P.text('NEXT OUTPOST', 2240, 92, { size: 40, bold: true, color: UI.dim, align: 'center' });
       P.text(`${N(e.next.dist)}   TIER ${e.next.tier}`, 2240, 160, { size: 54, bold: true, color: '#ff8877', align: 'center', maxW: 640 });
